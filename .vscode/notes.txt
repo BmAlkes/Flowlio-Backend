@@ -1,0 +1,28 @@
+Signup
+Limit: 2–5 requests per hour
+Reason: Avoid spam account creation while allowing legitimate registrations.
+
+Login
+Limit: 5–10 requests per minute
+Reason: Prevent brute-force attacks while allowing legitimate users to retry credentials.
+
+Password Reset Requests
+Limit: 3–5 requests per hour
+Reason: Prevent abuse while ensuring users can request resets if needed.
+
+
+General Purpose:
+
+Light Traffic APIs: 
+50 requests per minute
+
+Moderate Traffic APIs: 
+100 requests per minute
+
+High Traffic APIs: 
+500+ requests per minute
+
+
+
+
+

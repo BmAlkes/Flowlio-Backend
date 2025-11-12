@@ -1,0 +1,72 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "dialect": "postgresql",
+      "entries": [],
+      "prev": null
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "dialect": "postgresql",
+      "entries": [],
+      "prev": [
+        {
+          "idx": 0,
+          "version": "7",
+          "dialect": "postgresql",
+          "entries": [],
+          "prev": null
+        }
+      ]
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "dialect": "postgresql",
+      "entries": [],
+      "prev": [
+        {
+          "idx": 1,
+          "version": "7",
+          "dialect": "postgresql",
+          "entries": [],
+          "prev": [
+            {
+              "idx": 0,
+              "version": "7",
+              "dialect": "postgresql",
+              "entries": [],
+              "prev": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1762494901076,
+      "tag": "0003_careful_radioactive_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1762514717294,
+      "tag": "0004_faithful_quasar",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1762585471631,
+      "tag": "0005_acoustic_nextwave",
+      "breakpoints": true
+    }
+  ]
+}
