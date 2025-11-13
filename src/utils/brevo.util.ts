@@ -1,6 +1,17 @@
 import { env } from "./env.util";
 
-const logo = env.BACKEND_DOMAIN + "/logowithtext.png";
+// Helper function to ensure URL has protocol
+const getBaseURL = (domain: string) => {
+  const isProduction = process.env.NODE_ENV === "production";
+  if (domain.startsWith("http://") || domain.startsWith("https://")) {
+    return domain;
+  }
+  return isProduction ? `https://${domain}` : `http://${domain}`;
+};
+
+// Logo URL - ensure protocol is included for email clients
+// The logo file should be in backend/public/logowithtext.png
+const logo = getBaseURL(env.BACKEND_DOMAIN) + "/logowithtext.png";
 
 export const signupTemplate = ({ user, url }: { user: any; url: string }) => `
   <div style="font-family: Arial, sans-serif; background: #f7f9fb; padding: 32px;">
