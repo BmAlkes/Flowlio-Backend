@@ -67,6 +67,13 @@
       "when": 1762585471631,
       "tag": "0005_acoustic_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1763037794756,
+      "tag": "0006_curvy_triathlon",
+      "breakpoints": true
     }
   ]
 }

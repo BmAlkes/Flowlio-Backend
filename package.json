@@ -5,10 +5,12 @@
   "author": "flowlio-backend",
   "repository": "",
   "scripts": {
-    "build": "tsc && tsc-alias && npm run dbgenerate",
+    "build": "tsc && tsc-alias",
+    "build:full": "tsc && tsc-alias && npm run dbgenerate",
     "dev": "ts-node-dev -r tsconfig-paths/register src/server.ts",
     "start": "node dist/src/server.js",
     "dbgenerate": "drizzle-kit generate",
+    "dbgenerate:safe": "node scripts/dbgenerate-safe.js",
     "dbpush": "drizzle-kit push",
     "dbstudio": "drizzle-kit studio --port 4983",
     "dbdrop": "drizzle-kit drop",

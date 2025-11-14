@@ -36,6 +36,7 @@ import viewerRoutes from "./routes/viewer.routes";
 import googleCalendarRoutes from "./routes/googleCalendar.routes";
 import aiRoutes from "./routes/ai.routes";
 import notificationRoutes from "./routes/notifications.routes";
+import newsletterRoutes from "./routes/newsletter.routes";
 import { backgroundSyncService } from "./services/backgroundSync.service";
 
 config();
@@ -64,8 +65,8 @@ const corsOptions: CorsOptions = {
       "http://localhost:4000",
       "http://localhost:4001",
       // Add production frontend URL
-      "https://flowlio-fe.vercel.app",
-      "https://flowlio-fe.vercel.app/",
+      "https://flowlioapp.com",
+      "https://flowlioapp.com/",
     ];
 
     if (allowedOrigins.includes(origin)) {
@@ -173,6 +174,7 @@ app.use("/api/viewer", viewerRoutes);
 app.use("/api/google-calendar", googleCalendarRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/newsletter", newsletterRoutes);
 app.use(unknownRoutes);
 
 httpServer.listen(port as number, () => {

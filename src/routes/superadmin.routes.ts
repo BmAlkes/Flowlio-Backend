@@ -20,6 +20,12 @@ import { createDemoAccount } from "../controllers/super admin/demo/createDemoAcc
 import { deactivateDemoAccount } from "../controllers/super admin/demo/deactivateDemoAccount.controller";
 import { listDemoAccounts } from "../controllers/super admin/demo/listDemoAccounts.controller";
 import { updateDemoAccount } from "../controllers/super admin/demo/updateDemoAccount.controller";
+import {
+  getNewsletterSubscribers,
+  deleteNewsletterSubscriber,
+  getNewsletterStats,
+} from "../controllers/super admin/newsletter/getnewslettersubscribers.controller";
+import { sendNewsletter } from "../controllers/super admin/newsletter/sendnewsletter.controller";
 
 const router = Router();
 
@@ -99,6 +105,32 @@ router.put(
   isAuthenticated,
   requireSuperAdmin as any,
   updateSuperAdminPassword as any
+);
+
+// NEWSLETTER MANAGEMENT ROUTES - require super admin role
+router.get(
+  "/newsletter/subscribers",
+  isAuthenticated,
+  requireSuperAdmin,
+  getNewsletterSubscribers as any
+);
+router.get(
+  "/newsletter/stats",
+  isAuthenticated,
+  requireSuperAdmin,
+  getNewsletterStats as any
+);
+router.delete(
+  "/newsletter/subscribers/:id",
+  isAuthenticated,
+  requireSuperAdmin,
+  deleteNewsletterSubscriber as any
+);
+router.post(
+  "/newsletter/send",
+  isAuthenticated,
+  requireSuperAdmin,
+  sendNewsletter
 );
 
 export default router;

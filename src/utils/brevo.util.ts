@@ -170,3 +170,46 @@ export const invitationTemplate = ({
     </div>
   </div>
 `;
+
+function newsletterTemplate({
+  subject,
+  content,
+  unsubscribeUrl,
+}: {
+  subject: string;
+  content: string;
+  unsubscribeUrl?: string;
+}): string {
+  return `
+  <div style="font-family: Arial, sans-serif; background: #f7f9fb; padding: 32px;">
+    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 32px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <img src="${logo}" alt="Flowlio Logo" style="width: 80px; margin-bottom: 8px;" />
+        <h2 style="margin: 0; color: #1a202c;">${subject}</h2>
+      </div>
+      <div style="font-size: 16px; color: #333; line-height: 1.6;">
+        ${content.replace(/\n/g, "<br>")}
+      </div>
+      ${
+        unsubscribeUrl
+          ? `
+      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
+      <p style="font-size: 12px; color: #888; text-align: center;">
+        <a href="${unsubscribeUrl}" style="color: #666; text-decoration: underline;">Unsubscribe from this newsletter</a>
+      </p>
+      `
+          : ""
+      }
+      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
+      <p style="font-size: 14px; color: #888;">
+        Need help? Contact our support team at <a href="mailto:info@dotvizion.com" style="color: #2563eb;">info@dotvizion.com</a>.
+      </p>
+      <p style="font-size: 13px; color: #bbb; text-align: center; margin-top: 24px;">
+        &copy; ${new Date().getFullYear()} Flowlio. All rights reserved.
+      </p>
+    </div>
+  </div>
+`;
+}
+
+export { newsletterTemplate };

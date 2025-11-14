@@ -1244,6 +1244,35 @@ export const projectCommentsRelations = relations(
   })
 );
 
+// ==================== NEWSLETTER SUBSCRIBERS ====================
+
+export const newsletterSubscribers = pgTable(
+  "newsletter_subscribers",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull().unique(),
+    subscribed: boolean("subscribed")
+      .$defaultFn(() => true)
+      .notNull(),
+    subscribedAt: timestamp("subscribed_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    unsubscribedAt: timestamp("unsubscribed_at"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    emailIdx: index("newsletter_subscribers_email_idx").on(table.email),
+    subscribedIdx: index("newsletter_subscribers_subscribed_idx").on(
+      table.subscribed
+    ),
+  })
+);
+
 export const calendarEventsRelations = relations(calendarEvents, ({ one }) => ({
   organization: one(organizations, {
     fields: [calendarEvents.organizationId],
