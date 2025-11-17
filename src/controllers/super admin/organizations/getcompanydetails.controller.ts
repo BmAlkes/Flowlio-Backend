@@ -6,8 +6,9 @@ import {
   users,
   subscriptions,
   subscriptionPlans,
+  projects,
 } from "@/schema/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
 export const getCompanyDetails = async (req: Request, res: Response) => {
@@ -132,6 +133,22 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
       owner = fallbackOwner.length ? fallbackOwner[0] : null;
     }
 
+    // Get active projects count
+    const activeProjectsQuery = await database
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.organizationId, organizationId),
+          or(
+            eq(projects.status, "ongoing"),
+            eq(projects.status, "pending")
+          )
+        )
+      );
+    
+    const activeProjectsCount = activeProjectsQuery.length;
+
     // Calculate stats
     const totalEmployees = organizationUsers.length;
     const activeEmployees = organizationUsers.filter(
@@ -219,7 +236,7 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
         totalEmployees,
         activeEmployees,
         totalRevenue,
-        activeProjects: 0, // You can add this from projects table if needed
+        activeProjects: activeProjectsCount,
       },
     };
 
