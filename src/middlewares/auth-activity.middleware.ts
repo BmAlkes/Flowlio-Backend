@@ -15,9 +15,13 @@ export const authActivityMiddleware = (
   res: Response,
   next: NextFunction
 ) => {
-  const isSignInPath = req.path.includes("/sign-in");
-  const isSignOutPath = req.path.includes("/sign-out");
-  const isSignUpPath = req.path.includes("/sign-up");
+  // Better-auth uses paths like /sign-in/email, /sign-out, /sign-up/email
+  const isSignInPath =
+    req.path.includes("/sign-in") || req.path.includes("/signin");
+  const isSignOutPath =
+    req.path.includes("/sign-out") || req.path.includes("/signout");
+  const isSignUpPath =
+    req.path.includes("/sign-up") || req.path.includes("/signup");
 
   // Store the original methods
   const originalJson = res.json.bind(res);
@@ -37,6 +41,15 @@ export const authActivityMiddleware = (
 
     if (isSignIn || isSignOut) {
       logged = true;
+      logger.info(
+        `🔐 Auth activity detected: ${isSignIn ? "login" : "logout"} - Path: ${
+          req.path
+        }`
+      );
+      logger.info(
+        `Response body structure:`,
+        JSON.stringify(body, null, 2).substring(0, 500)
+      );
       // Log activities asynchronously without blocking the response
       logAuthActivity(req, body, isSignIn ? "login" : "logout").catch(
         (error) => {
@@ -109,11 +122,19 @@ async function logAuthActivity(
   try {
     let userId: string | undefined;
 
-    // Try to get user ID from response body
-    if (action === "login" && responseBody?.user?.id) {
-      userId = responseBody.user.id;
-    } else if (action === "login" && responseBody?.session?.user?.id) {
-      userId = responseBody.session.user.id;
+    // Try to get user ID from response body - better-auth can return different structures
+    if (action === "login") {
+      // Try multiple possible response structures
+      if (responseBody?.user?.id) {
+        userId = responseBody.user.id;
+      } else if (responseBody?.session?.user?.id) {
+        userId = responseBody.session.user.id;
+      } else if (responseBody?.data?.user?.id) {
+        userId = responseBody.data.user.id;
+      } else if (responseBody?.data?.session?.user?.id) {
+        userId = responseBody.data.session.user.id;
+      }
+      logger.info(`Login - Extracted userId: ${userId} from response body`);
     } else if (action === "logout") {
       // For logout, try to get from session before it's destroyed
       const sessionToken = req.cookies?.session_token;
@@ -141,20 +162,31 @@ async function logAuthActivity(
       return;
     }
 
-    // Get user's organization
+    // Get user's organization - try to get the first active organization
     const userOrg = await database
       .select({
         organizationId: schema.userOrganizations.organizationId,
+        status: schema.userOrganizations.status,
       })
       .from(schema.userOrganizations)
       .where(eq(schema.userOrganizations.userId, userId))
+      .orderBy(schema.userOrganizations.createdAt)
       .limit(1);
 
     const organizationId = userOrg[0]?.organizationId;
     if (!organizationId) {
-      logger.warn(`No organization found for user ${userId} during ${action}`);
+      logger.warn(
+        `⚠️ No organization found for user ${userId} during ${action} - activity will not be logged`
+      );
+      logger.warn(
+        `User ${userId} might not be assigned to any organization yet`
+      );
       return;
     }
+
+    logger.info(
+      `✅ Found organization ${organizationId} for user ${userId} during ${action}`
+    );
 
     // Get user's name for the message
     const userDetails = await database

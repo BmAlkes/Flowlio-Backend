@@ -24,6 +24,11 @@ import { getOrganizationPendingTasks } from "../controllers/organization/stats/g
 import { getOrganizationWeeklyHoursTracked } from "../controllers/organization/stats/getweeklyhourstracked.controller";
 import { getOrganizationActivities } from "../controllers/organization/activities/getorganizationactivities.controller";
 import { deleteActivity } from "../controllers/organization/activities/deleteactivity.controller";
+import {
+  checkCanCreateUser,
+  checkCanCreateProject,
+  checkFeatureAccess,
+} from "../controllers/organization/plan-access/checkplanaccess.controller";
 
 const router = Router();
 
@@ -87,5 +92,18 @@ router.get(
 // ==================== ORGANIZATION ACTIVITIES ROUTE ====================
 router.get("/activities", isAuthenticated, getOrganizationActivities);
 router.delete("/activities/:id", isAuthenticated, deleteActivity);
+
+// ==================== PLAN ACCESS ROUTES ====================
+router.get("/plan-access/can-create-user", isAuthenticated, checkCanCreateUser);
+router.get(
+  "/plan-access/can-create-project",
+  isAuthenticated,
+  checkCanCreateProject
+);
+router.get(
+  "/plan-access/feature/:featureName",
+  isAuthenticated,
+  checkFeatureAccess
+);
 
 export default router;

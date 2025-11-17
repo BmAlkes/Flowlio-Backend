@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
+import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
 import { getViewerProjects } from "../controllers/viewer/projects/getviewerprojects.controller";
 import { getViewerProjectById } from "../controllers/viewer/projects/getviewerprojectbyid.controller";
 import { getViewerTasks } from "../controllers/viewer/tasks/getviewertasks.controller";
@@ -45,30 +46,61 @@ router.post("/tasks/:id/end", isAuthenticated, endTask);
 
 // ==================== VIEWER AI ASSISTANT ROUTES ====================
 // Generate AI-powered event suggestions
-router.post("/ai/suggestions", isAuthenticated, generateEventSuggestions);
+router.post(
+  "/ai/suggestions",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  generateEventSuggestions
+);
 
 // Generate event categories and tags
-router.post("/ai/categories", generateEventCategories);
+router.post(
+  "/ai/categories",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  generateEventCategories
+);
 
 // Enhance event description with AI
-router.post("/ai/enhance-description", enhanceEventDescription);
+router.post(
+  "/ai/enhance-description",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  enhanceEventDescription
+);
 
 // Get AI-powered calendar insights
-router.get("/ai/insights", isAuthenticated, getCalendarInsights);
+router.get(
+  "/ai/insights",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  getCalendarInsights
+);
 
 // Advanced AI conversation with file analysis
 router.post(
   "/ai/conversation",
   isAuthenticated,
+  requirePlanFeature("aiAssist"),
   upload.array("files", 5),
   advancedConversation
 );
 
 // Generate images using DALL-E
-router.post("/ai/generate-image", isAuthenticated, generateImage);
+router.post(
+  "/ai/generate-image",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  generateImage
+);
 
 // Test OpenAI service connection
-router.get("/ai/test", isAuthenticated, testOpenAI);
+router.get(
+  "/ai/test",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  testOpenAI
+);
 
 // ==================== VIEWER CALENDAR ROUTES ====================
 // Create a new calendar event

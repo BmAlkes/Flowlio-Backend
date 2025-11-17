@@ -12,6 +12,7 @@ import { createUserMemberSchema } from "@/schema/validation";
 import formidable from "formidable";
 import { uploadToCloudinary } from "@/utils/cloudinary.util";
 import { logActivity } from "@/utils/activity.util";
+import { canCreateUser } from "@/utils/plan-access.util";
 
 export const createUserMember = async (req: Request, res: Response) => {
   try {
@@ -164,6 +165,22 @@ export const createUserMember = async (req: Request, res: Response) => {
         success: false,
         message:
           "User is not associated with an organization. Please make sure you are logged into an organization.",
+      });
+    }
+
+    // Check plan limit for user creation
+    const planCheck = await canCreateUser(organizationId);
+    if (!planCheck.hasAccess) {
+      logger.warn(
+        `⚠️ User creation blocked for organization ${organizationId}: ${planCheck.reason}`
+      );
+      return res.status(403).json({
+        success: false,
+        message: planCheck.reason || "User limit reached for your plan",
+        data: {
+          currentCount: planCheck.currentCount,
+          maxAllowed: planCheck.maxAllowed,
+        },
       });
     }
 

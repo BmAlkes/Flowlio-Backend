@@ -10,6 +10,7 @@ import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
+import { canCreateProject } from "@/utils/plan-access.util";
 interface CreateProjectRequest {
   body: z.infer<typeof createProjectSchema>;
   user?: {
@@ -42,6 +43,23 @@ export const createProject = async (
       res.status(400).json({
         success: false,
         message: "Organization ID is required",
+      });
+      return;
+    }
+
+    // Check plan limit for project creation
+    const planCheck = await canCreateProject(validatedData.organizationId);
+    if (!planCheck.hasAccess) {
+      logger.warn(
+        `⚠️ Project creation blocked for organization ${validatedData.organizationId}: ${planCheck.reason}`
+      );
+      res.status(403).json({
+        success: false,
+        message: planCheck.reason || "Project limit reached for your plan",
+        data: {
+          currentCount: planCheck.currentCount,
+          maxAllowed: planCheck.maxAllowed,
+        },
       });
       return;
     }
@@ -80,127 +98,65 @@ export const createProject = async (
       return;
     }
 
-    // Validate that the client belongs to the organization
-    logger.info(
-      `Validating client ${validatedData.clientId} for organization ${validatedData.organizationId}`
-    );
-    logger.info(`🔍 User ID: ${req.user?.id}`);
-    logger.info(
-      `🔍 User organization ID: ${(req.user as any)?.organizationId}`
-    );
-    logger.info(`🔍 Request organization ID: ${validatedData.organizationId}`);
-    logger.info(
-      `🔍 Organization ID match: ${
-        (req.user as any)?.organizationId === validatedData.organizationId
-      }`
-    );
+    // Validate that the client belongs to the organization (only if clientId is provided)
+    if (validatedData.clientId) {
+      logger.info(
+        `Validating client ${validatedData.clientId} for organization ${validatedData.organizationId}`
+      );
 
-    const clientExists = await database
-      .select()
-      .from(clients)
-      .where(
-        and(
-          eq(clients.id, validatedData.clientId),
-          eq(clients.organizationId, validatedData.organizationId)
-        )
-      )
-      .limit(1);
-
-    logger.info(
-      `Client validation result: ${clientExists.length} clients found`
-    );
-
-    if (clientExists.length === 0) {
-      // Let's check what clients are available for this organization
-      const availableClients = await database
-        .select({
-          id: clients.id,
-          name: clients.name,
-          organizationId: clients.organizationId,
-        })
+      const clientExists = await database
+        .select()
         .from(clients)
-        .where(eq(clients.organizationId, validatedData.organizationId))
-        .limit(5);
+        .where(
+          and(
+            eq(clients.id, validatedData.clientId),
+            eq(clients.organizationId, validatedData.organizationId)
+          )
+        )
+        .limit(1);
 
-      logger.warn(
-        `Available clients for organization ${validatedData.organizationId}:`,
-        availableClients
-      );
-      logger.warn(
-        `User's organization ID: ${
-          (req.user as any)?.organizationId
-        }, Request organization ID: ${validatedData.organizationId}`
+      logger.info(
+        `Client validation result: ${clientExists.length} clients found`
       );
 
-      res.status(400).json({
-        success: false,
-        message: "Selected client does not belong to your organization",
-        debug: {
-          requestedClientId: validatedData.clientId,
-          organizationId: validatedData.organizationId,
-          availableClients: availableClients.map((c) => ({
-            id: c.id,
-            name: c.name,
-          })),
-        },
-      });
-      return;
+      if (clientExists.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "Selected client does not belong to your organization",
+        });
+        return;
+      }
     }
 
-    // Validate that the assigned user belongs to the organization
-    logger.info(
-      `Validating user ${validatedData.assignedTo} for organization ${validatedData.organizationId}`
-    );
+    // Validate that the assigned user belongs to the organization (only if assignedTo is provided)
+    if (validatedData.assignedTo) {
+      logger.info(
+        `Validating user ${validatedData.assignedTo} for organization ${validatedData.organizationId}`
+      );
 
-    const assignedUserExists = await database
-      .select()
-      .from(users)
-      .innerJoin(userOrganizations, eq(users.id, userOrganizations.userId))
-      .where(
-        and(
-          eq(users.id, validatedData.assignedTo),
-          eq(userOrganizations.organizationId, validatedData.organizationId)
-        )
-      )
-      .limit(1);
-
-    logger.info(
-      `User validation result: ${assignedUserExists.length} users found`
-    );
-
-    if (assignedUserExists.length === 0) {
-      // Let's check what users are available for this organization
-      const availableUsers = await database
-        .select({
-          id: users.id,
-          name: users.name,
-          organizationId: userOrganizations.organizationId,
-        })
+      const assignedUserExists = await database
+        .select()
         .from(users)
         .innerJoin(userOrganizations, eq(users.id, userOrganizations.userId))
         .where(
-          eq(userOrganizations.organizationId, validatedData.organizationId)
+          and(
+            eq(users.id, validatedData.assignedTo),
+            eq(userOrganizations.organizationId, validatedData.organizationId)
+          )
         )
-        .limit(5);
+        .limit(1);
 
-      logger.warn(
-        `Available users for organization ${validatedData.organizationId}:`,
-        availableUsers
+      logger.info(
+        `User validation result: ${assignedUserExists.length} users found`
       );
 
-      res.status(400).json({
-        success: false,
-        message: "Selected user does not belong to your organization",
-        debug: {
-          requestedUserId: validatedData.assignedTo,
-          organizationId: validatedData.organizationId,
-          availableUsers: availableUsers.map((u) => ({
-            id: u.id,
-            name: u.name,
-          })),
-        },
-      });
-      return;
+      if (assignedUserExists.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "Selected team member does not belong to your organization",
+        });
+        return;
+      }
     }
 
     let contractfileUrl = null;
@@ -269,27 +225,26 @@ export const createProject = async (
     }
 
     // Create new project
+    const projectId = randomUUID();
     const newProject = await database
       .insert(projects)
       .values({
-        id: randomUUID(),
+        id: projectId,
         name: validatedData.name,
-        projectNumber: validatedData.projectNumber,
+        projectNumber: validatedData.projectNumber ?? "",
         clientId: validatedData.clientId,
-        description: validatedData.description,
+        description: validatedData.description ?? null,
         organizationId: validatedData.organizationId,
         createdBy: req.user?.id as string,
         assignedTo: validatedData.assignedTo,
-        startDate: validatedData.startDate
-          ? new Date(validatedData.startDate)
-          : null,
-        endDate: validatedData.endDate ? new Date(validatedData.endDate) : null,
+        startDate: new Date(validatedData.startDate),
+        endDate: new Date(validatedData.endDate),
         status: "pending",
         progress: 0,
-        address: validatedData.address,
-        contractfile: contractfileUrl,
-        contractfilePublicId: contractfilePublicId,
-        projectFiles: projectFiles,
+        address: validatedData.address ?? null,
+        contractfile: contractfileUrl ?? null,
+        contractfilePublicId: contractfilePublicId ?? null,
+        projectFiles: projectFiles ?? null,
         tags: [],
         createdAt: new Date(),
         updatedAt: new Date(),

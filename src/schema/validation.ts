@@ -63,9 +63,7 @@ export const createProjectSchema = z.object({
   name: z.string().min(2, {
     message: "Project Name must be at least 2 characters.",
   }),
-  projectNumber: z.string().min(1, {
-    message: "Project Number is required.",
-  }),
+  projectNumber: z.string().optional(),
   clientId: z.string().min(1, {
     message: "Please select a client.",
   }),
@@ -89,9 +87,7 @@ export const createProjectSchema = z.object({
     message: "Please select a team member to assign.",
   }),
   description: z.string().optional(),
-  address: z.string().min(2, {
-    message: "Address must be at least 2 characters.",
-  }),
+  address: z.string().optional(),
   organizationId: z.string().min(1, {
     message: "Organization ID is required.",
   }),

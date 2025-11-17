@@ -43,11 +43,14 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
         role: userOrganizations.role,
         status: userOrganizations.status,
         joinedAt: userOrganizations.joinedAt,
+        createdAt: userOrganizations.createdAt, // Use this as fallback for joinedAt
         user: {
           id: users.id,
           name: users.name,
           email: users.email,
           image: users.image,
+          phone: users.phone,
+          address: users.address,
           emailVerified: users.emailVerified,
           createdAt: users.createdAt,
         },
@@ -57,7 +60,11 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
       .where(eq(userOrganizations.organizationId, organizationId))
       .orderBy(userOrganizations.createdAt);
 
-    // Get subscription details
+    // Check if organization is a demo organization
+    const isDemoOrg = organization[0]?.settings?.demo === true;
+    const organizationEmail = (organization[0] as any)?.email || null;
+
+    // Get subscription details with plan features
     const subscription = await database
       .select({
         id: subscriptions.id,
@@ -69,6 +76,9 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
           name: subscriptionPlans.name,
           price: subscriptionPlans.price,
           description: subscriptionPlans.description,
+          features: subscriptionPlans.features,
+          customPlanName: subscriptionPlans.customPlanName,
+          slug: subscriptionPlans.slug,
         },
       })
       .from(subscriptions)
@@ -86,6 +96,8 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
         name: users.name,
         email: users.email,
         image: users.image,
+        phone: users.phone,
+        address: users.address,
       })
       .from(userOrganizations)
       .innerJoin(users, eq(userOrganizations.userId, users.id))
@@ -105,6 +117,8 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
           name: users.name,
           email: users.email,
           image: users.image,
+          phone: users.phone,
+          address: users.address,
         })
         .from(userOrganizations)
         .innerJoin(users, eq(userOrganizations.userId, users.id))
@@ -126,9 +140,79 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
     const totalRevenue =
       subscription.length > 0 ? subscription[0].plan?.price || 0 : 0;
 
+    // Format users data - for demo users, show organization email and ensure joinedAt is properly formatted
+    const formattedUsers = organizationUsers.map((user) => {
+      // Ensure joinedAt is properly formatted as ISO string
+      // Use joinedAt if available, otherwise fallback to createdAt (when user was added to org)
+      // or user.createdAt (when user account was created)
+      let dateToUse = user.joinedAt || user.createdAt || user.user.createdAt;
+      let formattedJoinedAt: string | null = null;
+
+      if (dateToUse) {
+        try {
+          // If it's already a Date object, convert to ISO string
+          if (dateToUse instanceof Date) {
+            formattedJoinedAt = dateToUse.toISOString();
+          } else if (typeof dateToUse === "string") {
+            // If it's a string, parse and format it
+            const parsedDate = new Date(dateToUse);
+            // Check if date is valid (not epoch date)
+            if (!isNaN(parsedDate.getTime()) && parsedDate.getTime() > 0) {
+              formattedJoinedAt = parsedDate.toISOString();
+            } else {
+              // Invalid date, use createdAt as fallback
+              const fallbackDate = user.createdAt || user.user.createdAt;
+              if (fallbackDate) {
+                formattedJoinedAt = new Date(fallbackDate).toISOString();
+              }
+            }
+          } else {
+            // Fallback: convert to string if it's another type
+            formattedJoinedAt = String(dateToUse);
+          }
+        } catch (error) {
+          logger.warn(
+            `Error formatting joinedAt for user ${user.userId}:`,
+            error
+          );
+          // Use createdAt as fallback if formatting fails
+          const fallbackDate = user.createdAt || user.user.createdAt;
+          if (fallbackDate) {
+            try {
+              formattedJoinedAt = new Date(fallbackDate).toISOString();
+            } catch (e) {
+              formattedJoinedAt = null;
+            }
+          }
+        }
+      }
+
+      // For demo users, prefer organization email if available
+      const displayEmail =
+        isDemoOrg && organizationEmail ? organizationEmail : user.user.email;
+
+      return {
+        id: user.id,
+        userId: user.userId,
+        role: user.role,
+        status: user.status,
+        joinedAt: formattedJoinedAt,
+        user: {
+          id: user.user.id,
+          name: user.user.name,
+          email: displayEmail,
+          image: user.user.image,
+          phone: user.user.phone,
+          address: user.user.address,
+          emailVerified: user.user.emailVerified,
+          createdAt: user.user.createdAt,
+        },
+      };
+    });
+
     const companyDetails = {
       organization: organization[0],
-      users: organizationUsers,
+      users: formattedUsers,
       subscription: subscription.length > 0 ? subscription[0] : null,
       owner,
       stats: {
