@@ -59,7 +59,7 @@ export const updateOrganizationSchema = z.object({
 });
 
 // ==================== PROJECT VALIDATION SCHEMAS ====================
-export const createProjectSchema = z.object({
+const projectBaseSchema = z.object({
   name: z.string().min(2, {
     message: "Project Name must be at least 2 characters.",
   }),
@@ -105,7 +105,42 @@ export const createProjectSchema = z.object({
   progress: z.number().min(0).max(100).optional(),
 });
 
-export const updateProjectSchema = createProjectSchema.partial();
+export const createProjectSchema = projectBaseSchema.refine(
+  (data) => {
+    if (!data.startDate || !data.endDate) return true;
+    const start = new Date(data.startDate);
+    const end = new Date(data.endDate);
+    return end >= start;
+  },
+  {
+    message: "End Date must be after or equal to Start Date.",
+    path: ["endDate"],
+  }
+);
+
+export const updateProjectSchema = projectBaseSchema
+  .partial()
+  .extend({
+    organizationId: z
+      .string()
+      .min(1, {
+        message: "Organization ID is required.",
+      })
+      .optional(),
+  })
+  .refine(
+    (data) => {
+      // Only validate date order if both dates are provided
+      if (!data.startDate || !data.endDate) return true;
+      const start = new Date(data.startDate);
+      const end = new Date(data.endDate);
+      return end >= start;
+    },
+    {
+      message: "End Date must be after or equal to Start Date.",
+      path: ["endDate"],
+    }
+  );
 
 export const createProjectCommentSchema = z.object({
   projectId: z.string().min(1, "Project ID is required"),
