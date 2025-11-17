@@ -84,8 +84,68 @@ export const requireRole = (requiredRole: UserRole) => {
 // Middleware to check if user is super admin
 export const requireSuperAdmin = requireRole(USER_ROLES.SUPER_ADMIN);
 
-// Middleware to check if user is sub admin or higher
+// Middleware to check if user is sub admin or higher (allows both subadmin and superadmin)
 export const requireSubAdmin = requireRole(USER_ROLES.SUB_ADMIN);
+
+// Middleware to check if user is super admin or sub admin (explicit check for both)
+export const requireSuperOrSubAdmin = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    if (!req.user) {
+      logger.warn("Role check failed: No user in request");
+      res.status(401).json({
+        error: "Unauthorized",
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    const userRole = req.user.role as UserRole;
+
+    if (!userRole) {
+      logger.warn("Role check failed: No role found for user", {
+        userId: req.user.id,
+      });
+      res.status(403).json({
+        error: "Forbidden",
+        message: "User role not defined",
+      });
+      return;
+    }
+
+    // Allow both superadmin and subadmin
+    if (
+      userRole !== USER_ROLES.SUPER_ADMIN &&
+      userRole !== USER_ROLES.SUB_ADMIN
+    ) {
+      logger.warn("Role check failed: User must be superadmin or subadmin", {
+        userId: req.user.id,
+        userRole,
+      });
+      res.status(403).json({
+        error: "Forbidden",
+        message: "Access restricted to super admin or sub admin",
+      });
+      return;
+    }
+
+    logger.info("Super/Sub admin check passed", {
+      userId: req.user.id,
+      userRole,
+    });
+
+    next();
+  } catch (error) {
+    logger.error("Role check error:", error);
+    res.status(500).json({
+      error: "Internal server error",
+      message: "Failed to verify user role",
+    });
+  }
+};
 
 // Middleware to check if user is regular user or higher (all authenticated users)
 export const requireUser = requireRole(USER_ROLES.USER);

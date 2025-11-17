@@ -39,7 +39,6 @@ export const superadmin = ac.newRole({
 export const subadmin = ac.newRole({
   Dashboard: ["view"],
   Companies: ["create", "read", "update", "delete", "impersonate"],
-  Subscriptions: ["create", "view", "read", "update", "delete"],
   "Support Tickets": ["create", "view", "read", "update", "delete"],
   Settings: ["view"],
   Notifications: ["read", "view", "update", "delete"],

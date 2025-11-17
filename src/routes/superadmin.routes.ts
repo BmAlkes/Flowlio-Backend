@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
-import { requireSuperAdmin } from "../middlewares/role.middleware";
+import {
+  requireSuperAdmin,
+  requireSuperOrSubAdmin,
+} from "../middlewares/role.middleware";
 import { createSubAdmin } from "../controllers/super admin/sub admin/createsubadmin.controller";
 import { fetchSubAdmins } from "../controllers/super admin/sub admin/fetchsubadmin.controller";
 import { deleteSubAdmin } from "../controllers/super admin/sub admin/deletesubadmin.controller";
@@ -32,14 +35,19 @@ const router = Router();
 // PUBLIC ROUTES (No Authentication Required)
 router.get("/plans/public/getallplans", getPublicPlans as any);
 
-// ORGANIZATION MANAGEMENT ROUTES - require super admin role
+// ORGANIZATION MANAGEMENT ROUTES - require super admin or sub admin role
 router.get(
   "/organizations/:organizationId/details",
   isAuthenticated,
-  requireSuperAdmin,
+  requireSuperOrSubAdmin,
   getCompanyDetails as any
 );
-router.get("/all-data", isAuthenticated, requireSuperAdmin, getAllData as any);
+router.get(
+  "/all-data",
+  isAuthenticated,
+  requireSuperOrSubAdmin,
+  getAllData as any
+);
 router.get(
   "/total-invoices",
   isAuthenticated,
@@ -49,7 +57,7 @@ router.get(
 router.get(
   "/overview",
   isAuthenticated,
-  requireSuperAdmin,
+  requireSuperOrSubAdmin,
   getSuperadminOverview
 );
 router.delete(
