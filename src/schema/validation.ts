@@ -64,28 +64,20 @@ const projectBaseSchema = z.object({
     message: "Project Name must be at least 2 characters.",
   }),
   projectNumber: z.string().optional(),
-  clientId: z.string().min(1, {
-    message: "Please select a client.",
-  }),
+  clientId: z.string().optional(),
   startDate: z
     .string()
-    .min(1, {
-      message: "Start Date is required.",
-    })
-    .refine((date) => !isNaN(Date.parse(date)), {
+    .optional()
+    .refine((date) => !date || !isNaN(Date.parse(date)), {
       message: "Start Date must be a valid date format.",
     }),
   endDate: z
     .string()
-    .min(1, {
-      message: "End Date is required.",
-    })
-    .refine((date) => !isNaN(Date.parse(date)), {
+    .optional()
+    .refine((date) => !date || !isNaN(Date.parse(date)), {
       message: "End Date must be a valid date format.",
     }),
-  assignedTo: z.string().min(1, {
-    message: "Please select a team member to assign.",
-  }),
+  assignedTo: z.string().optional(),
   description: z.string().optional(),
   address: z.string().optional(),
   organizationId: z.string().min(1, {

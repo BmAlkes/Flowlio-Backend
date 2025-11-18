@@ -289,7 +289,6 @@ export const projects = pgTable(
     name: text("name").notNull(),
     projectNumber: text("project_number").notNull(),
     clientId: text("client_id")
-      .notNull()
       .references(() => clients.id, { onDelete: "cascade" }),
     description: text("description"),
     organizationId: text("organization_id")
