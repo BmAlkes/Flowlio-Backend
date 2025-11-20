@@ -27,6 +27,13 @@ const getBaseURL = () => {
 };
 
 export const auth = betterAuth({
+  socialProviders: {
+    google: {
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      scope: ["email", "profile", "calendar"],
+    },
+  },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       // prevents multiple admin signups
