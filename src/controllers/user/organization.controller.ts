@@ -1,13 +1,9 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
-import {
-  organizations,
-  userOrganizations,
-  subscriptions,
-} from "@/schema/schema";
-import crypto from "crypto";
 import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
+import { eq } from "drizzle-orm";
+import { users } from "@/schema/schema";
 interface CreateOrganizationWithPlanRequest {
   userId: string;
   organizationName: string;
@@ -52,13 +48,24 @@ export const createOrganizationWithPlan = async (
       });
     }
 
-    // Create organization slug from name
+    // Check if user exists and is pending
+    const user = await database.query.users.findFirst({
+      where: (users, { eq }) => eq(users.id, userId),
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    // Check if organization name/slug already exists (to prevent duplicates after payment)
     const slug = organizationName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
 
-    // Check if slug already exists
     const existingOrg = await database.query.organizations.findFirst({
       where: (orgs, { eq }) => eq(orgs.slug, slug),
     });
@@ -70,151 +77,85 @@ export const createOrganizationWithPlan = async (
       });
     }
 
-    // Create organization
-    const organizationId = crypto.randomUUID().replace(/-/g, "");
-    const now = new Date();
-
-    // Calculate trial end date (7 days from now)
-    const trialEndsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-    // Calculate subscription period (monthly billing cycle)
-    const currentPeriodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days from now
-
-    const newOrganization = await database
-      .insert(organizations)
-      .values({
-        id: organizationId,
-        name: organizationName,
-        slug: slug,
-        description: `${organizationName} organization`,
-        website: organizationWebsite,
-        industry: organizationIndustry,
-        size: organizationSize,
-        subscriptionPlanId: planId,
-        subscriptionStatus: "active",
-        subscriptionStartDate: now,
-        trialEndsAt: trialEndsAt,
-        maxUsers: plan.features?.maxUsers || 5,
-        maxProjects: plan.features?.maxProjects || 3,
-        maxStorage: plan.features?.maxStorage || 1,
-        settings: {
-          timezone: "UTC",
-          dateFormat: "MM/DD/YYYY",
-          currency: "USD",
-          language: "en",
-          notifications: {
-            email: true,
-            push: false,
-            sms: false,
-          },
+    // Store plan selection and organization data in user record (pending until payment)
+    // Organization will be created after payment is completed
+    await database
+      .update(users)
+      .set({
+        selectedPlanId: planId,
+        pendingOrganizationData: {
+          organizationName,
+          organizationWebsite,
+          organizationIndustry,
+          organizationSize,
+          planId,
         },
-        createdAt: now,
-        updatedAt: now,
       })
-      .returning();
-
-    // Create subscription record
-    const subscriptionId = crypto.randomUUID().replace(/-/g, "");
-    const newSubscription = await database
-      .insert(subscriptions)
-      .values({
-        id: subscriptionId,
-        organizationId: organizationId,
-        planId: planId,
-        status: "active",
-        currentPeriodStart: now,
-        currentPeriodEnd: currentPeriodEnd,
-        cancelAtPeriodEnd: false,
-        trialStart: now,
-        trialEnd: trialEndsAt,
-        stripeSubscriptionId: null, // Will be set when integrating with Stripe
-        stripeCustomerId: null, // Will be set when integrating with Stripe
-        metadata: {
-          createdBy: userId,
-          organizationName: organizationName,
-          demoPurchase: true,
-        },
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-
-    // Create user-organization relationship (user as owner)
-    const userOrgId = crypto.randomUUID().replace(/-/g, "");
-    await database.insert(userOrganizations).values({
-      id: userOrgId,
-      userId: userId,
-      organizationId: organizationId,
-      role: "owner",
-      status: "active",
-      permissions: {
-        canManageUsers: true,
-        canManageProjects: true,
-        canManageBilling: true,
-        canViewAnalytics: true,
-        canInviteUsers: true,
-      },
-      joinedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
+      .where(eq(users.id, userId));
 
     logger.info(
-      `Organization created: ${organizationId} for user: ${userId} with subscription: ${subscriptionId}`
+      `Plan selected and organization data stored for user: ${userId}. Organization will be created after payment.`
     );
 
-    // Get user info for notifications
-    const user = await database.query.users.findFirst({
-      where: (users, { eq }) => eq(users.id, userId),
-      columns: {
-        name: true,
-        email: true,
-      },
-    });
+    // Notify super admins about pending payment user
+    try {
+      const user = await database.query.users.findFirst({
+        where: (t, { eq }) => eq(t.id, userId),
+        columns: {
+          id: true,
+          name: true,
+          email: true,
+          status: true,
+          selectedPlanId: true,
+          pendingOrganizationData: true,
+          createdAt: true,
+        },
+      });
+
+      if (user && (user.status === "pending" || !user.status)) {
+        await notifySuperAdmins({
+          type: "pendingPayment",
+          title: "New User Created - Payment Pending",
+          message: `A new user "${user.name}" (${user.email}) has created an account but hasn't completed payment yet.`,
+          details: {
+            userId: user.id,
+            userName: user.name,
+            userEmail: user.email,
+            selectedPlanId: user.selectedPlanId || "Not selected",
+            organizationName:
+              (user.pendingOrganizationData as any)?.organizationName ||
+              "Not provided",
+            createdAt:
+              user.createdAt?.toISOString() || new Date().toISOString(),
+          },
+        });
+        logger.info(
+          `Notification sent to super admins about pending payment user: ${user.email}`
+        );
+      }
+    } catch (notificationError) {
+      logger.error(
+        "Error sending notification about pending payment user:",
+        notificationError
+      );
+      // Don't fail the request if notification fails
+    }
 
     // Get plan info
-    const planName = plan.name || "Unknown Plan";
+    // const planName = plan.name || "Unknown Plan";
 
-    // Notify super admins about new company registration (non-blocking)
-    notifySuperAdmins({
-      type: "newCompany",
-      title: "New Company Registration",
-      message: `A new company "${organizationName}" has been registered on Flowlio.`,
-      details: {
-        "Company Name": organizationName,
-        Owner: user?.name || user?.email || "Unknown",
-        "Owner Email": user?.email || "Unknown",
-        Plan: planName,
-        "Registration Date": new Date().toLocaleString(),
-      },
-    }).catch((error) => {
-      logger.error("Failed to send new company notification:", error);
-    });
-
-    // Notify super admins about user subscription (non-blocking)
-    notifySuperAdmins({
-      type: "userSubscribe",
-      title: "User Subscription",
-      message: `A user has subscribed to the "${planName}" plan.`,
-      details: {
-        User: user?.name || user?.email || "Unknown",
-        "User Email": user?.email || "Unknown",
-        Plan: planName,
-        Company: organizationName,
-        "Subscription Date": new Date().toLocaleString(),
-      },
-    }).catch((error) => {
-      logger.error("Failed to send subscription notification:", error);
-    });
-
-    return res.status(201).json({
+    return res.status(200).json({
       success: true,
-      message: "Organization created successfully with plan and subscription",
+      message:
+        "Plan selected successfully. Please complete payment to create your organization and activate your account.",
       data: {
-        organization: newOrganization[0],
-        subscription: newSubscription[0],
         plan: plan,
-        userRole: "owner",
+        pendingOrganizationData: {
+          organizationName,
+          organizationWebsite,
+          organizationIndustry,
+          organizationSize,
+        },
       },
     });
   } catch (error) {

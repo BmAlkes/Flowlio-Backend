@@ -6,7 +6,12 @@ import { sendEmail } from "@/configs/brevo.config";
 import crypto from "crypto";
 
 interface NotificationData {
-  type: "userSubscribe" | "newCompany" | "projectCompletion" | "newUserSignup";
+  type:
+    | "userSubscribe"
+    | "newCompany"
+    | "projectCompletion"
+    | "newUserSignup"
+    | "pendingPayment";
   title: string;
   message: string;
   details?: Record<string, any>;
@@ -21,6 +26,7 @@ export const getSuperAdminsForNotification = async (
     | "newCompanyNotifications"
     | "projectCompletionNotifications"
     | "newUserSignupNotifications"
+    | "pendingPaymentNotifications"
 ) => {
   try {
     const allSuperAdmins = await database.query.users.findMany({
@@ -62,11 +68,13 @@ export const notifySuperAdmins = async (data: NotificationData) => {
       | "newCompanyNotifications"
       | "projectCompletionNotifications"
       | "newUserSignupNotifications"
+      | "pendingPaymentNotifications"
     > = {
       userSubscribe: "userSubscribeNotifications",
       newCompany: "newCompanyNotifications",
       projectCompletion: "projectCompletionNotifications",
       newUserSignup: "newUserSignupNotifications",
+      pendingPayment: "pendingPaymentNotifications",
     };
 
     const notificationKey = notificationTypeMap[data.type];
@@ -151,6 +159,7 @@ export const notifySuperAdmins = async (data: NotificationData) => {
           newCompany: "new_company_registered",
           projectCompletion: "project_completed",
           newUserSignup: "new_user_signed_up",
+          pendingPayment: "pending_payment",
         };
 
         await database.insert(notifications).values({

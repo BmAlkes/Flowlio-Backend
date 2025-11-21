@@ -36,7 +36,7 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
-      // prevents multiple admin signups
+      // Signup validation happens here, but status setting is in after hook
       if (ctx.path === "/sign-up/email") {
         const isAdminExists = await database
           .select()
@@ -47,6 +47,7 @@ export const auth = betterAuth({
         if (isAdminExists.length > 0) {
           // Admin already exists
         }
+
         return;
       }
 
@@ -60,6 +61,9 @@ export const auth = betterAuth({
             id: schema.users.id,
             isSuperAdmin: schema.users.isSuperAdmin,
             twoFactorEnabled: schema.users.twoFactorEnabled,
+            status: schema.users.status,
+            selectedPlanId: schema.users.selectedPlanId,
+            pendingOrganizationData: schema.users.pendingOrganizationData,
           })
           .from(schema.users)
           .where(eq(schema.users.email, email))
@@ -69,6 +73,13 @@ export const auth = betterAuth({
         if (!user) {
           return;
         }
+
+        // NOTE: We allow ALL pending users to sign in (even without payment data)
+        // The frontend will check payment status in onSuccess and redirect appropriately:
+        // - Pending users WITH payment data → redirect to checkout
+        // - Pending users WITHOUT payment data → redirect to pricing
+        // The middleware will still block them from accessing protected routes until payment is complete
+        // This approach avoids Better Auth error wrapping issues and provides better UX
 
         // Check organization status FIRST (before superadmin check)
         // This ensures deactivated demo accounts cannot log in
@@ -91,10 +102,10 @@ export const auth = betterAuth({
           const orgData = userOrg[0];
           const orgStatus = orgData.orgStatus;
           const orgSettings = orgData.orgSettings as { demo?: boolean } | null;
+          const isDemoAccount = orgSettings?.demo === true;
 
           // Check 1: Organization is deactivated (including demo accounts)
           if (orgStatus === "suspended" || orgStatus === "inactive") {
-            const isDemoAccount = orgSettings?.demo === true;
             const errorMessage = isDemoAccount
               ? "This demo account has been deactivated. Please contact the administrator for assistance."
               : "Your organization account has been deactivated. Please contact the administrator for assistance.";
@@ -117,16 +128,58 @@ export const auth = betterAuth({
             throw error;
           }
 
-          // Check 2: Trial period has expired
-          const trialEndsAt = orgData.trialEndsAt;
+          // Check 2: Payment status - block login if subscription is pending (not paid)
+          // Skip this check for demo accounts (they don't have payments)
           const subscriptionStatus = orgData.subscriptionStatus;
+
+          // Block login if subscription is pending (user hasn't paid yet)
+          // But skip this for demo accounts - they don't need payment
+          if (!isDemoAccount && subscriptionStatus === "pending") {
+            const error = new Error(
+              "Your subscription is pending payment. Please complete your payment to access your account."
+            );
+            (error as any).code = "PAYMENT_PENDING";
+            (error as any).statusCode = 403;
+            (error as any).status = 403;
+            (error as any).data = {
+              code: "PAYMENT_PENDING",
+              message:
+                "Your subscription is pending payment. Please complete your payment to access your account.",
+            };
+            throw error;
+          }
+
+          // Check 3: Trial period has expired (especially for demo accounts)
+          const trialEndsAt = orgData.trialEndsAt;
           const now = new Date();
 
           if (trialEndsAt) {
             const trialEndDate = new Date(trialEndsAt);
 
-            // If trial has expired AND subscription is not active/valid
+            // For demo accounts: ALWAYS block if trial has expired (regardless of subscription status)
+            // Demo accounts are trial-only and should not be allowed after trial ends
+            if (isDemoAccount && trialEndDate < now) {
+              logger.warn(
+                `Blocking login for expired demo account: ${email} - Trial ended: ${trialEndDate.toISOString()}`
+              );
+
+              const error = new Error(
+                "This demo account's trial period has expired. Please contact the administrator for assistance."
+              );
+              (error as any).code = "TRIAL_EXPIRED";
+              (error as any).statusCode = 403;
+              (error as any).status = 403;
+              (error as any).data = {
+                code: "TRIAL_EXPIRED",
+                message:
+                  "This demo account's trial period has expired. Please contact the administrator for assistance.",
+              };
+              throw error;
+            }
+
+            // For regular accounts: Block if trial has expired AND subscription is not active/valid
             if (
+              !isDemoAccount &&
               trialEndDate < now &&
               subscriptionStatus !== "active" &&
               subscriptionStatus !== "trialing"
@@ -136,6 +189,12 @@ export const auth = betterAuth({
               );
               (error as any).code = "TRIAL_EXPIRED";
               (error as any).statusCode = 403;
+              (error as any).status = 403;
+              (error as any).data = {
+                code: "TRIAL_EXPIRED",
+                message:
+                  "Your trial period has expired. Please contact the administrator to upgrade your subscription.",
+              };
               throw error;
             }
           }

@@ -61,6 +61,9 @@ export const getCurrentUserProfile = async (
         role: true,
         isSuperAdmin: true,
         subadminId: true,
+        status: true, // Include user status (pending/active)
+        selectedPlanId: true, // Include selected plan ID
+        pendingOrganizationData: true, // Include pending organization data
         createdAt: true,
         updatedAt: true,
       },

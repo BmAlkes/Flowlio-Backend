@@ -33,12 +33,17 @@ export const isAuthenticated = async (
   next: NextFunction
 ) => {
   try {
-    logger.info("🚀 isAuthenticated middleware called");
+    logger.info("🚀 isAuthenticated middleware called", {
+      path: req.path,
+      method: req.method,
+      originalUrl: req.originalUrl,
+    });
 
     const session = await getSession(req);
     logger.info("🔍 Session data:", {
       hasSession: !!session,
       hasUser: !!session?.user,
+      userId: session?.user?.id,
     });
 
     if (session && session.user) {
@@ -64,10 +69,97 @@ export const isAuthenticated = async (
           createdAt: true,
           updatedAt: true,
           role: true,
+          status: true, // Include user status (pending/active)
+          selectedPlanId: true, // Include selected plan ID
+          pendingOrganizationData: true, // Include pending organization data
         },
       });
 
       if (freshUser) {
+        // Check if user is pending (hasn't completed payment)
+        // Allow access to payment/checkout routes and profile endpoint
+        const path = req.path || req.originalUrl || "";
+        const isPaymentRoute =
+          path.includes("/payment") ||
+          path.includes("/checkout") ||
+          path.includes("/order") ||
+          path.includes("/paypal") ||
+          path.includes("/user/profile");
+
+        // Debug logging
+        const hasPendingPaymentDataDebug =
+          !!freshUser.selectedPlanId || !!freshUser.pendingOrganizationData;
+        logger.info("🔍 User Status Check:", {
+          userId: freshUser.id,
+          userStatus: freshUser.status,
+          isSuperAdmin: freshUser.isSuperAdmin,
+          path: path,
+          originalUrl: req.originalUrl,
+          isPaymentRoute,
+          selectedPlanId: freshUser.selectedPlanId,
+          hasPendingOrgData: !!freshUser.pendingOrganizationData,
+          hasPendingPaymentData: hasPendingPaymentDataDebug,
+          willBeBlocked:
+            (freshUser.status === "pending" ||
+              ((freshUser.status === null ||
+                freshUser.status === undefined ||
+                freshUser.status !== "active") &&
+                hasPendingPaymentDataDebug)) &&
+            !freshUser.isSuperAdmin &&
+            !isPaymentRoute,
+        });
+
+        // Check if user is pending (hasn't completed payment)
+        //
+        // A user is considered pending if:
+        // 1. Status is explicitly "pending" (regardless of payment data)
+        // 2. Status is NOT "active" AND has payment data (selectedPlanId or pendingOrganizationData)
+        //
+        // After successful payment:
+        // - Status is set to "active"
+        // - selectedPlanId is cleared (set to null)
+        // - pendingOrganizationData is cleared (set to null)
+        //
+        // So if status is "active", user is NOT pending (even if payment data somehow exists)
+        const hasPendingPaymentData =
+          !!freshUser.selectedPlanId || !!freshUser.pendingOrganizationData;
+
+        // User is pending if:
+        // - Status is "pending" (explicitly pending)
+        // - Status is NOT "active" AND has payment data (has plan selected but payment not completed)
+        const isPending =
+          freshUser.status === "pending" ||
+          (freshUser.status !== "active" && hasPendingPaymentData);
+
+        // Final check: user is pending if conditions above are met AND not superadmin
+        // Superadmins are always allowed to access all routes
+        const isUserPending = isPending && !freshUser.isSuperAdmin;
+
+        if (isUserPending && !isPaymentRoute) {
+          logger.warn(
+            `🚫 BLOCKING: User ${freshUser.id} with pending status attempted to access protected route: ${path}`
+          );
+          res.status(403).json({
+            success: false,
+            error: "Forbidden",
+            message:
+              "Your account is pending payment. Please complete your payment to access your account.",
+            code: "USER_PENDING",
+            data: {
+              selectedPlanId: freshUser.selectedPlanId,
+              pendingOrganizationData: freshUser.pendingOrganizationData,
+            },
+          });
+          return;
+        }
+
+        logger.info("✅ User access allowed:", {
+          userId: freshUser.id,
+          status: freshUser.status,
+          path: path,
+          isPending: false,
+        });
+
         // Check sub admin permission status if user is a sub admin
         if (freshUser.role === "subadmin" && freshUser.subadminId) {
           const subAdminData = await database.query.subadmin.findFirst({
@@ -158,22 +250,27 @@ export const isAuthenticated = async (
           if (!freshUser.isSuperAdmin && activeUserOrg?.organization) {
             const org = activeUserOrg.organization;
             const orgStatus = org.status;
+            const orgSettings = org.settings as { demo?: boolean } | null;
+            const isDemoAccount = orgSettings?.demo === true;
 
-            // Check 1: Organization is deactivated
+            // Check 1: Organization is deactivated (including demo accounts)
             if (orgStatus === "suspended" || orgStatus === "inactive") {
+              const errorMessage = isDemoAccount
+                ? "This demo account has been deactivated. Please contact the administrator for assistance."
+                : "Your organization account has been deactivated. Please contact the administrator for assistance.";
+
               logger.warn(
-                `User ${freshUser.id} attempted to access route with deactivated organization ${activeUserOrg.organizationId}`
+                `User ${freshUser.id} attempted to access route with deactivated organization ${activeUserOrg.organizationId} - ${errorMessage}`
               );
               res.status(403).json({
                 error: "Forbidden",
-                message:
-                  "Your organization account has been deactivated. Please contact the administrator for assistance.",
+                message: errorMessage,
                 code: "ORGANIZATION_DEACTIVATED",
               });
               return;
             }
 
-            // Check 2: Trial period has expired
+            // Check 2: Trial period has expired (especially for demo accounts)
             const trialEndsAt = org.trialEndsAt;
             const subscriptionStatus = org.subscriptionStatus;
             const now = new Date();
@@ -181,8 +278,28 @@ export const isAuthenticated = async (
             if (trialEndsAt) {
               const trialEndDate = new Date(trialEndsAt);
 
-              // If trial has expired AND subscription is not active/valid
+              // For demo accounts: ALWAYS block if trial has expired (regardless of subscription status)
+              // Demo accounts are trial-only and should not be allowed after trial ends
+              if (isDemoAccount && trialEndDate < now) {
+                logger.warn(
+                  `User ${
+                    freshUser.id
+                  } attempted to access route with expired demo account ${
+                    activeUserOrg.organizationId
+                  }. Trial ended: ${trialEndDate.toISOString()}`
+                );
+                res.status(403).json({
+                  error: "Forbidden",
+                  message:
+                    "This demo account's trial period has expired. Please contact the administrator for assistance.",
+                  code: "TRIAL_EXPIRED",
+                });
+                return;
+              }
+
+              // For regular accounts: Block if trial has expired AND subscription is not active/valid
               if (
+                !isDemoAccount &&
                 trialEndDate < now &&
                 subscriptionStatus !== "active" &&
                 subscriptionStatus !== "trialing"

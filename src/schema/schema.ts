@@ -31,10 +31,19 @@ export const users = pgTable(
     phone: text("phone"),
     address: text("address"),
     role: text("role").$defaultFn(() => "user"), // Required by Better Auth admin plugin
+    status: text("status").$defaultFn(() => "pending"), // active, pending - pending until payment is completed
     isSuperAdmin: boolean("is_super_admin")
       .$defaultFn(() => false)
       .notNull(),
     subadminId: text("subadmin_id"),
+    selectedPlanId: text("selected_plan_id"), // Plan selected before payment
+    pendingOrganizationData: json("pending_organization_data").$type<{
+      organizationName?: string;
+      organizationWebsite?: string;
+      organizationIndustry?: string;
+      organizationSize?: string;
+      planId?: string;
+    }>(), // Store organization details before payment
     timezone: text("timezone")
       .$defaultFn(() => "UTC")
       .notNull(),
@@ -288,8 +297,9 @@ export const projects = pgTable(
     id: text("id").primaryKey().notNull(),
     name: text("name").notNull(),
     projectNumber: text("project_number").notNull(),
-    clientId: text("client_id")
-      .references(() => clients.id, { onDelete: "cascade" }),
+    clientId: text("client_id").references(() => clients.id, {
+      onDelete: "cascade",
+    }),
     description: text("description"),
     organizationId: text("organization_id")
       .notNull()

@@ -55,7 +55,9 @@ export const updateOrganizationSchema = z.object({
   description: z.string().optional(),
   status: z.enum(["active", "suspended", "inactive"]).optional(),
   subscriptionPlan: z.enum(["free", "basic", "pro", "enterprise"]).optional(),
-  subscriptionStatus: z.enum(["active", "expired", "cancelled"]).optional(),
+  subscriptionStatus: z
+    .enum(["active", "expired", "cancelled", "pending"])
+    .optional(),
 });
 
 // ==================== PROJECT VALIDATION SCHEMAS ====================
