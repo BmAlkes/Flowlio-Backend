@@ -86,6 +86,14 @@ export const createDemoAccount = async (req: Request, res: Response) => {
     if (existingUsers.length > 0) {
       // If user exists, just attach to organization as viewer/member
       createdUserId = existingUsers[0].id;
+
+      // Update existing user's status to "active" if they're being added to a demo org
+      // Demo accounts don't need payment, so they should be active
+      await database
+        .update(users)
+        .set({ status: "active" })
+        .where(eq(users.id, createdUserId));
+
       await database.insert(userOrganizations).values({
         id: crypto.randomUUID(),
         userId: createdUserId,
@@ -98,6 +106,7 @@ export const createDemoAccount = async (req: Request, res: Response) => {
       const userId = crypto.randomUUID().replace(/-/g, "");
 
       // Create user record
+      // Demo accounts should have "active" status (not "pending") since they don't need payment
       await database.insert(users).values({
         id: userId,
         name: name,
@@ -106,6 +115,7 @@ export const createDemoAccount = async (req: Request, res: Response) => {
         role: role === "viewer" ? "viewer" : "user",
         isSuperAdmin: false,
         subadminId: null,
+        status: "active", // Demo accounts are active by default (no payment required)
         createdAt: now,
         updatedAt: now,
       });

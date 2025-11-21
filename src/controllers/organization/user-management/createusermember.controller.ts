@@ -201,6 +201,8 @@ export const createUserMember = async (req: Request, res: Response) => {
     const now = new Date();
 
     // Create user directly in database (Better Auth will handle the rest)
+    // Child users (team members) should have "active" status since the parent organization
+    // already has an active subscription - they don't need to pay separately
     const [newUser] = await database
       .insert(users)
       .values({
@@ -211,6 +213,7 @@ export const createUserMember = async (req: Request, res: Response) => {
         isSuperAdmin: false,
         subadminId: null,
         emailVerified: false,
+        status: "active", // Child users are active by default (parent org already paid)
         image: imageUrl,
         createdAt: now,
         updatedAt: now,
