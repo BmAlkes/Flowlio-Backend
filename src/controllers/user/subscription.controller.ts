@@ -6,11 +6,14 @@ import {
   subscriptionPlans,
   userOrganizations,
 } from "@/schema/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import crypto from "crypto";
 
-export const getSubscriptionStatus = async (req: Request, res: Response) => {
+export const getSubscriptionStatus = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     logger.info("Subscription status request received");
     logger.info("Request headers:", req.headers);
@@ -22,7 +25,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
     // If no user is authenticated, return no subscription status
     if (!userId) {
       logger.info("No user authenticated, returning not_authenticated status");
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         data: {
           hasSubscription: false,
@@ -32,6 +35,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
           redirectTo: "/pricing", // Redirect to pricing instead of subscription page
         },
       });
+      return;
     }
 
     // Get user's organization through user_organizations table
@@ -49,7 +53,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
 
     if (!userOrg.length) {
       logger.info("No organization found for user");
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         data: {
           hasSubscription: false,
@@ -59,6 +63,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
           redirectTo: "/pricing", // Redirect to pricing instead of subscription page
         },
       });
+      return;
     }
 
     const organizationId = userOrg[0].organization.id;
@@ -80,7 +85,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
 
     if (!subscription.length) {
       logger.info("No subscription found for user");
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         data: {
           hasSubscription: false,
@@ -90,6 +95,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
           redirectTo: "/pricing", // Redirect to pricing instead of subscription page
         },
       });
+      return;
     }
 
     const sub = subscription[0];
@@ -142,7 +148,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
             )
           : 0;
 
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         data: {
           hasSubscription: true,
@@ -157,12 +163,13 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
           trialDaysRemaining: trialDaysRemaining,
         },
       });
+      return;
     } else if (
       sub.subscription.status === "active" &&
       sub.subscription.currentPeriodEnd < currentDate
     ) {
       logger.info("User has expired subscription");
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         data: {
           hasSubscription: true,
@@ -174,12 +181,13 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
           redirectTo: "/pricing", // Redirect to pricing instead of subscription page
         },
       });
+      return;
     } else {
       logger.info(
         "User has subscription with status:",
         sub.subscription.status
       );
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         data: {
           hasSubscription: true,
@@ -191,18 +199,23 @@ export const getSubscriptionStatus = async (req: Request, res: Response) => {
           redirectTo: "/pricing", // Redirect to pricing instead of subscription page
         },
       });
+      return;
     }
   } catch (error) {
     logger.error("Get subscription status error:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Failed to get subscription status",
       error: process.env.NODE_ENV === "development" ? error : undefined,
     });
+    return;
   }
 };
 
-export const getAvailablePlans = async (_: Request, res: Response) => {
+export const getAvailablePlans = async (
+  _: Request,
+  res: Response
+): Promise<void> => {
   try {
     // Use query API to get plans, then map to ensure consistent structure
     const plansData = await database.query.subscriptionPlans.findMany({
@@ -243,37 +256,35 @@ export const getAvailablePlans = async (_: Request, res: Response) => {
         : null,
     });
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       data: plans,
     });
+    return;
   } catch (error) {
     logger.error("Get available plans error:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Failed to get available plans",
       error: process.env.NODE_ENV === "development" ? error : undefined,
     });
+    return;
   }
 };
 
-export const updateSubscriptionPlan = async (req: Request, res: Response) => {
+export const cancelSubscription = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const userId = req.user?.id;
-    const { planId } = req.body;
 
     if (!userId) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: "User not authenticated",
       });
-    }
-
-    if (!planId) {
-      return res.status(400).json({
-        success: false,
-        message: "Plan ID is required",
-      });
+      return;
     }
 
     // Get user's organization
@@ -290,10 +301,136 @@ export const updateSubscriptionPlan = async (req: Request, res: Response) => {
       .limit(1);
 
     if (!userOrg.length) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Organization not found",
       });
+      return;
+    }
+
+    const organizationId = userOrg[0].organization.id;
+
+    // Get active subscription
+    const existingSubscription = await database
+      .select()
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.organizationId, organizationId),
+          eq(subscriptions.status, "active")
+        )
+      )
+      .limit(1);
+
+    if (!existingSubscription.length) {
+      res.status(404).json({
+        success: false,
+        message: "No active subscription found",
+      });
+      return;
+    }
+
+    const subscription = existingSubscription[0];
+    const currentDate = new Date();
+
+    // Check if subscription has already expired
+    if (subscription.currentPeriodEnd < currentDate) {
+      res.status(400).json({
+        success: false,
+        message: "Subscription has already expired",
+      });
+      return;
+    }
+
+    // Check if already scheduled for cancellation
+    if (subscription.cancelAtPeriodEnd) {
+      res.status(400).json({
+        success: false,
+        message: "Subscription is already scheduled for cancellation",
+      });
+      return;
+    }
+
+    // Set cancelAtPeriodEnd to true (non-refundable)
+    await database
+      .update(subscriptions)
+      .set({
+        cancelAtPeriodEnd: true,
+        cancelledAt: currentDate,
+        updatedAt: currentDate,
+      })
+      .where(eq(subscriptions.id, subscription.id));
+
+    logger.info(
+      `Subscription ${subscription.id} scheduled for cancellation at period end for organization ${organizationId}`
+    );
+
+    res.status(200).json({
+      success: true,
+      message:
+        "Subscription has been cancelled. It will remain active until the end of the current billing period. This action is non-refundable.",
+      data: {
+        subscriptionId: subscription.id,
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelledAt: currentDate,
+      },
+    });
+    return;
+  } catch (error) {
+    logger.error("Cancel subscription error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to cancel subscription",
+      error: process.env.NODE_ENV === "development" ? error : undefined,
+    });
+    return;
+  }
+};
+
+export const updateSubscriptionPlan = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = req.user?.id;
+    const { planId } = req.body;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    if (!planId) {
+      res.status(400).json({
+        success: false,
+        message: "Plan ID is required",
+      });
+      return;
+    }
+
+    // Get user's organization
+    const userOrg = await database
+      .select({
+        organization: organizations,
+      })
+      .from(organizations)
+      .innerJoin(
+        userOrganizations,
+        eq(organizations.id, userOrganizations.organizationId)
+      )
+      .where(eq(userOrganizations.userId, userId))
+      .limit(1);
+
+    if (!userOrg.length) {
+      res.status(404).json({
+        success: false,
+        message: "Organization not found",
+      });
+      return;
     }
 
     const organizationId = userOrg[0].organization.id;
@@ -306,10 +443,11 @@ export const updateSubscriptionPlan = async (req: Request, res: Response) => {
       .limit(1);
 
     if (!plan.length) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: "Plan not found",
       });
+      return;
     }
 
     // Check if user has already used their trial
@@ -382,7 +520,7 @@ export const updateSubscriptionPlan = async (req: Request, res: Response) => {
       `Subscription updated for organization ${organizationId} to plan ${planId}`
     );
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       message: hasUsedTrial
         ? "Subscription plan updated successfully (paid subscription started)"
@@ -397,12 +535,14 @@ export const updateSubscriptionPlan = async (req: Request, res: Response) => {
         trialDaysRemaining: !hasUsedTrial ? 7 : 0,
       },
     });
+    return;
   } catch (error) {
     logger.error("Update subscription plan error:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Failed to update subscription plan",
       error: process.env.NODE_ENV === "development" ? error : undefined,
     });
+    return;
   }
 };

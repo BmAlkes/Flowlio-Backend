@@ -20,31 +20,6 @@ export const getCurrentUserProfile = async (
 
     const userId = req.user.id;
 
-    try {
-      const { connection } = await import("@/configs/connection.config");
-      const client = await connection.connect();
-
-      const result = await client.query("SELECT * FROM users WHERE id = $1", [
-        userId,
-      ]);
-      if (result.rows.length > 0) {
-        const rawUserData = result.rows[0];
-
-        // Check if role column exists
-        if (rawUserData.hasOwnProperty("role")) {
-          logger.info("Role column exists in database");
-        } else {
-          logger.info("Role column does NOT exist in database");
-        }
-      } else {
-        logger.info(`No user found with ID: ${userId}`);
-      }
-
-      client.release();
-    } catch (error) {
-      logger.error("Raw query error:", error);
-    }
-
     // Get user data with role column
     const user = await database.query.users.findFirst({
       where: (t, { eq }) => eq(t.id, userId),
@@ -79,11 +54,54 @@ export const getCurrentUserProfile = async (
       return;
     }
 
+    // Check if user status is pending (needs to complete payment)
+    // Allow pending users to access profile but return special code for frontend redirect
+    if (!user.isSuperAdmin && !user.subadminId) {
+      const userStatus = user.status?.toLowerCase?.() || user.status || "";
+      const isPending =
+        userStatus === "pending" || !user.status || user.status === null;
+
+      if (isPending) {
+        // Check if user has payment data (can complete payment)
+        const hasPaymentData = !!(
+          user.selectedPlanId || user.pendingOrganizationData
+        );
+
+        logger.info("🔍 User Status Check:", {
+          userId: user.id,
+          status: user.status,
+          isPending,
+          hasPaymentData,
+          selectedPlanId: user.selectedPlanId,
+          hasPendingOrgData: !!user.pendingOrganizationData,
+        });
+
+        // Return special response for pending users - frontend will redirect to checkout
+        res.status(403).json({
+          success: false,
+          message: hasPaymentData
+            ? "Your account is pending payment. Please complete your payment to access your account."
+            : "Your account is pending payment. Please select a plan and complete payment to access your account.",
+          code: hasPaymentData ? "USER_PENDING" : "USER_PENDING_NO_PLAN",
+          redirectTo: hasPaymentData ? "/checkout" : "/pricing",
+          data: {
+            status: user.status,
+            selectedPlanId: user.selectedPlanId,
+            pendingOrganizationData: user.pendingOrganizationData,
+          },
+        });
+        return;
+      }
+    }
+
     // Check if user's organization is deactivated (unless super admin)
+    // Skip this check for pending users without organizations (they haven't completed payment yet)
     let demoOrgInfo: { isDemo: boolean; passwordChanged: boolean } | null =
       null;
 
     if (!user.isSuperAdmin) {
+      // Only check organization status if user has an organization
+      // Pending users might not have an organization yet
       const userOrg = await database
         .select({
           organizationId: userOrganizations.organizationId,
@@ -101,6 +119,8 @@ export const getCurrentUserProfile = async (
         .where(eq(userOrganizations.userId, userId))
         .limit(1);
 
+      // Only perform organization checks if user has an organization
+      // Pending users without organizations should be allowed to access profile
       if (userOrg.length > 0 && userOrg[0].orgStatus) {
         const orgData = userOrg[0];
         const orgStatus = orgData.orgStatus;
@@ -157,6 +177,7 @@ export const getCurrentUserProfile = async (
           }
         }
       }
+      // If user has no organization, they're likely pending payment - allow access
     }
 
     // Get organization information from req.user (set by auth middleware)

@@ -26,25 +26,28 @@ export const requireActiveSubscription = async (
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     // Skip subscription check for super admins
     if (req.user?.isSuperAdmin) {
-      return next();
+      next();
+      return;
     }
 
     // Skip subscription check for subscription-related endpoints
     if (req.path.includes("/subscriptions") || req.path.includes("/payments")) {
-      return next();
+      next();
+      return;
     }
 
     const userId = req.user?.id;
     if (!userId) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: "Authentication required",
         code: "AUTHENTICATION_REQUIRED",
       });
+      return;
     }
 
     // Get user's organization
@@ -55,12 +58,13 @@ export const requireActiveSubscription = async (
       .limit(1);
 
     if (!userOrg.length) {
-      return res.status(403).json({
+      res.status(403).json({
         success: false,
         message: "Organization not found",
         code: "ORGANIZATION_NOT_FOUND",
         redirectTo: "/subscriptions",
       });
+      return;
     }
 
     const organizationId = userOrg[0].id;
@@ -79,13 +83,14 @@ export const requireActiveSubscription = async (
       .limit(1);
 
     if (!activeSubscription.length) {
-      return res.status(403).json({
+      res.status(403).json({
         success: false,
         message: "Active subscription required",
         code: "SUBSCRIPTION_REQUIRED",
         redirectTo: "/subscriptions",
         subscriptionStatus: "inactive",
       });
+      return;
     }
 
     // Check if subscription is within limits
@@ -93,13 +98,14 @@ export const requireActiveSubscription = async (
     const currentDate = new Date();
 
     if (subscription.currentPeriodEnd < currentDate) {
-      return res.status(403).json({
+      res.status(403).json({
         success: false,
         message: "Subscription expired",
         code: "SUBSCRIPTION_EXPIRED",
         redirectTo: "/subscriptions",
         subscriptionStatus: "expired",
       });
+      return;
     }
 
     // Add subscription info to request for use in other middleware/routes
@@ -108,11 +114,12 @@ export const requireActiveSubscription = async (
     next();
   } catch (error) {
     logger.error("Subscription validation error:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Subscription validation failed",
       code: "SUBSCRIPTION_VALIDATION_ERROR",
     });
+    return;
   }
 };
 

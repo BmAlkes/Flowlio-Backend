@@ -29,6 +29,7 @@ export const patchUserProfile = async (
       address,
       name,
       email,
+      selectedPlanId,
     } = req.body;
 
     logger.info(`👤 Patching profile for user: ${userId}`);
@@ -108,6 +109,18 @@ export const patchUserProfile = async (
     ) {
       updateData.notificationPreferences = notificationPreferences;
       logger.info(`🔔 Updating notification preferences`);
+    }
+
+    if (
+      typeof selectedPlanId === "string" &&
+      selectedPlanId.trim().length > 0
+    ) {
+      updateData.selectedPlanId = selectedPlanId.trim();
+      logger.info(`📦 Updating selectedPlanId: ${selectedPlanId}`);
+    } else if (selectedPlanId === null || selectedPlanId === undefined) {
+      // Allow setting to null
+      updateData.selectedPlanId = null;
+      logger.info(`📦 Clearing selectedPlanId`);
     }
 
     // Only update if there's something to update (more than just updatedAt)

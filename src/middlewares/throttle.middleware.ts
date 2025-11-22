@@ -64,19 +64,25 @@ export const throttle: Throttle = (overRideOptions) => {
           isFirstInDuration,
           endPoint: req.path,
           waitTime: msBeforeNext / 1000,
+          pointsAllotted: limiter.duration,
         };
 
-        await database
-          .insert(throttleinsight)
-          .values({
-            key: req.ip!,
-            pointsAllotted: limiter.duration,
-            ...values,
-          })
-          .onConflictDoUpdate({
-            target: throttleinsight.key,
-            set: values,
-          });
+        try {
+          await database
+            .insert(throttleinsight)
+            .values({
+              key: req.ip!,
+              ...values,
+            })
+            .onConflictDoUpdate({
+              target: throttleinsight.key,
+              set: values,
+            });
+        } catch (dbError) {
+          // Log error but don't block the request
+          console.error("Throttle insight insert error:", dbError);
+          // Continue with rate limit response
+        }
       }
 
       const customErrorMessage =

@@ -22,7 +22,8 @@ import { eq, gte, lte } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { openaiService } from "@/services/openai.service";
+// Lazy import - only load OpenAI service when actually needed
+// This prevents blocking server startup
 
 /**
  * Generate AI-powered event suggestions based on user input
@@ -87,7 +88,9 @@ export const generateEventSuggestions = async (
       currentEvents: recentEvents,
     };
 
-    // Generate AI suggestions
+    // Generate AI suggestions - lazy load service
+    const { openaiService } = await import("@/services/openai.service");
+    // Lazy load OpenAI service - only import when needed
     const service = openaiService.instance;
     if (!service) {
       res.status(500).json({
@@ -167,6 +170,8 @@ export const generateEventCategories = async (
       return;
     }
 
+    // Lazy load OpenAI service - only import when needed
+    const { openaiService } = await import("@/services/openai.service");
     const service = openaiService.instance;
     if (!service) {
       res.status(500).json({
@@ -215,6 +220,8 @@ export const enhanceEventDescription = async (
       return;
     }
 
+    // Lazy load OpenAI service - only import when needed
+    const { openaiService } = await import("@/services/openai.service");
     const service = openaiService.instance;
     if (!service) {
       res.status(500).json({
@@ -370,6 +377,8 @@ export const advancedConversation = async (
     logger.info("🤖🤖🤖 ADVANCED AI CONVERSATION CONTROLLER CALLED 🤖🤖🤖");
 
     // Get lazy-loaded service instance
+    // Lazy load OpenAI service - only import when needed
+    const { openaiService } = await import("@/services/openai.service");
     const service = openaiService.instance;
 
     // Debug: Check if openaiService is properly imported
@@ -529,6 +538,8 @@ export const testOpenAI = async (req: any, res: Response): Promise<void> => {
       return;
     }
 
+    // Lazy load OpenAI service - only import when needed
+    const { openaiService } = await import("@/services/openai.service");
     const service = openaiService.instance;
     if (!service) {
       res.status(500).json({
@@ -576,6 +587,8 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
       return;
     }
 
+    // Lazy load OpenAI service - only import when needed
+    const { openaiService } = await import("@/services/openai.service");
     const service = openaiService.instance;
     if (!service) {
       res.status(500).json({

@@ -17,6 +17,7 @@ interface CreatePayPalOrderRequest {
   planId: string;
   amount: number;
   currency?: string;
+  demoMode?: boolean; // Force demo mode even if PayPal is configured
 }
 
 interface CapturePayPalOrderRequest {
@@ -113,6 +114,7 @@ export const createPayPalOrder = async (
       planId,
       amount,
       currency = "USD",
+      demoMode = false,
     }: CreatePayPalOrderRequest = req.body;
 
     // Validate required fields
@@ -148,9 +150,12 @@ export const createPayPalOrder = async (
       return;
     }
 
-    // Check if PayPal credentials are configured
-    if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-      logger.warn("PayPal credentials not configured, using demo mode");
+    // Check if demo mode is requested or PayPal credentials are not configured
+    if (demoMode || !env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+      logger.warn("Using demo mode for PayPal order", {
+        demoMode,
+        hasCredentials: !!env.PAYPAL_CLIENT_ID,
+      });
       // Return demo order ID for testing
       res.status(200).json({
         success: true,
@@ -645,14 +650,171 @@ export const capturePayPalOrder = async (
         const finalOrganizationSize =
           organizationSize || pendingData?.organizationSize;
 
-        if (!finalOrganizationName || !finalPlanId) {
+        // Check if user already has an organization
+        const existingUserOrg =
+          await database.query.userOrganizations.findFirst({
+            where: (userOrgs, { eq }) => eq(userOrgs.userId, userId),
+            with: {
+              organization: true,
+            },
+          });
+
+        // If user already has an organization and no organizationName is provided,
+        // just create/update subscription for existing organization
+        if (existingUserOrg?.organization && !finalOrganizationName) {
+          logger.info(
+            `User ${userId} already has organization ${existingUserOrg.organizationId}, creating subscription only`
+          );
+
+          if (!finalPlanId) {
+            res.status(400).json({
+              success: false,
+              message: "Missing plan ID. Please select a plan.",
+            });
+            return;
+          }
+
+          // Verify the plan exists and is active
+          const plan = await database.query.subscriptionPlans.findFirst({
+            where: (plans, { eq, and }) =>
+              and(eq(plans.id, finalPlanId), eq(plans.isActive, true)),
+          });
+
+          if (!plan) {
+            logger.error(`Plan not found: ${finalPlanId}`);
+            res.status(404).json({
+              success: false,
+              message: "Selected plan not found or inactive",
+            });
+            return;
+          }
+
+          // Create subscription for existing organization
+          const existingOrg = existingUserOrg.organization;
+
+          // Check if subscription already exists
+          const existingSubscription =
+            await database.query.subscriptions.findFirst({
+              where: (subs, { eq }) => eq(subs.organizationId, existingOrg.id),
+            });
+
+          const now = new Date();
+          const subscriptionEndDate = new Date(
+            now.getTime() + 30 * 24 * 60 * 60 * 1000
+          ); // 30 days
+          let subscriptionId: string;
+
+          if (existingSubscription) {
+            // Update existing subscription
+            subscriptionId = existingSubscription.id;
+
+            await database
+              .update(subscriptions)
+              .set({
+                planId: finalPlanId,
+                status: "active",
+                currentPeriodStart: now,
+                currentPeriodEnd: subscriptionEndDate,
+                updatedAt: now,
+              })
+              .where(eq(subscriptions.id, subscriptionId));
+
+            logger.info(
+              `Updated subscription ${subscriptionId} for organization ${existingOrg.id}`
+            );
+          } else {
+            // Create new subscription
+            subscriptionId = crypto.randomUUID().replace(/-/g, "");
+
+            await database.insert(subscriptions).values({
+              id: subscriptionId,
+              organizationId: existingOrg.id,
+              planId: finalPlanId,
+              status: "active",
+              currentPeriodStart: now,
+              currentPeriodEnd: subscriptionEndDate,
+              createdAt: now,
+              updatedAt: now,
+            });
+
+            logger.info(
+              `Created subscription ${subscriptionId} for organization ${existingOrg.id}`
+            );
+          }
+
+          // Update organization subscription status
+          await database
+            .update(organizations)
+            .set({
+              subscriptionStatus: "active",
+              subscriptionPlanId: finalPlanId,
+              subscriptionStartDate: now,
+              subscriptionEndDate: subscriptionEndDate,
+              updatedAt: now,
+            })
+            .where(eq(organizations.id, existingOrg.id));
+
+          res.status(200).json({
+            success: true,
+            message:
+              "Payment processed and subscription activated successfully",
+            data: {
+              orderId,
+              status: paymentStatus,
+              captureId,
+              amount: captureAmount,
+              currency: captureCurrency,
+              organization: existingOrg,
+              subscription: {
+                id: subscriptionId,
+                planId: finalPlanId,
+                status: "active",
+              },
+            },
+          });
+          return;
+        }
+
+        // If organization name is required but not provided
+        // Check if user has pending organization data or if we can use a default name
+        if (!finalPlanId) {
+          logger.error(`Missing plan ID for user: ${userId}`);
+          res.status(400).json({
+            success: false,
+            message: "Missing plan ID. Please select a plan.",
+          });
+          return;
+        }
+
+        // If no organization name provided and user doesn't have existing org,
+        // try to get from user's email or use a default
+        let finalOrgName: string = finalOrganizationName || "";
+        if (!finalOrgName && !existingUserOrg?.organization) {
+          // Try to create organization name from user's email or use default
+          const userEmail = userData.email;
+          if (userEmail) {
+            // Extract username from email (before @)
+            const emailUsername = userEmail.split("@")[0];
+            finalOrgName = `${emailUsername}'s Organization`;
+            logger.info(
+              `No organization name provided, using default: ${finalOrgName}`
+            );
+          } else {
+            finalOrgName = "My Organization";
+            logger.info(
+              `No organization name provided, using default: ${finalOrgName}`
+            );
+          }
+        }
+
+        if (!finalOrgName || finalOrgName.trim() === "") {
           logger.error(
-            `Missing organization name or plan ID for user: ${userId}`
+            `Missing organization name for user: ${userId} and no default could be generated`
           );
           res.status(400).json({
             success: false,
             message:
-              "Missing organization name or plan ID. Please select a plan and provide organization details.",
+              "Missing organization name. Please provide organization details.",
           });
           return;
         }
@@ -675,8 +837,8 @@ export const capturePayPalOrder = async (
           return;
         }
 
-        // Create organization slug from name
-        const slug = finalOrganizationName
+        // Create organization slug from name (use finalOrgName which has fallback)
+        const slug = finalOrgName
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/(^-|-$)/g, "");
@@ -781,7 +943,7 @@ export const capturePayPalOrder = async (
           const updatedOrgs = await database
             .update(organizations)
             .set({
-              name: finalOrganizationName,
+              name: finalOrgName,
               website: finalOrganizationWebsite,
               industry: finalOrganizationIndustry,
               size: finalOrganizationSize,
@@ -805,9 +967,9 @@ export const capturePayPalOrder = async (
               .insert(organizations)
               .values({
                 id: organizationId,
-                name: finalOrganizationName,
+                name: finalOrgName,
                 slug: slug,
-                description: `${finalOrganizationName} organization`,
+                description: `${finalOrgName} organization`,
                 website: finalOrganizationWebsite,
                 industry: finalOrganizationIndustry,
                 size: finalOrganizationSize,

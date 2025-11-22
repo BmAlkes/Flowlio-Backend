@@ -13,7 +13,6 @@ import { createAuthMiddleware, emailOTP, twoFactor } from "better-auth/plugins";
 import { admin as adminPlugin } from "better-auth/plugins";
 import { ac, roles } from "./permission";
 import { eq } from "drizzle-orm";
-import { logger } from "@/utils/logger.util";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -27,16 +26,9 @@ const getBaseURL = () => {
 };
 
 export const auth = betterAuth({
-  socialProviders: {
-    google: {
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
-      scope: ["email", "profile", "calendar"],
-    },
-  },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
-      // Signup validation happens here, but status setting is in after hook
+      // prevents multiple admin signups
       if (ctx.path === "/sign-up/email") {
         const isAdminExists = await database
           .select()
@@ -47,7 +39,6 @@ export const auth = betterAuth({
         if (isAdminExists.length > 0) {
           // Admin already exists
         }
-
         return;
       }
 
@@ -61,34 +52,29 @@ export const auth = betterAuth({
             id: schema.users.id,
             isSuperAdmin: schema.users.isSuperAdmin,
             twoFactorEnabled: schema.users.twoFactorEnabled,
-            status: schema.users.status,
-            selectedPlanId: schema.users.selectedPlanId,
-            pendingOrganizationData: schema.users.pendingOrganizationData,
           })
           .from(schema.users)
           .where(eq(schema.users.email, email))
           .limit(1);
 
-        // If user not found, let Better Auth handle the error
-        if (!user) {
+        // Super admins should always bypass OTP requirements
+        if (!user || user.isSuperAdmin) {
+          // Allow super admin or if user not found (will fail auth anyway)
+          // Super admins don't need OTP unless they explicitly enable 2FA
+          // Set a flag to skip OTP verification
+          (ctx as any).skipOTP = true;
           return;
         }
 
-        // NOTE: We allow ALL pending users to sign in (even without payment data)
-        // The frontend will check payment status in onSuccess and redirect appropriately:
-        // - Pending users WITH payment data → redirect to checkout
-        // - Pending users WITHOUT payment data → redirect to pricing
-        // The middleware will still block them from accessing protected routes until payment is complete
-        // This approach avoids Better Auth error wrapping issues and provides better UX
+        // If user doesn't have 2FA enabled, they should not be required to provide OTP
+        // The emailOTP plugin will check twoFactorEnabled before sending OTP
 
-        // Check organization status FIRST (before superadmin check)
-        // This ensures deactivated demo accounts cannot log in
+        // Check organization status
         const userOrg = await database
           .select({
             orgStatus: schema.organizations.status,
             trialEndsAt: schema.organizations.trialEndsAt,
             subscriptionStatus: schema.organizations.subscriptionStatus,
-            orgSettings: schema.organizations.settings,
           })
           .from(schema.userOrganizations)
           .innerJoin(
@@ -101,85 +87,27 @@ export const auth = betterAuth({
         if (userOrg.length > 0 && userOrg[0].orgStatus) {
           const orgData = userOrg[0];
           const orgStatus = orgData.orgStatus;
-          const orgSettings = orgData.orgSettings as { demo?: boolean } | null;
-          const isDemoAccount = orgSettings?.demo === true;
 
-          // Check 1: Organization is deactivated (including demo accounts)
+          // Check 1: Organization is deactivated
           if (orgStatus === "suspended" || orgStatus === "inactive") {
-            const errorMessage = isDemoAccount
-              ? "This demo account has been deactivated. Please contact the administrator for assistance."
-              : "Your organization account has been deactivated. Please contact the administrator for assistance.";
-
-            logger.warn(
-              `Blocking login for deactivated account: ${email} - ${errorMessage}`
-            );
-
-            // Create error with Better Auth compatible format
-            const error = new Error(errorMessage) as any;
-            error.code = "ORGANIZATION_DEACTIVATED";
-            error.statusCode = 403;
-            error.status = 403;
-            error.message = errorMessage;
-            error.data = {
-              code: "ORGANIZATION_DEACTIVATED",
-              message: errorMessage,
-            };
-
-            throw error;
-          }
-
-          // Check 2: Payment status - block login if subscription is pending (not paid)
-          // Skip this check for demo accounts (they don't have payments)
-          const subscriptionStatus = orgData.subscriptionStatus;
-
-          // Block login if subscription is pending (user hasn't paid yet)
-          // But skip this for demo accounts - they don't need payment
-          if (!isDemoAccount && subscriptionStatus === "pending") {
             const error = new Error(
-              "Your subscription is pending payment. Please complete your payment to access your account."
+              "Your organization account has been deactivated. Please contact the administrator for assistance."
             );
-            (error as any).code = "PAYMENT_PENDING";
+            (error as any).code = "ORGANIZATION_DEACTIVATED";
             (error as any).statusCode = 403;
-            (error as any).status = 403;
-            (error as any).data = {
-              code: "PAYMENT_PENDING",
-              message:
-                "Your subscription is pending payment. Please complete your payment to access your account.",
-            };
             throw error;
           }
 
-          // Check 3: Trial period has expired (especially for demo accounts)
+          // Check 2: Trial period has expired
           const trialEndsAt = orgData.trialEndsAt;
+          const subscriptionStatus = orgData.subscriptionStatus;
           const now = new Date();
 
           if (trialEndsAt) {
             const trialEndDate = new Date(trialEndsAt);
 
-            // For demo accounts: ALWAYS block if trial has expired (regardless of subscription status)
-            // Demo accounts are trial-only and should not be allowed after trial ends
-            if (isDemoAccount && trialEndDate < now) {
-              logger.warn(
-                `Blocking login for expired demo account: ${email} - Trial ended: ${trialEndDate.toISOString()}`
-              );
-
-              const error = new Error(
-                "This demo account's trial period has expired. Please contact the administrator for assistance."
-              );
-              (error as any).code = "TRIAL_EXPIRED";
-              (error as any).statusCode = 403;
-              (error as any).status = 403;
-              (error as any).data = {
-                code: "TRIAL_EXPIRED",
-                message:
-                  "This demo account's trial period has expired. Please contact the administrator for assistance.",
-              };
-              throw error;
-            }
-
-            // For regular accounts: Block if trial has expired AND subscription is not active/valid
+            // If trial has expired AND subscription is not active/valid
             if (
-              !isDemoAccount &&
               trialEndDate < now &&
               subscriptionStatus !== "active" &&
               subscriptionStatus !== "trialing"
@@ -189,27 +117,10 @@ export const auth = betterAuth({
               );
               (error as any).code = "TRIAL_EXPIRED";
               (error as any).statusCode = 403;
-              (error as any).status = 403;
-              (error as any).data = {
-                code: "TRIAL_EXPIRED",
-                message:
-                  "Your trial period has expired. Please contact the administrator to upgrade your subscription.",
-              };
               throw error;
             }
           }
         }
-
-        // Super admins should always bypass OTP requirements (but still checked organization status above)
-        if (user.isSuperAdmin) {
-          // Allow super admin - they don't need OTP unless they explicitly enable 2FA
-          // Set a flag to skip OTP verification
-          (ctx as any).skipOTP = true;
-          return;
-        }
-
-        // If user doesn't have 2FA enabled, they should not be required to provide OTP
-        // The emailOTP plugin will check twoFactorEnabled before sending OTP
       }
     }),
   },
@@ -253,12 +164,7 @@ export const auth = betterAuth({
     // Email OTP plugin for verification
     emailOTP({
       sendVerificationOTP: async ({ type, email, otp }, req) => {
-        const reqUrl = new URL(req!.url);
-        const url = env.FRONTEND_DOMAIN;
-        const password = reqUrl.searchParams.get("password");
-        const name = reqUrl.searchParams.get("name");
-
-        // Check if user is superadmin - but allow OTP for email-verification (enabling 2FA)
+        // Check if user is superadmin - skip OTP entirely
         const [user] = await database
           .select({
             isSuperAdmin: schema.users.isSuperAdmin,
@@ -267,6 +173,18 @@ export const auth = betterAuth({
           .from(schema.users)
           .where(eq(schema.users.email, email))
           .limit(1);
+
+        // Super admins should bypass OTP unless they explicitly enable 2FA
+        if (user?.isSuperAdmin && !user.twoFactorEnabled) {
+          // Return early without sending email - Better Auth should skip OTP for superadmins
+          // The plugin will not require OTP if no email is sent
+          return;
+        }
+
+        const reqUrl = new URL(req!.url);
+        const url = env.FRONTEND_DOMAIN;
+        const password = reqUrl.searchParams.get("password");
+        const name = reqUrl.searchParams.get("name");
 
         try {
           // Note: forget-password type is handled by Better Auth's built-in forgetPassword
@@ -297,16 +215,25 @@ export const auth = betterAuth({
               },
             });
           } else if (type === "email-verification" && !password) {
-            // This is for enabling 2FA - always send OTP regardless of superadmin status
-            // The user is explicitly trying to enable 2FA, so they need the OTP
+            // Check if user has 2FA enabled before sending OTP
+            const [user] = await database
+              .select({
+                twoFactorEnabled: schema.users.twoFactorEnabled,
+                isSuperAdmin: schema.users.isSuperAdmin,
+              })
+              .from(schema.users)
+              .where(eq(schema.users.email, email))
+              .limit(1);
 
-            // Check if user exists
-            if (!user) {
-              console.warn(`User not found for email: ${email}`);
+            // Only send 2FA OTP if user has 2FA enabled
+            // Super admins should always bypass OTP (unless they explicitly enable 2FA)
+            if (!user || (!user.twoFactorEnabled && !user.isSuperAdmin)) {
+              // Don't send OTP email - Better Auth should allow sign-in without OTP
+              // when emailOTP callback returns without sending email
               return;
             }
 
-            // Send 2FA OTP for enabling 2FA (for all users including superadmins)
+            // Send 2FA OTP for existing users with 2FA enabled
             await brevoTransactionApi.sendTransacEmail({
               to: [{ email, name: email.substring(0, email.lastIndexOf("@")) }],
               subject: "Your 2FA Verification Code",
@@ -345,17 +272,19 @@ export const auth = betterAuth({
             });
           } else if (type === "sign-in") {
             // Handle sign-in OTP - check if 2FA is enabled
-            // Super admins should bypass sign-in OTP unless they have 2FA enabled
-            if (!user) {
-              console.warn(`User not found for sign-in OTP: ${email}`);
-              return;
-            }
+            const [user] = await database
+              .select({
+                twoFactorEnabled: schema.users.twoFactorEnabled,
+                isSuperAdmin: schema.users.isSuperAdmin,
+              })
+              .from(schema.users)
+              .where(eq(schema.users.email, email))
+              .limit(1);
 
             // Only send sign-in OTP if user has 2FA enabled
-            // Super admins should bypass sign-in OTP (but can still enable 2FA via email-verification)
-            if (!user.twoFactorEnabled) {
+            // Super admins should always bypass OTP (unless they explicitly enable 2FA)
+            if (!user || (!user.twoFactorEnabled && !user.isSuperAdmin)) {
               // Don't send OTP email - Better Auth should allow sign-in without OTP
-              // This applies to all users (including superadmins) who don't have 2FA enabled
               return;
             }
 

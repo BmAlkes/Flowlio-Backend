@@ -14,17 +14,17 @@ const debugError = (...args: any[]) => {
   }
 };
 
-console.log("📁 Loading OpenAI Service file...");
+// Lazy imports for heavy dependencies - only load when needed
+// This prevents blocking server startup
 import OpenAI from "openai";
 import { env } from "@/utils/env.util";
 import fs from "fs";
 import path from "path";
-import pdf from "pdf-parse";
-import { PDFDocument } from "pdf-lib";
-import * as pdfjsLib from "pdfjs-dist";
-import { createWorker } from "tesseract.js";
 import { logger } from "@/utils/logger.util";
 import { ChatCompletionMessageParam } from "openai/resources/chat";
+
+// Heavy dependencies (pdf-parse, pdf-lib, pdfjs-dist, tesseract.js)
+// are imported dynamically when needed to avoid blocking server startup
 
 export class OpenAIService {
   private openai: OpenAI | null;
@@ -448,6 +448,8 @@ export class OpenAIService {
       debugLog("🔍 Starting OCR text extraction...");
       logger.info("🔍 Starting OCR text extraction...");
 
+      // Lazy import tesseract.js - only load when needed
+      const { createWorker } = await import("tesseract.js");
       const worker = await createWorker("eng");
       const {
         data: { text },
@@ -577,8 +579,10 @@ export class OpenAIService {
 
             try {
               // Try pdf-parse first (most reliable for text extraction)
+              // Lazy import - only load when needed
               debugLog("🔍 Trying pdf-parse parsing...");
               parsingMethod = "pdf-parse";
+              const pdf = (await import("pdf-parse")).default;
               pdfData = await pdf(fileBuffer);
 
               debugLog("✅ pdf-parse parsing successful:", {
@@ -611,9 +615,10 @@ export class OpenAIService {
               logger.error("❌ pdf-parse failed:", parseError);
 
               try {
-                // Fallback to pdfjs-dist
+                // Fallback to pdfjs-dist - lazy import
                 debugLog("🔍 Trying pdfjs-dist parsing...");
                 parsingMethod = "pdfjs-dist";
+                const pdfjsLib = await import("pdfjs-dist");
                 const loadingTask = pdfjsLib.getDocument({ data: fileBuffer });
                 const pdfDoc = await loadingTask.promise;
                 const numPages = pdfDoc.numPages;
@@ -666,9 +671,10 @@ export class OpenAIService {
                 logger.error("❌ pdfjs-dist failed:", pdfjsError);
 
                 try {
-                  // Final fallback to pdf-lib
+                  // Final fallback to pdf-lib - lazy import
                   debugLog("🔍 Trying pdf-lib parsing...");
                   parsingMethod = "pdf-lib";
+                  const { PDFDocument } = await import("pdf-lib");
                   const pdfDoc = await PDFDocument.load(fileBuffer);
                   const pages = pdfDoc.getPages();
 
