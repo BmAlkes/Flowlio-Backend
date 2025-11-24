@@ -13,6 +13,7 @@ import { createAuthMiddleware, emailOTP, twoFactor } from "better-auth/plugins";
 import { admin as adminPlugin } from "better-auth/plugins";
 import { ac, roles } from "./permission";
 import { eq } from "drizzle-orm";
+import { logger } from "@/utils/logger.util";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -164,6 +165,8 @@ export const auth = betterAuth({
     // Email OTP plugin for verification
     emailOTP({
       sendVerificationOTP: async ({ type, email, otp }, req) => {
+        logger.info(`📧 OTP Request - Type: ${type}, Email: ${email}`);
+
         // Check if user is superadmin - skip OTP entirely
         const [user] = await database
           .select({
@@ -174,8 +177,23 @@ export const auth = betterAuth({
           .where(eq(schema.users.email, email))
           .limit(1);
 
-        // Super admins should bypass OTP unless they explicitly enable 2FA
-        if (user?.isSuperAdmin && !user.twoFactorEnabled) {
+        logger.info(
+          `👤 User found: ${!!user}, isSuperAdmin: ${
+            user?.isSuperAdmin
+          }, twoFactorEnabled: ${user?.twoFactorEnabled}`
+        );
+
+        // IMPORTANT: Only skip OTP for super admins on SIGN-IN, not on email-verification
+        // This is because email-verification can be used to ENABLE 2FA (when twoFactorEnabled is still false)
+        // For sign-in, super admins should bypass OTP unless they have 2FA enabled
+        if (
+          type === "sign-in" &&
+          user?.isSuperAdmin &&
+          !user.twoFactorEnabled
+        ) {
+          logger.info(
+            `⏭️ Skipping sign-in OTP for super admin without 2FA: ${email}`
+          );
           // Return early without sending email - Better Auth should skip OTP for superadmins
           // The plugin will not require OTP if no email is sent
           return;
@@ -215,7 +233,7 @@ export const auth = betterAuth({
               },
             });
           } else if (type === "email-verification" && !password) {
-            // Check if user has 2FA enabled before sending OTP
+            // Check if user exists
             const [user] = await database
               .select({
                 twoFactorEnabled: schema.users.twoFactorEnabled,
@@ -225,18 +243,39 @@ export const auth = betterAuth({
               .where(eq(schema.users.email, email))
               .limit(1);
 
-            // Only send 2FA OTP if user has 2FA enabled
-            // Super admins should always bypass OTP (unless they explicitly enable 2FA)
-            if (!user || (!user.twoFactorEnabled && !user.isSuperAdmin)) {
-              // Don't send OTP email - Better Auth should allow sign-in without OTP
-              // when emailOTP callback returns without sending email
+            logger.info(
+              `🔐 Email verification OTP check - User: ${!!user}, 2FA: ${
+                user?.twoFactorEnabled
+              }, SuperAdmin: ${user?.isSuperAdmin}`
+            );
+
+            // IMPORTANT: For email-verification type, we should send OTP if user exists
+            // This is because:
+            // 1. User might be enabling 2FA (twoFactorEnabled is still false) - THIS IS THE KEY CASE!
+            // 2. User might be verifying email during signup
+            // 3. User might be using it for other verification purposes
+            // We MUST send OTP even if twoFactorEnabled is false, because the user is trying to ENABLE it!
+            if (!user) {
+              logger.warn(
+                `⏭️ Skipping email verification OTP - User not found: ${email}`
+              );
               return;
             }
 
-            // Send 2FA OTP for existing users with 2FA enabled
+            // DO NOT skip for super admin when enabling 2FA!
+            // When user clicks "Enable 2FA", their twoFactorEnabled is still false,
+            // so we MUST send the OTP to allow them to verify and enable 2FA
+            // The top-level check already handles sign-in type, so we're safe here
+
+            logger.info(`📤 Sending email verification OTP to ${email}`);
+            // Send OTP for email verification (could be for 2FA setup or other verification)
+            // Determine subject based on whether user has 2FA enabled or not
+            const is2FASetup = !user.twoFactorEnabled;
             await brevoTransactionApi.sendTransacEmail({
               to: [{ email, name: email.substring(0, email.lastIndexOf("@")) }],
-              subject: "Your 2FA Verification Code",
+              subject: is2FASetup
+                ? "Your Email Verification Code for 2FA Setup"
+                : "Your 2FA Verification Code",
               htmlContent: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
                   <div style="text-align: center; margin-bottom: 30px;">
@@ -270,6 +309,9 @@ export const auth = betterAuth({
                 email: env.BREVO_SENDER,
               },
             });
+            logger.info(
+              `✅ Email verification OTP sent successfully to ${email}`
+            );
           } else if (type === "sign-in") {
             // Handle sign-in OTP - check if 2FA is enabled
             const [user] = await database
@@ -281,13 +323,23 @@ export const auth = betterAuth({
               .where(eq(schema.users.email, email))
               .limit(1);
 
+            logger.info(
+              `🔐 Sign-in OTP check - User: ${!!user}, 2FA: ${
+                user?.twoFactorEnabled
+              }, SuperAdmin: ${user?.isSuperAdmin}`
+            );
+
             // Only send sign-in OTP if user has 2FA enabled
             // Super admins should always bypass OTP (unless they explicitly enable 2FA)
             if (!user || (!user.twoFactorEnabled && !user.isSuperAdmin)) {
+              logger.warn(
+                `⏭️ Skipping sign-in OTP - User not found or 2FA not enabled: ${email}`
+              );
               // Don't send OTP email - Better Auth should allow sign-in without OTP
               return;
             }
 
+            logger.info(`📤 Sending sign-in OTP to ${email}`);
             // Send sign-in OTP for users with 2FA enabled
             await brevoTransactionApi.sendTransacEmail({
               to: [{ email, name: email.substring(0, email.lastIndexOf("@")) }],
@@ -325,11 +377,88 @@ export const auth = betterAuth({
                 email: env.BREVO_SENDER,
               },
             });
+            logger.info(`✅ Sign-in OTP sent successfully to ${email}`);
           } else {
-            return;
+            // Handle any other OTP types (e.g., two-factor-setup, etc.)
+            logger.warn(
+              `⚠️ Unknown OTP type: ${type} for email: ${email} - Attempting to send anyway`
+            );
+
+            // For unknown types, check if user exists and send OTP
+            const [user] = await database
+              .select({
+                twoFactorEnabled: schema.users.twoFactorEnabled,
+                isSuperAdmin: schema.users.isSuperAdmin,
+              })
+              .from(schema.users)
+              .where(eq(schema.users.email, email))
+              .limit(1);
+
+            if (!user) {
+              logger.warn(
+                `⏭️ Skipping OTP for unknown type - User not found: ${email}`
+              );
+              return;
+            }
+
+            // Skip for super admin without 2FA
+            if (user.isSuperAdmin && !user.twoFactorEnabled) {
+              logger.info(
+                `⏭️ Skipping OTP for unknown type - Super admin without 2FA: ${email}`
+              );
+              return;
+            }
+
+            logger.info(`📤 Sending OTP for unknown type ${type} to ${email}`);
+            // Send generic OTP email for unknown types
+            await brevoTransactionApi.sendTransacEmail({
+              to: [{ email, name: email.substring(0, email.lastIndexOf("@")) }],
+              subject: "Your Verification Code",
+              htmlContent: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                  <div style="text-align: center; margin-bottom: 30px;">
+                    <h1 style="color: #333; margin-bottom: 10px;">Verification Code</h1>
+                    <p style="color: #666; font-size: 16px;">Please use the code below to verify your request</p>
+                  </div>
+                  
+                  <div style="background-color: #f8f9fa; border-radius: 8px; padding: 30px; text-align: center; margin: 20px 0;">
+                    <p style="color: #333; font-size: 18px; margin-bottom: 15px;">Your verification code is:</p>
+                    <div style="background-color: #fff; border: 2px dashed #007bff; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                      <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #007bff; font-family: monospace;">${otp}</span>
+                    </div>
+                    <p style="color: #666; font-size: 14px;">This code will expire in 30 minutes.</p>
+                  </div>
+                  
+                  <div style="background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 15px; margin: 20px 0;">
+                    <p style="color: #856404; font-size: 14px; margin: 0;">
+                      <strong>Security Notice:</strong> If you didn't request this code, please ignore this email and consider changing your password.
+                    </p>
+                  </div>
+                  
+                  <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                    <p style="color: #999; font-size: 12px; margin: 0;">
+                      This email was sent by Flowlio Security System
+                    </p>
+                  </div>
+                </div>
+              `,
+              sender: {
+                name: "Flowlio Security",
+                email: env.BREVO_SENDER,
+              },
+            });
+            logger.info(
+              `✅ OTP sent successfully for type ${type} to ${email}`
+            );
           }
         } catch (error) {
-          console.error(`❌ Failed to send email to ${email}:`, error);
+          logger.error(`❌ Failed to send OTP email to ${email}:`, error);
+          logger.error(`❌ Error details:`, {
+            message: (error as any)?.message,
+            stack: (error as any)?.stack,
+            response: (error as any)?.response?.data,
+            status: (error as any)?.response?.status,
+          });
           throw error;
         }
       },
