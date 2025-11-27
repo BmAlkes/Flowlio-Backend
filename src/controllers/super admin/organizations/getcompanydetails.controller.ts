@@ -72,6 +72,8 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
         status: subscriptions.status,
         currentPeriodStart: subscriptions.currentPeriodStart,
         currentPeriodEnd: subscriptions.currentPeriodEnd,
+        cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
+        cancelledAt: subscriptions.cancelledAt,
         plan: {
           id: subscriptionPlans.id,
           name: subscriptionPlans.name,
@@ -140,13 +142,10 @@ export const getCompanyDetails = async (req: Request, res: Response) => {
       .where(
         and(
           eq(projects.organizationId, organizationId),
-          or(
-            eq(projects.status, "ongoing"),
-            eq(projects.status, "pending")
-          )
+          or(eq(projects.status, "ongoing"), eq(projects.status, "pending"))
         )
       );
-    
+
     const activeProjectsCount = activeProjectsQuery.length;
 
     // Calculate stats
