@@ -11,6 +11,10 @@ import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
 import { canCreateProject } from "@/utils/plan-access.util";
+import {
+  requireOrganizationId,
+  validateOrganizationId,
+} from "@/utils/organization.util";
 interface CreateProjectRequest {
   body: z.infer<typeof createProjectSchema>;
   user?: {
@@ -38,20 +42,24 @@ export const createProject = async (
       return;
     }
 
-    // Check if organization ID is provided
-    if (!validatedData.organizationId) {
-      res.status(400).json({
-        success: false,
-        message: "Organization ID is required",
-      });
-      return;
+    // Get organization ID from authenticated user (more secure than accepting from body)
+    const organizationId = requireOrganizationId(req as any, res);
+    if (!organizationId) {
+      return; // Response already sent by requireOrganizationId
+    }
+
+    // Validate that provided organization ID (if any) matches user's organization
+    if (
+      !validateOrganizationId(req as any, res, validatedData.organizationId)
+    ) {
+      return; // Response already sent by validateOrganizationId
     }
 
     // Check plan limit for project creation
-    const planCheck = await canCreateProject(validatedData.organizationId);
+    const planCheck = await canCreateProject(organizationId);
     if (!planCheck.hasAccess) {
       logger.warn(
-        `⚠️ Project creation blocked for organization ${validatedData.organizationId}: ${planCheck.reason}`
+        `⚠️ Project creation blocked for organization ${organizationId}: ${planCheck.reason}`
       );
       res.status(403).json({
         success: false,
@@ -64,20 +72,6 @@ export const createProject = async (
       return;
     }
 
-    // Validate that the organization ID matches the user's organization
-    if (validatedData.organizationId !== (req.user as any)?.organizationId) {
-      logger.warn(
-        `Organization ID mismatch: User's org ID: ${
-          (req.user as any)?.organizationId
-        }, Request org ID: ${validatedData.organizationId}`
-      );
-      res.status(400).json({
-        success: false,
-        message: "Organization ID mismatch. Please refresh and try again.",
-      });
-      return;
-    }
-
     // Check if project with same name already exists in the organization
     const existingProject = await database
       .select()
@@ -85,7 +79,7 @@ export const createProject = async (
       .where(
         and(
           eq(projects.name, validatedData.name),
-          eq(projects.organizationId, validatedData.organizationId)
+          eq(projects.organizationId, organizationId)
         )
       )
       .limit(1);
@@ -101,7 +95,7 @@ export const createProject = async (
     // Validate that the client belongs to the organization (only if clientId is provided)
     if (validatedData.clientId) {
       logger.info(
-        `Validating client ${validatedData.clientId} for organization ${validatedData.organizationId}`
+        `Validating client ${validatedData.clientId} for organization ${organizationId}`
       );
 
       const clientExists = await database
@@ -110,7 +104,7 @@ export const createProject = async (
         .where(
           and(
             eq(clients.id, validatedData.clientId),
-            eq(clients.organizationId, validatedData.organizationId)
+            eq(clients.organizationId, organizationId)
           )
         )
         .limit(1);
@@ -131,7 +125,7 @@ export const createProject = async (
     // Validate that the assigned user belongs to the organization (only if assignedTo is provided)
     if (validatedData.assignedTo) {
       logger.info(
-        `Validating user ${validatedData.assignedTo} for organization ${validatedData.organizationId}`
+        `Validating user ${validatedData.assignedTo} for organization ${organizationId}`
       );
 
       const assignedUserExists = await database
@@ -141,7 +135,7 @@ export const createProject = async (
         .where(
           and(
             eq(users.id, validatedData.assignedTo),
-            eq(userOrganizations.organizationId, validatedData.organizationId)
+            eq(userOrganizations.organizationId, organizationId)
           )
         )
         .limit(1);
@@ -234,7 +228,7 @@ export const createProject = async (
         projectNumber: validatedData.projectNumber ?? "",
         clientId: validatedData.clientId ?? null,
         description: validatedData.description ?? null,
-        organizationId: validatedData.organizationId,
+        organizationId: organizationId,
         createdBy: req.user?.id as string,
         assignedTo: validatedData.assignedTo ?? null,
         startDate: validatedData.startDate
@@ -270,8 +264,8 @@ export const createProject = async (
 
     // Log activity
     const userId = req.user?.id;
-    const organizationId = createdProject.organizationId;
-    if (organizationId && userId) {
+    // Use the organizationId already defined above
+    if (userId) {
       await logActivity({
         organizationId,
         actorId: userId,

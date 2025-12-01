@@ -10,6 +10,10 @@ import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
 import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
+import {
+  requireOrganizationId,
+  validateOrganizationId,
+} from "@/utils/organization.util";
 
 interface UpdateProjectRequest {
   body: z.infer<typeof updateProjectSchema>;
@@ -43,21 +47,18 @@ export const updateProject = async (
       return;
     }
 
-    // Check if organization ID is provided (only if updating organization-related fields)
+    // Get organization ID from authenticated user
+    const organizationId = requireOrganizationId(req as any, res);
+    if (!organizationId) {
+      return; // Response already sent by requireOrganizationId
+    }
+
+    // Validate that provided organization ID (if any) matches user's organization
     if (
       validatedData.organizationId &&
-      validatedData.organizationId !== (req.user as any)?.organizationId
+      !validateOrganizationId(req as any, res, validatedData.organizationId)
     ) {
-      logger.warn(
-        `Organization ID mismatch: User's org ID: ${
-          (req.user as any)?.organizationId
-        }, Request org ID: ${validatedData.organizationId}`
-      );
-      res.status(400).json({
-        success: false,
-        message: "Organization ID mismatch. Please refresh and try again.",
-      });
-      return;
+      return; // Response already sent by validateOrganizationId
     }
 
     // Get existing project to use as fallback for missing fields
@@ -67,7 +68,7 @@ export const updateProject = async (
       .where(
         and(
           eq(projects.id, projectId),
-          eq(projects.organizationId, (req.user as any)?.organizationId)
+          eq(projects.organizationId, organizationId)
         )
       )
       .limit(1);
@@ -90,7 +91,7 @@ export const updateProject = async (
         .where(
           and(
             eq(projects.name, validatedData.name),
-            eq(projects.organizationId, (req.user as any)?.organizationId)
+            eq(projects.organizationId, organizationId)
           )
         )
         .limit(1);
@@ -108,9 +109,7 @@ export const updateProject = async (
     // Validate that the client belongs to the organization (only if updating clientId)
     if (validatedData.clientId) {
       logger.info(
-        `Validating client ${validatedData.clientId} for organization ${
-          (req.user as any)?.organizationId
-        }`
+        `Validating client ${validatedData.clientId} for organization ${organizationId}`
       );
 
       const clientExists = await database
@@ -119,7 +118,7 @@ export const updateProject = async (
         .where(
           and(
             eq(clients.id, validatedData.clientId),
-            eq(clients.organizationId, (req.user as any)?.organizationId)
+            eq(clients.organizationId, organizationId)
           )
         )
         .limit(1);
@@ -136,9 +135,7 @@ export const updateProject = async (
     // Validate that the assigned user belongs to the organization (only if updating assignedTo)
     if (validatedData.assignedTo) {
       logger.info(
-        `Validating user ${validatedData.assignedTo} for organization ${
-          (req.user as any)?.organizationId
-        }`
+        `Validating user ${validatedData.assignedTo} for organization ${organizationId}`
       );
 
       const assignedUserExists = await database
@@ -148,10 +145,7 @@ export const updateProject = async (
         .where(
           and(
             eq(users.id, validatedData.assignedTo),
-            eq(
-              userOrganizations.organizationId,
-              (req.user as any)?.organizationId
-            )
+            eq(userOrganizations.organizationId, organizationId)
           )
         )
         .limit(1);
@@ -289,7 +283,7 @@ export const updateProject = async (
 
     // Log activity
     const userId = req.user?.id;
-    const organizationId = (req.user as any)?.organizationId;
+    // organizationId is already defined above
     if (organizationId && userId && existingProject.length > 0) {
       await logActivity({
         organizationId,

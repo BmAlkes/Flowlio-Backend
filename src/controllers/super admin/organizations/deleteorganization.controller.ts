@@ -36,6 +36,66 @@ export const deleteOrganization = async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a pending user (virtual organization ID)
+    if (organizationId.startsWith("pending_")) {
+      const userId = organizationId.replace("pending_", "");
+
+      logger.info(`🗑️ Deleting pending user ${userId} (virtual organization)`);
+
+      // Check if user exists
+      const [user] = await database
+        .select()
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "Pending user not found",
+        });
+      }
+
+      // Delete pending user and all related data
+      // 1. Delete sessions
+      await database.delete(session).where(eq(session.userId, userId));
+      logger.info(`✅ Deleted sessions for pending user ${userId}`);
+
+      // 2. Delete account records (Better Auth authentication records)
+      await database.delete(account).where(eq(account.userId, userId));
+      logger.info(`✅ Deleted account records for pending user ${userId}`);
+
+      // 3. Delete time entries
+      await database.delete(timeEntries).where(eq(timeEntries.userId, userId));
+      logger.info(`✅ Deleted time entries for pending user ${userId}`);
+
+      // 4. Delete notifications by user
+      await database
+        .delete(notifications)
+        .where(eq(notifications.userId, userId));
+      logger.info(`✅ Deleted notifications for pending user ${userId}`);
+
+      // 5. Delete support tickets
+      await database
+        .delete(supportTickets)
+        .where(eq(supportTickets.submittedby, userId));
+      logger.info(`✅ Deleted support tickets for pending user ${userId}`);
+
+      // 6. Delete the user (this will cascade to other related data)
+      await database.delete(users).where(eq(users.id, userId));
+      logger.info(`✅ Deleted pending user ${userId} and all associated data`);
+
+      return res.status(200).json({
+        success: true,
+        message: "Pending user deleted successfully",
+        data: {
+          userId,
+          deletedAt: new Date().toISOString(),
+          isPendingUser: true,
+        },
+      });
+    }
+
     // Check if organization exists and if it's a demo organization
     const [organization] = await database
       .select()

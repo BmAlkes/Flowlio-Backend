@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { uploadToCloudinary } from "@/utils/cloudinary.util";
 import { logActivity } from "@/utils/activity.util";
+import { requireOrganizationId } from "@/utils/organization.util";
 
 interface CreateInvoiceRequest {
   body: z.infer<typeof createInvoiceSchema>;
@@ -36,17 +37,11 @@ export const createInvoice = async (
       return;
     }
 
-    // Check if organization ID is provided
-    if (!req.user.organizationId) {
-      res.status(400).json({
-        success: false,
-        message: "User must belong to an organization",
-      });
-      return;
+    // Get organization ID from authenticated user
+    const organizationId = requireOrganizationId(req, res);
+    if (!organizationId) {
+      return; // Response already sent by requireOrganizationId
     }
-
-    // Get client information
-    const organizationId = req.user.organizationId as string;
 
     const client = await database.query.clients.findFirst({
       where: (clients, { eq, and }) =>

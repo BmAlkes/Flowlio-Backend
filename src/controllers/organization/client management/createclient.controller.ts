@@ -5,18 +5,19 @@ import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logActivity } from "@/utils/activity.util";
+import { requireOrganizationId } from "@/utils/organization.util";
 
 export const createClient = async (req: Request, res: Response) => {
   try {
-    // Check if user is authenticated and has organization ID
+    // Check if user is authenticated
     if (!req.user) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const organizationId = req.user.organizationId;
-
+    // Get organization ID from authenticated user
+    const organizationId = requireOrganizationId(req, res);
     if (!organizationId) {
-      return res.status(400).json({ error: "Organization ID is required" });
+      return; // Response already sent by requireOrganizationId
     }
 
     // Extract client data from request body

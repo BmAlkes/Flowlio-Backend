@@ -692,6 +692,10 @@ export const capturePayPalOrder = async (
           // Create subscription for existing organization
           const existingOrg = existingUserOrg.organization;
 
+          // Check if this is a demo organization - if yes, convert to regular client
+          const orgSettings = existingOrg.settings as any;
+          const isDemoOrg = orgSettings?.demo === true;
+
           // Check if subscription already exists
           const existingSubscription =
             await database.query.subscriptions.findFirst({
@@ -703,6 +707,21 @@ export const capturePayPalOrder = async (
             now.getTime() + 30 * 24 * 60 * 60 * 1000
           ); // 30 days
           let subscriptionId: string;
+
+          // If demo organization, prepare to remove demo flag
+          let updatedSettings = orgSettings || {};
+          if (isDemoOrg) {
+            logger.info(
+              `Converting demo organization ${existingOrg.id} to regular client after purchase`
+            );
+            // Remove demo-related settings
+            updatedSettings = { ...updatedSettings };
+            delete updatedSettings.demo;
+            delete updatedSettings.demoCreatedAt;
+            delete updatedSettings.demoCreatedBy;
+            delete updatedSettings.demoRole;
+            // Keep passwordChanged if exists (user might have changed password)
+          }
 
           if (existingSubscription) {
             // Update existing subscription
@@ -742,17 +761,63 @@ export const capturePayPalOrder = async (
             );
           }
 
-          // Update organization subscription status
-          await database
+          // Update organization subscription status and main status
+          // If it was a demo org, also remove demo flag from settings
+          const updatedOrg = await database
             .update(organizations)
             .set({
+              status: "active", // Set organization status to active after successful payment
               subscriptionStatus: "active",
               subscriptionPlanId: finalPlanId,
               subscriptionStartDate: now,
               subscriptionEndDate: subscriptionEndDate,
+              settings: updatedSettings, // Remove demo flag if it was a demo org
               updatedAt: now,
             })
-            .where(eq(organizations.id, existingOrg.id));
+            .where(eq(organizations.id, existingOrg.id))
+            .returning();
+
+          logger.info(
+            `✅ Organization ${existingOrg.id} updated after payment:`,
+            {
+              organizationId: existingOrg.id,
+              status: updatedOrg[0]?.status,
+              subscriptionStatus: updatedOrg[0]?.subscriptionStatus,
+              isDemoOrg,
+              userId,
+            }
+          );
+
+          if (isDemoOrg) {
+            logger.info(
+              `✅ Demo organization ${existingOrg.id} converted to regular client after successful purchase`
+            );
+          }
+
+          // Activate user and clear pending data (important for frontend status display)
+          if (userId) {
+            const updatedUser = await database
+              .update(users)
+              .set({
+                status: "active",
+                selectedPlanId: null,
+                pendingOrganizationData: null,
+              })
+              .where(eq(users.id, userId))
+              .returning();
+
+            logger.info(
+              `✅ User ${userId} status updated to active after successful payment:`,
+              {
+                userId,
+                userStatus: updatedUser[0]?.status,
+                organizationId: existingOrg.id,
+                organizationStatus: updatedOrg[0]?.status,
+                organizationSubscriptionStatus:
+                  updatedOrg[0]?.subscriptionStatus,
+              }
+            );
+          }
 
           res.status(200).json({
             success: true,
@@ -936,30 +1001,62 @@ export const capturePayPalOrder = async (
 
         const currentPeriodEnd = new Date(now.getTime() + subscriptionPeriodMs);
 
+        // Check if existing organization is a demo org (for shouldUpdate case)
+        let existingOrgSettings: any = null;
+        if (shouldUpdate && existingOrg) {
+          existingOrgSettings = existingOrg.settings as any;
+        }
+
+        // If demo organization, prepare to remove demo flag
+        let updatedSettingsForNewOrg = null;
+        if (shouldUpdate && existingOrgSettings?.demo === true) {
+          logger.info(
+            `Converting demo organization ${organizationId} to regular client after purchase`
+          );
+          updatedSettingsForNewOrg = { ...existingOrgSettings };
+          delete updatedSettingsForNewOrg.demo;
+          delete updatedSettingsForNewOrg.demoCreatedAt;
+          delete updatedSettingsForNewOrg.demoCreatedBy;
+          delete updatedSettingsForNewOrg.demoRole;
+        }
+
         // Update or create organization
         let newOrganization;
         if (shouldUpdate) {
           // Update existing pending organization
+          const updateData: any = {
+            name: finalOrgName,
+            website: finalOrganizationWebsite,
+            industry: finalOrganizationIndustry,
+            size: finalOrganizationSize,
+            subscriptionPlanId: planIdString,
+            subscriptionStatus: "active",
+            subscriptionStartDate: now,
+            status: "active", // Set to active after successful payment
+            trialEndsAt: trialEndsAt,
+            maxUsers: plan.features?.maxUsers,
+            maxProjects: plan.features?.maxProjects,
+            maxStorage: plan.features?.maxStorage,
+            updatedAt: now,
+          };
+
+          // Remove demo flag if it was a demo org
+          if (updatedSettingsForNewOrg) {
+            updateData.settings = updatedSettingsForNewOrg;
+          }
+
           const updatedOrgs = await database
             .update(organizations)
-            .set({
-              name: finalOrgName,
-              website: finalOrganizationWebsite,
-              industry: finalOrganizationIndustry,
-              size: finalOrganizationSize,
-              subscriptionPlanId: planIdString,
-              subscriptionStatus: "active",
-              subscriptionStartDate: now,
-              status: "active", // Set to active after successful payment
-              trialEndsAt: trialEndsAt,
-              maxUsers: plan.features?.maxUsers,
-              maxProjects: plan.features?.maxProjects,
-              maxStorage: plan.features?.maxStorage,
-              updatedAt: now,
-            })
+            .set(updateData)
             .where(eq(organizations.id, organizationId))
             .returning();
           newOrganization = updatedOrgs[0]!;
+
+          if (updatedSettingsForNewOrg) {
+            logger.info(
+              `✅ Demo organization ${organizationId} converted to regular client after successful purchase`
+            );
+          }
         } else {
           // Create new organization
           newOrganization = (

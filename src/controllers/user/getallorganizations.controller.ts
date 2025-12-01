@@ -44,9 +44,15 @@ export const getAllOrganizations = async (_: Request, res: Response) => {
         return {
           ...org,
           subscriptions: [sortedSubs[0]], // Keep only the most recent subscription
+          // Ensure subscriptionStatus is explicitly included
+          subscriptionStatus: org.subscriptionStatus || "non active",
         };
       }
-      return org;
+      return {
+        ...org,
+        // Ensure subscriptionStatus is explicitly included even if no subscriptions
+        subscriptionStatus: org.subscriptionStatus || "non active",
+      };
     });
 
     // Get all users with pending status
