@@ -321,7 +321,9 @@ export const projects = pgTable(
         publicId: string;
         name: string;
         type: string;
+        size?: number; // File size in bytes
       };
+      totalSize?: number; // Total file size in bytes for all files
     }>(), // Project PDF file
     tags: json("tags").$type<string[]>(),
     settings: json("settings").$type<{

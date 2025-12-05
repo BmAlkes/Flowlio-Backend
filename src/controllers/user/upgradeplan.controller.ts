@@ -5,10 +5,12 @@ import {
   organizations,
   subscriptionPlans,
   userOrganizations,
+  users,
 } from "@/schema/schema";
 import { eq, and } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
+import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
 import axios from "axios";
 
 interface CreateUpgradeOrderRequest {
@@ -98,8 +100,7 @@ export const createUpgradeOrder = async (
 ): Promise<void> => {
   try {
     const userId = req.user?.id;
-    const { newPlanId, demoMode = false }: CreateUpgradeOrderRequest =
-      req.body;
+    const { newPlanId, demoMode = false }: CreateUpgradeOrderRequest = req.body;
 
     if (!userId) {
       res.status(401).json({
@@ -167,7 +168,8 @@ export const createUpgradeOrder = async (
     if (subscription.currentPeriodEnd < now) {
       res.status(400).json({
         success: false,
-        message: "Subscription period has ended. Please renew your subscription first.",
+        message:
+          "Subscription period has ended. Please renew your subscription first.",
       });
       return;
     }
@@ -508,6 +510,40 @@ export const captureUpgradeOrder = async (
         `Demo upgrade completed: Organization ${organizationId} upgraded to plan ${newPlanId}`
       );
 
+      // Get organization, user, and plan details for notification
+      const org = userOrg[0].organization;
+      const oldPlan = await database.query.subscriptionPlans.findFirst({
+        where: eq(subscriptionPlans.id, subscription.planId),
+        columns: { name: true, price: true },
+      });
+      const newPlan = await database.query.subscriptionPlans.findFirst({
+        where: eq(subscriptionPlans.id, newPlanId),
+        columns: { name: true, price: true },
+      });
+      const user = await database.query.users.findFirst({
+        where: eq(users.id, userId),
+        columns: { name: true, email: true },
+      });
+
+      // Notify super admins about plan upgrade
+      await notifySuperAdmins({
+        type: "planUpgrade",
+        title: "Plan Upgraded",
+        message: `A user has upgraded their subscription plan.`,
+        details: {
+          "Organization Name": org.name || "N/A",
+          "Organization ID": organizationId,
+          "User Name": user?.name || "N/A",
+          "User Email": user?.email || "N/A",
+          "Old Plan": oldPlan?.name || "N/A",
+          "Old Plan Price": oldPlan?.price ? `$${oldPlan.price}` : "N/A",
+          "New Plan": newPlan?.name || "N/A",
+          "New Plan Price": newPlan?.price ? `$${newPlan.price}` : "N/A",
+          "Subscription ID": subscription.id,
+          "Upgrade Type": "Demo",
+        },
+      });
+
       res.status(200).json({
         success: true,
         message: "Plan upgraded successfully (demo)",
@@ -648,6 +684,55 @@ export const captureUpgradeOrder = async (
       `Upgrade completed: Organization ${organizationId} upgraded to plan ${newPlanId}, order: ${orderId}`
     );
 
+    // Get organization, user, and plan details for notification
+    const org = userOrg[0].organization;
+    const oldPlan = await database.query.subscriptionPlans.findFirst({
+      where: eq(subscriptionPlans.id, subscription.planId),
+      columns: { name: true, price: true },
+    });
+    const newPlan = await database.query.subscriptionPlans.findFirst({
+      where: eq(subscriptionPlans.id, newPlanId),
+      columns: { name: true, price: true },
+    });
+    const user = await database.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { name: true, email: true },
+    });
+
+    // Get payment amount from PayPal order
+    let paymentAmount = "N/A";
+    try {
+      const orderDetails = orderResponse?.data;
+      if (orderDetails?.purchase_units?.[0]?.amount?.value) {
+        paymentAmount = `$${orderDetails.purchase_units[0].amount.value} ${
+          orderDetails.purchase_units[0].amount.currency_code || "USD"
+        }`;
+      }
+    } catch (error) {
+      logger.warn("Could not extract payment amount from PayPal order");
+    }
+
+    // Notify super admins about plan upgrade
+    await notifySuperAdmins({
+      type: "planUpgrade",
+      title: "Plan Upgraded",
+      message: `A user has upgraded their subscription plan.`,
+      details: {
+        "Organization Name": org.name || "N/A",
+        "Organization ID": organizationId,
+        "User Name": user?.name || "N/A",
+        "User Email": user?.email || "N/A",
+        "Old Plan": oldPlan?.name || "N/A",
+        "Old Plan Price": oldPlan?.price ? `$${oldPlan.price}` : "N/A",
+        "New Plan": newPlan?.name || "N/A",
+        "New Plan Price": newPlan?.price ? `$${newPlan.price}` : "N/A",
+        "Payment Amount": paymentAmount,
+        "Subscription ID": subscription.id,
+        "PayPal Order ID": orderId,
+        "Upgrade Type": "Real Payment",
+      },
+    });
+
     res.status(200).json({
       success: true,
       message: "Plan upgraded successfully",
@@ -672,4 +757,3 @@ export const captureUpgradeOrder = async (
     return;
   }
 };
-

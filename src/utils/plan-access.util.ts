@@ -224,3 +224,130 @@ export async function hasFeatureAccess(
     return { hasAccess: true };
   }
 }
+
+/**
+ * Check if organization can upload file based on storage limit
+ * @param organizationId - Organization ID
+ * @param fileSizeInBytes - Size of file to upload in bytes
+ * @returns PlanAccessResult with hasAccess, current storage usage, and max allowed
+ */
+export async function canUploadFile(
+  organizationId: string,
+  fileSizeInBytes: number
+): Promise<PlanAccessResult> {
+  try {
+    const features = await getOrganizationPlanFeatures(organizationId);
+
+    if (!features) {
+      // No plan restrictions - allow upload
+      return { hasAccess: true };
+    }
+
+    // If maxStorage is 0 or undefined, it means unlimited
+    if (!features.maxStorage || features.maxStorage === 0) {
+      return { hasAccess: true, planFeatures: features };
+    }
+
+    // Calculate current storage usage from projects
+    // Get all projects for this organization and sum up their file sizes
+    const orgProjects = await database
+      .select()
+      .from(projects)
+      .where(eq(projects.organizationId, organizationId));
+
+    // Sum all file sizes (in bytes) from projectFiles JSON field
+    const currentStorageBytes = orgProjects.reduce((total, project) => {
+      const projectFiles = (project as any).projectFiles;
+      if (projectFiles && typeof projectFiles === "object") {
+        // Get totalSize if available, otherwise sum individual file sizes
+        if (projectFiles.totalSize) {
+          return total + projectFiles.totalSize;
+        }
+        // Fallback: sum individual file sizes
+        if (projectFiles.projectPdf?.size) {
+          return total + projectFiles.projectPdf.size;
+        }
+      }
+      return total;
+    }, 0);
+
+    // Convert maxStorage from GB to bytes (1 GB = 1024 * 1024 * 1024 bytes)
+    const maxStorageBytes = features.maxStorage * 1024 * 1024 * 1024;
+    const fileSizeInGB = fileSizeInBytes / (1024 * 1024 * 1024);
+    const currentStorageInGB = currentStorageBytes / (1024 * 1024 * 1024);
+    const maxStorageInGB = features.maxStorage;
+
+    // Check if adding this file would exceed the limit
+    if (currentStorageBytes + fileSizeInBytes > maxStorageBytes) {
+      return {
+        hasAccess: false,
+        reason: `Storage limit reached. Your plan allows ${maxStorageInGB} GB storage. You are currently using ${currentStorageInGB.toFixed(
+          2
+        )} GB, and this file (${fileSizeInGB.toFixed(
+          2
+        )} GB) would exceed your limit. Please upgrade your plan or delete some files.`,
+        currentCount: currentStorageInGB,
+        maxAllowed: maxStorageInGB,
+        planFeatures: features,
+      };
+    }
+
+    return {
+      hasAccess: true,
+      currentCount: currentStorageInGB,
+      maxAllowed: maxStorageInGB,
+      planFeatures: features,
+    };
+  } catch (error) {
+    logger.error("Error checking storage limit:", error);
+    // On error, allow upload to avoid blocking users
+    return { hasAccess: true };
+  }
+}
+
+/**
+ * Get current storage usage for an organization
+ * @param organizationId - Organization ID
+ * @returns Storage usage in GB
+ */
+export async function getStorageUsage(
+  organizationId: string
+): Promise<{ usedGB: number; maxGB: number; percentage: number }> {
+  try {
+    const features = await getOrganizationPlanFeatures(organizationId);
+
+    // Calculate current storage usage from projects
+    const orgProjects = await database
+      .select()
+      .from(projects)
+      .where(eq(projects.organizationId, organizationId));
+
+    const currentStorageBytes = orgProjects.reduce((total, project) => {
+      const projectFiles = (project as any).projectFiles;
+      if (projectFiles && typeof projectFiles === "object") {
+        // Get totalSize if available, otherwise sum individual file sizes
+        if (projectFiles.totalSize) {
+          return total + projectFiles.totalSize;
+        }
+        // Fallback: sum individual file sizes
+        if (projectFiles.projectPdf?.size) {
+          return total + projectFiles.projectPdf.size;
+        }
+      }
+      return total;
+    }, 0);
+
+    const usedGB = currentStorageBytes / (1024 * 1024 * 1024);
+    const maxGB = features?.maxStorage || 0;
+    const percentage = maxGB > 0 ? (usedGB / maxGB) * 100 : 0;
+
+    return {
+      usedGB: parseFloat(usedGB.toFixed(2)),
+      maxGB: maxGB,
+      percentage: parseFloat(percentage.toFixed(2)),
+    };
+  } catch (error) {
+    logger.error("Error getting storage usage:", error);
+    return { usedGB: 0, maxGB: 0, percentage: 0 };
+  }
+}

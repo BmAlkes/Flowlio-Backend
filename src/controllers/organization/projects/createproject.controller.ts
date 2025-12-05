@@ -10,7 +10,7 @@ import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
-import { canCreateProject } from "@/utils/plan-access.util";
+import { canCreateProject, canUploadFile } from "@/utils/plan-access.util";
 import {
   requireOrganizationId,
   validateOrganizationId,
@@ -156,13 +156,44 @@ export const createProject = async (
     let contractfileUrl = null;
     let contractfilePublicId = null;
     let projectFiles = null;
+    let totalFileSizeBytes = 0;
 
-    // Handle contract file upload if provided
+    // Helper function to calculate file size from base64 string
+    const getBase64FileSize = (base64String: string): number => {
+      // Remove data URL prefix if present (e.g., "data:image/png;base64,")
+      const base64Data = base64String.includes(",")
+        ? base64String.split(",")[1]
+        : base64String;
+      // Base64 encoding increases size by ~33%, so we calculate the original size
+      // Each base64 character represents 6 bits, so 4 characters = 3 bytes
+      return (base64Data.length * 3) / 4;
+    };
+
+    // Check storage limit before uploading contract file
     if (
       validatedData.contractfile &&
       typeof validatedData.contractfile === "string" &&
       validatedData.contractfile.startsWith("data:")
     ) {
+      const fileSizeBytes = getBase64FileSize(validatedData.contractfile);
+      totalFileSizeBytes += fileSizeBytes;
+
+      const storageCheck = await canUploadFile(
+        organizationId,
+        totalFileSizeBytes
+      );
+      if (!storageCheck.hasAccess) {
+        res.status(status.FORBIDDEN).json({
+          success: false,
+          message: storageCheck.reason || "Storage limit exceeded",
+          data: {
+            currentStorage: storageCheck.currentCount,
+            maxStorage: storageCheck.maxAllowed,
+          },
+        });
+        return;
+      }
+
       try {
         const uploadResult = await uploadToCloudinary(
           validatedData.contractfile,
@@ -170,6 +201,10 @@ export const createProject = async (
         );
         contractfileUrl = uploadResult.secure_url;
         contractfilePublicId = uploadResult.public_id;
+        // Use actual bytes from Cloudinary if available, otherwise use calculated size
+        if (uploadResult.bytes) {
+          totalFileSizeBytes = uploadResult.bytes;
+        }
       } catch (uploadError) {
         console.error("Contract file upload failed:", uploadError);
         res.status(status.INTERNAL_SERVER_ERROR).json({
@@ -187,7 +222,46 @@ export const createProject = async (
     ) {
       try {
         const uploadedFiles: any = {};
+        let projectFilesSizeBytes = 0;
 
+        // Calculate total size of all project files before uploading
+        for (const fileData of validatedData.projectFiles) {
+          if (fileData.file && fileData.type && fileData.name) {
+            let fileSizeBytes = 0;
+            if (
+              typeof fileData.file === "string" &&
+              fileData.file.startsWith("data:")
+            ) {
+              fileSizeBytes = getBase64FileSize(fileData.file);
+            } else if (
+              fileData.file &&
+              typeof fileData.file === "object" &&
+              "size" in fileData.file
+            ) {
+              fileSizeBytes = (fileData.file as any).size || 0;
+            }
+            projectFilesSizeBytes += fileSizeBytes;
+          }
+        }
+
+        // Check storage limit for all project files
+        const storageCheck = await canUploadFile(
+          organizationId,
+          totalFileSizeBytes + projectFilesSizeBytes
+        );
+        if (!storageCheck.hasAccess) {
+          res.status(status.FORBIDDEN).json({
+            success: false,
+            message: storageCheck.reason || "Storage limit exceeded",
+            data: {
+              currentStorage: storageCheck.currentCount,
+              maxStorage: storageCheck.maxAllowed,
+            },
+          });
+          return;
+        }
+
+        // Upload files
         for (const fileData of validatedData.projectFiles) {
           if (fileData.file && fileData.type && fileData.name) {
             const uploadResult = await uploadToCloudinary(
@@ -197,12 +271,20 @@ export const createProject = async (
 
             // Only handle projectPdf type
             if (fileData.type === "projectPdf") {
+              const fileSize = uploadResult.bytes || 0;
               uploadedFiles.projectPdf = {
                 url: uploadResult.secure_url,
                 publicId: uploadResult.public_id,
                 name: fileData.name,
                 type: fileData.type,
+                size: fileSize, // Store file size in bytes
               };
+              // Update total file size with actual Cloudinary bytes if available
+              if (uploadResult.bytes) {
+                totalFileSizeBytes += uploadResult.bytes;
+              } else {
+                totalFileSizeBytes += projectFilesSizeBytes;
+              }
             }
           }
         }
@@ -240,7 +322,13 @@ export const createProject = async (
         address: validatedData.address ?? null,
         contractfile: contractfileUrl ?? null,
         contractfilePublicId: contractfilePublicId ?? null,
-        projectFiles: projectFiles ?? null,
+        projectFiles: projectFiles
+          ? {
+              ...projectFiles,
+              totalSize:
+                totalFileSizeBytes > 0 ? Math.round(totalFileSizeBytes) : 0, // Store total file size in bytes in JSON
+            }
+          : null,
         tags: [],
         createdAt: new Date(),
         updatedAt: new Date(),

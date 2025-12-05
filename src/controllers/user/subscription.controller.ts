@@ -5,9 +5,11 @@ import {
   organizations,
   subscriptionPlans,
   userOrganizations,
+  users,
 } from "@/schema/schema";
 import { eq, and } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
+import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
 import crypto from "crypto";
 
 export const getSubscriptionStatus = async (
@@ -364,6 +366,43 @@ export const cancelSubscription = async (
     logger.info(
       `Subscription ${subscription.id} scheduled for cancellation at period end for organization ${organizationId}`
     );
+
+    // Get organization and plan details for notification
+    const org = userOrg[0].organization;
+    const plan = await database.query.subscriptionPlans.findFirst({
+      where: eq(subscriptionPlans.id, subscription.planId),
+      columns: {
+        name: true,
+        price: true,
+      },
+    });
+    const user = await database.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: {
+        name: true,
+        email: true,
+      },
+    });
+
+    // Notify super admins about subscription cancellation
+    await notifySuperAdmins({
+      type: "userUnsubscribe",
+      title: "Subscription Cancelled",
+      message: `A user has cancelled their subscription. The subscription will remain active until the end of the current billing period.`,
+      details: {
+        "Organization Name": org.name || "N/A",
+        "Organization ID": organizationId,
+        "User Name": user?.name || "N/A",
+        "User Email": user?.email || "N/A",
+        "Plan Name": plan?.name || "N/A",
+        "Plan Price": plan?.price ? `$${plan.price}` : "N/A",
+        "Subscription ID": subscription.id,
+        "Current Period End": subscription.currentPeriodEnd
+          .toISOString()
+          .split("T")[0],
+        "Cancelled At": currentDate.toISOString().split("T")[0],
+      },
+    });
 
     res.status(200).json({
       success: true,
