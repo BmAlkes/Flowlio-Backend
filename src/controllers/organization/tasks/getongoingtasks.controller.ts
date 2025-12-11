@@ -2,7 +2,7 @@ import { database } from "@/configs/connection.config";
 import { tasks, projects, clients, users } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import status from "http-status";
 
 export const getOngoingTasks = async (
@@ -54,7 +54,7 @@ export const getOngoingTasks = async (
       })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(clients, eq(projects.clientId, clients.id)) // keep tasks even if client is missing/optional
       .innerJoin(users, eq(tasks.createdBy, users.id)) // Join with users for creator info
       .leftJoin(
         sql`${users} as assigned_user`,
@@ -63,14 +63,21 @@ export const getOngoingTasks = async (
       .where(
         and(
           eq(projects.organizationId, organizationId),
-          sql`${tasks.status} IN ('todo', 'in_progress', 'delay', 'changes', 'updated')`
+          // include common "active" states; allow pending/ongoing just in case
+          sql`${tasks.status} IN ('todo', 'in_progress', 'ongoing', 'pending', 'delay', 'changes', 'updated')`
         )
       )
-      .orderBy(tasks.createdAt)
-      .limit(10); // Limit to 10 ongoing tasks for dashboard
+      .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
+      .limit(10); // Limit to 10 most recent ongoing tasks for dashboard
 
     logger.info(
-      `✅ Fetched ${ongoingTasks.length} ongoing tasks (todo, in_progress, delay, changes, updated) for organization ${organizationId}`
+      `✅ getOngoingTasks -> org ${organizationId} returned ${ongoingTasks.length} tasks`
+    );
+    logger.info(
+      `Statuses: ${ongoingTasks.map((t) => t.status).join(", ") || "none"}`
+    );
+    logger.info(
+      `Titles: ${ongoingTasks.map((t) => t.title).join(" | ") || "none"}`
     );
 
     res.status(200).json({
