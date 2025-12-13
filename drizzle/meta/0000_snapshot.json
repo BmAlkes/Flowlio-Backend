@@ -1,6 +1,6 @@
 {
-  "id": "f24fd0ca-aafe-4de9-abed-d5725b987c7d",
-  "prevId": "373eea4c-d0b4-4100-9fee-eb7e1100d259",
+  "id": "b8abca2f-1dd9-4ef0-b1f0-37156b8c26e4",
+  "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -570,6 +570,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "social_media_links": {
+          "name": "social_media_links",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -1104,6 +1110,100 @@
           "nullsNotDistinct": false,
           "columns": [
             "invoice_number"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.newsletter_subscribers": {
+      "name": "newsletter_subscribers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subscribed": {
+          "name": "subscribed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subscribed_at": {
+          "name": "subscribed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unsubscribed_at": {
+          "name": "unsubscribed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "newsletter_subscribers_email_idx": {
+          "name": "newsletter_subscribers_email_idx",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "newsletter_subscribers_subscribed_idx": {
+          "name": "newsletter_subscribers_subscribed_idx",
+          "columns": [
+            {
+              "expression": "subscribed",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "newsletter_subscribers_email_unique": {
+          "name": "newsletter_subscribers_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
           ]
         }
       },
@@ -1867,7 +1967,7 @@
           "name": "client_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "description": {
           "name": "description",
@@ -2570,6 +2670,12 @@
         "duration_type": {
           "name": "duration_type",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "trial_days": {
+          "name": "trial_days",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -4048,6 +4154,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "is_super_admin": {
           "name": "is_super_admin",
           "type": "boolean",
@@ -4057,6 +4169,18 @@
         "subadmin_id": {
           "name": "subadmin_id",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "selected_plan_id": {
+          "name": "selected_plan_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pending_organization_data": {
+          "name": "pending_organization_data",
+          "type": "json",
           "primaryKey": false,
           "notNull": false
         },

@@ -65,6 +65,7 @@ CREATE TABLE "clients" (
 	"cpf_cnpj_number" text,
 	"business_industry" text,
 	"address" text,
+	"social_media_links" json,
 	"status" text,
 	"created_by" text NOT NULL,
 	"created_at" timestamp NOT NULL,
@@ -105,6 +106,17 @@ CREATE TABLE "invoices" (
 	"created_at" timestamp NOT NULL,
 	"updated_at" timestamp NOT NULL,
 	CONSTRAINT "invoices_invoice_number_unique" UNIQUE("invoice_number")
+);
+--> statement-breakpoint
+CREATE TABLE "newsletter_subscribers" (
+	"id" text PRIMARY KEY NOT NULL,
+	"email" text NOT NULL,
+	"subscribed" boolean NOT NULL,
+	"subscribed_at" timestamp NOT NULL,
+	"unsubscribed_at" timestamp,
+	"created_at" timestamp NOT NULL,
+	"updated_at" timestamp NOT NULL,
+	CONSTRAINT "newsletter_subscribers_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
 CREATE TABLE "notifications" (
@@ -177,7 +189,7 @@ CREATE TABLE "projects" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
 	"project_number" text NOT NULL,
-	"client_id" text NOT NULL,
+	"client_id" text,
 	"description" text,
 	"organization_id" text NOT NULL,
 	"created_by" text NOT NULL,
@@ -243,11 +255,13 @@ CREATE TABLE "subscription_plans" (
 	"name" text NOT NULL,
 	"slug" text NOT NULL,
 	"description" text,
+	"custom_plan_name" text,
 	"price" numeric(10, 2) NOT NULL,
 	"currency" text NOT NULL,
 	"billing_cycle" text NOT NULL,
 	"duration_value" integer,
 	"duration_type" text,
+	"trial_days" integer,
 	"features" json,
 	"is_active" boolean NOT NULL,
 	"sort_order" integer NOT NULL,
@@ -400,8 +414,11 @@ CREATE TABLE "users" (
 	"phone" text,
 	"address" text,
 	"role" text,
+	"status" text,
 	"is_super_admin" boolean NOT NULL,
 	"subadmin_id" text,
+	"selected_plan_id" text,
+	"pending_organization_data" json,
 	"timezone" text NOT NULL,
 	"notification_preferences" json,
 	"created_at" timestamp NOT NULL,
@@ -485,6 +502,8 @@ CREATE INDEX "invoices_client_idx" ON "invoices" USING btree ("client_id");--> s
 CREATE INDEX "invoices_status_idx" ON "invoices" USING btree ("status");--> statement-breakpoint
 CREATE INDEX "invoices_invoice_number_idx" ON "invoices" USING btree ("invoice_number");--> statement-breakpoint
 CREATE INDEX "invoices_created_by_idx" ON "invoices" USING btree ("created_by");--> statement-breakpoint
+CREATE INDEX "newsletter_subscribers_email_idx" ON "newsletter_subscribers" USING btree ("email");--> statement-breakpoint
+CREATE INDEX "newsletter_subscribers_subscribed_idx" ON "newsletter_subscribers" USING btree ("subscribed");--> statement-breakpoint
 CREATE INDEX "notifications_user_idx" ON "notifications" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "notifications_read_idx" ON "notifications" USING btree ("read");--> statement-breakpoint
 CREATE INDEX "notifications_type_idx" ON "notifications" USING btree ("type");--> statement-breakpoint

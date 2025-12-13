@@ -32,6 +32,7 @@ export const getAllPlans = async (_: Request, res: Response) => {
         billing_cycle AS "billingCycle",
         duration_value AS "durationValue",
         duration_type AS "durationType",
+        trial_days AS "trialDays",
         features,
         is_active AS "isActive",
         sort_order AS "sortOrder",
@@ -50,6 +51,7 @@ export const getAllPlans = async (_: Request, res: Response) => {
       // Handle both aliased and snake_case column names
       const durationValue = plan.durationValue ?? plan.duration_value;
       const durationType = plan.durationType ?? plan.duration_type;
+      const trialDays = plan.trialDays ?? plan.trial_days;
 
       return {
         id: plan.id,
@@ -65,6 +67,8 @@ export const getAllPlans = async (_: Request, res: Response) => {
             ? Number(durationValue)
             : null,
         durationType: durationType,
+        trialDays:
+          trialDays !== null && trialDays !== undefined ? Number(trialDays) : 7, // Default to 7 if null
         features: plan.features,
         isActive: plan.isActive ?? plan.is_active,
         sortOrder: plan.sortOrder ?? plan.sort_order,
@@ -111,6 +115,7 @@ export const getPublicPlans = async (_: Request, res: Response) => {
         billing_cycle AS "billingCycle",
         duration_value AS "durationValue",
         duration_type AS "durationType",
+        trial_days AS "trialDays",
         features,
         is_active AS "isActive",
         sort_order AS "sortOrder",
@@ -141,6 +146,7 @@ export const getPublicPlans = async (_: Request, res: Response) => {
       // Handle both aliased and snake_case column names
       const durationValue = plan.durationValue ?? plan.duration_value;
       const durationType = plan.durationType ?? plan.duration_type;
+      const trialDays = plan.trialDays ?? plan.trial_days;
 
       return {
         id: plan.id,
@@ -156,6 +162,8 @@ export const getPublicPlans = async (_: Request, res: Response) => {
             ? Number(durationValue)
             : null,
         durationType: durationType,
+        trialDays:
+          trialDays !== null && trialDays !== undefined ? Number(trialDays) : 7, // Default to 7 if null
         features: plan.features,
         isActive: plan.isActive ?? plan.is_active,
         sortOrder: plan.sortOrder ?? plan.sort_order,

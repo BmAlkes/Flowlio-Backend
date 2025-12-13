@@ -14,6 +14,7 @@ interface UpsertPlanRequest {
   billingCycle?: "days" | "monthly" | "yearly";
   durationValue?: number | null;
   durationType?: "days" | "monthly" | "yearly" | null;
+  trialDays?: number | null; // Number of trial days (0 = no trial, null = default 7)
   features?: PlanFeature;
   isActive?: boolean;
   sortOrder?: number;
@@ -478,11 +479,12 @@ export const upsertPlan = async (req: Request, res: Response) => {
           billing_cycle = $7,
           duration_value = $8,
           duration_type = $9,
-          features = $10,
-          is_active = $11,
-          sort_order = $12,
-          updated_at = $13
-        WHERE slug = $14
+          trial_days = $10,
+          features = $11,
+          is_active = $12,
+          sort_order = $13,
+          updated_at = $14
+        WHERE slug = $15
         RETURNING 
           id,
           name,
@@ -494,6 +496,7 @@ export const upsertPlan = async (req: Request, res: Response) => {
           billing_cycle,
           duration_value,
           duration_type,
+          trial_days,
           features,
           is_active,
           sort_order,
@@ -515,6 +518,11 @@ export const upsertPlan = async (req: Request, res: Response) => {
       });
 
       // Log the exact values being sent to the database
+      const trialDaysValue =
+        planData.trialDays !== undefined && planData.trialDays !== null
+          ? planData.trialDays
+          : 7; // Default to 7 if not provided
+
       const updateParamsArray = [
         updateData.name,
         updateData.slug,
@@ -525,6 +533,7 @@ export const upsertPlan = async (req: Request, res: Response) => {
         updateData.billingCycle,
         updateData.durationValue ?? null,
         updateData.durationType ?? null,
+        trialDaysValue,
         featuresForDb, // Pass JSON string directly, pg will handle conversion
         updateData.isActive,
         updateData.sortOrder,
@@ -659,6 +668,10 @@ export const upsertPlan = async (req: Request, res: Response) => {
               ? Number(row.duration_value)
               : null,
           durationType: row.duration_type,
+          trialDays:
+            row.trial_days !== null && row.trial_days !== undefined
+              ? Number(row.trial_days)
+              : 7, // Default to 7 if null
           features: row.features,
           isActive: row.is_active,
           sortOrder: row.sort_order,
@@ -693,6 +706,7 @@ export const upsertPlan = async (req: Request, res: Response) => {
           billing_cycle,
           duration_value,
           duration_type,
+          trial_days,
           features,
           is_active,
           sort_order,
@@ -910,6 +924,7 @@ export const upsertPlan = async (req: Request, res: Response) => {
           billing_cycle,
           duration_value,
           duration_type,
+          trial_days,
           features,
           is_active,
           sort_order,
@@ -930,7 +945,8 @@ export const upsertPlan = async (req: Request, res: Response) => {
           $11,
           $12,
           $13,
-          $14
+          $14,
+          $15
         )
         RETURNING 
           id,
@@ -943,12 +959,18 @@ export const upsertPlan = async (req: Request, res: Response) => {
           billing_cycle,
           duration_value,
           duration_type,
+          trial_days,
           features,
           is_active,
           sort_order,
           created_at,
           updated_at
       `;
+
+      const trialDaysValue =
+        planData.trialDays !== undefined && planData.trialDays !== null
+          ? planData.trialDays
+          : 7; // Default to 7 if not provided
 
       const insertParamsArray = [
         planData.name,
@@ -960,6 +982,7 @@ export const upsertPlan = async (req: Request, res: Response) => {
         billingCycleValue,
         durationValue,
         durationType,
+        trialDaysValue,
         featuresForDb, // Pass JSON string directly, pg will handle conversion
         planData.isActive !== undefined ? planData.isActive : true,
         planData.sortOrder || 0,
@@ -1108,6 +1131,10 @@ export const upsertPlan = async (req: Request, res: Response) => {
             ? Number(row.duration_value)
             : null,
         durationType: row.duration_type,
+        trialDays:
+          row.trial_days !== null && row.trial_days !== undefined
+            ? Number(row.trial_days)
+            : 7, // Default to 7 if null
         features: row.features,
         isActive: row.is_active,
         sortOrder: row.sort_order,
@@ -1128,6 +1155,7 @@ export const upsertPlan = async (req: Request, res: Response) => {
           billing_cycle,
           duration_value,
           duration_type,
+          trial_days,
           features,
           is_active,
           sort_order,

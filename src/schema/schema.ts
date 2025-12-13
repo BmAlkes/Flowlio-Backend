@@ -124,9 +124,10 @@ export const subscriptionPlans = pgTable(
       .notNull(),
     billingCycle: text("billing_cycle")
       .$defaultFn(() => "monthly")
-      .notNull(), // "days" | "monthly" | "yearly"
-    durationValue: integer("duration_value"), // e.g., 7, 30, 365
-    durationType: text("duration_type"), // "days" | "monthly" | "yearly"
+      .notNull(),
+    durationValue: integer("duration_value"),
+    durationType: text("duration_type"),
+    trialDays: integer("trial_days").$defaultFn(() => 7), // Number of trial days (default 7, 0 = no trial)
     features: json("features").$type<{
       maxUsers: number;
       maxProjects: number;

@@ -1,1 +1,0 @@
-ALTER TABLE "subscription_plans" ADD COLUMN "custom_plan_name" text;

@@ -27,6 +27,7 @@ interface CreatePlanRequest {
   billingCycle?: "days" | "monthly" | "yearly";
   durationValue?: number | null;
   durationType?: "days" | "monthly" | "yearly" | null;
+  trialDays?: number | null; // Number of trial days (0 = no trial, null = default 7)
   features?: PlanFeature;
   isActive?: boolean;
   sortOrder?: number;
@@ -253,6 +254,11 @@ export const createSinglePlan = async (req: Request, res: Response) => {
       : null;
     const now = new Date();
 
+    const trialDaysValue =
+      planData.trialDays !== undefined && planData.trialDays !== null
+        ? planData.trialDays
+        : 7; // Default to 7 if not provided
+
     const insertQuery = `
       INSERT INTO subscription_plans (
         id,
@@ -265,6 +271,7 @@ export const createSinglePlan = async (req: Request, res: Response) => {
         billing_cycle,
         duration_value,
         duration_type,
+        trial_days,
         features,
         is_active,
         sort_order,
@@ -285,7 +292,8 @@ export const createSinglePlan = async (req: Request, res: Response) => {
         $11,
         $12,
         $13,
-        $14
+        $14,
+        $15
       )
       RETURNING 
         id,
@@ -298,6 +306,7 @@ export const createSinglePlan = async (req: Request, res: Response) => {
         billing_cycle,
         duration_value,
         duration_type,
+        trial_days,
         features,
         is_active,
         sort_order,
@@ -315,6 +324,7 @@ export const createSinglePlan = async (req: Request, res: Response) => {
       billingCycleValue,
       durationValue,
       durationType,
+      trialDaysValue,
       featuresForDb,
       planData.isActive !== undefined ? planData.isActive : true,
       planData.sortOrder || 0,
@@ -353,6 +363,10 @@ export const createSinglePlan = async (req: Request, res: Response) => {
             ? Number(row.duration_value)
             : null,
         durationType: row.duration_type,
+        trialDays:
+          row.trial_days !== null && row.trial_days !== undefined
+            ? Number(row.trial_days)
+            : 7, // Default to 7 if null
         features: row.features,
         isActive: row.is_active,
         sortOrder: row.sort_order,
@@ -375,6 +389,7 @@ export const createSinglePlan = async (req: Request, res: Response) => {
         billing_cycle,
         duration_value,
         duration_type,
+        trial_days,
         features,
         is_active,
         sort_order,

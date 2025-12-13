@@ -974,8 +974,32 @@ export const capturePayPalOrder = async (
           );
         }
 
-        // Calculate trial end date (7 days from now)
-        const trialEndsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        // Calculate trial end date based on plan's trialDays
+        const planTrialDays = plan.trialDays ?? 7; // Use plan's trialDays or default to 7
+        
+        logger.info(`📊 Plan trialDays for plan ${planIdString}:`, {
+          planId: planIdString,
+          planName: plan.name,
+          trialDays: plan.trialDays,
+          planTrialDays: planTrialDays,
+          planData: {
+            id: plan.id,
+            name: plan.name,
+            trialDays: plan.trialDays,
+            allFields: Object.keys(plan),
+          },
+        });
+        
+        const trialEndsAt =
+          planTrialDays > 0
+            ? new Date(now.getTime() + planTrialDays * 24 * 60 * 60 * 1000)
+            : null; // If trialDays is 0, no trial period
+        
+        logger.info(`📅 Trial calculation:`, {
+          planTrialDays,
+          trialEndsAt: trialEndsAt?.toISOString(),
+          now: now.toISOString(),
+        });
 
         // Calculate subscription period based on plan's durationValue and durationType
         let subscriptionPeriodMs = 30 * 24 * 60 * 60 * 1000; // Default: 30 days
@@ -999,7 +1023,19 @@ export const capturePayPalOrder = async (
           }
         }
 
-        const currentPeriodEnd = new Date(now.getTime() + subscriptionPeriodMs);
+        // If trial is active, set currentPeriodEnd to trialEnd, otherwise use subscription period
+        const currentPeriodEnd =
+          planTrialDays > 0 && trialEndsAt
+            ? trialEndsAt // Trial period end
+            : new Date(now.getTime() + subscriptionPeriodMs); // Regular subscription period end
+        
+        logger.info(`📅 Period calculation:`, {
+          planTrialDays,
+          hasTrial: planTrialDays > 0,
+          trialEndsAt: trialEndsAt?.toISOString(),
+          currentPeriodEnd: currentPeriodEnd.toISOString(),
+          subscriptionPeriodMs,
+        });
 
         // Check if existing organization is a demo org (for shouldUpdate case)
         let existingOrgSettings: any = null;
@@ -1033,7 +1069,7 @@ export const capturePayPalOrder = async (
             subscriptionStatus: "active",
             subscriptionStartDate: now,
             status: "active", // Set to active after successful payment
-            trialEndsAt: trialEndsAt,
+            trialEndsAt: planTrialDays > 0 ? trialEndsAt : null,
             maxUsers: plan.features?.maxUsers,
             maxProjects: plan.features?.maxProjects,
             maxStorage: plan.features?.maxStorage,
@@ -1074,7 +1110,7 @@ export const capturePayPalOrder = async (
                 subscriptionStatus: "active",
                 subscriptionStartDate: now,
                 status: "active", // Set to active after successful payment
-                trialEndsAt: trialEndsAt,
+                trialEndsAt: planTrialDays > 0 ? trialEndsAt : null,
                 maxUsers: plan.features?.maxUsers,
                 maxProjects: plan.features?.maxProjects,
                 maxStorage: plan.features?.maxStorage,
@@ -1118,8 +1154,8 @@ export const capturePayPalOrder = async (
                 currentPeriodStart: now,
                 currentPeriodEnd: currentPeriodEnd,
                 cancelAtPeriodEnd: false,
-                trialStart: now,
-                trialEnd: trialEndsAt,
+                trialStart: planTrialDays > 0 ? now : null,
+                trialEnd: planTrialDays > 0 ? trialEndsAt : null,
                 metadata: {
                   ...(existingSubscription.metadata as any),
                   paypalOrderId: orderId,
@@ -1145,8 +1181,8 @@ export const capturePayPalOrder = async (
                   currentPeriodStart: now,
                   currentPeriodEnd: currentPeriodEnd,
                   cancelAtPeriodEnd: false,
-                  trialStart: now,
-                  trialEnd: trialEndsAt,
+                  trialStart: planTrialDays > 0 ? now : null,
+                  trialEnd: planTrialDays > 0 ? trialEndsAt : null,
                   stripeSubscriptionId: null,
                   stripeCustomerId: null,
                   metadata: {
@@ -1175,8 +1211,8 @@ export const capturePayPalOrder = async (
                 currentPeriodStart: now,
                 currentPeriodEnd: currentPeriodEnd,
                 cancelAtPeriodEnd: false,
-                trialStart: now,
-                trialEnd: trialEndsAt,
+                trialStart: planTrialDays > 0 ? now : null,
+                trialEnd: planTrialDays > 0 ? trialEndsAt : null,
                 stripeSubscriptionId: null,
                 stripeCustomerId: null,
                 metadata: {
