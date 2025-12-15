@@ -17,7 +17,7 @@ interface CreatePayPalOrderRequest {
   planId: string;
   amount: number;
   currency?: string;
-  demoMode?: boolean; // Force demo mode even if PayPal is configured
+  // demoMode?: boolean; // Force demo mode even if PayPal is configured - COMMENTED OUT FOR PRODUCTION
 }
 
 interface CapturePayPalOrderRequest {
@@ -114,8 +114,8 @@ export const createPayPalOrder = async (
       planId,
       amount,
       currency = "USD",
-      demoMode = false,
-    }: CreatePayPalOrderRequest = req.body;
+    }: // demoMode = false, // COMMENTED OUT FOR PRODUCTION - Only real payments allowed
+    CreatePayPalOrderRequest = req.body;
 
     // Validate required fields
     if (!planId || !amount) {
@@ -150,33 +150,50 @@ export const createPayPalOrder = async (
       return;
     }
 
-    // Check if demo mode is requested or PayPal credentials are not configured
-    if (demoMode || !env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-      logger.warn("Using demo mode for PayPal order", {
-        demoMode,
-        hasCredentials: !!env.PAYPAL_CLIENT_ID,
-      });
-      // Return demo order ID for testing
-      res.status(200).json({
-        success: true,
-        message: "Demo PayPal order created",
-        data: {
-          orderId: `demo_order_${Date.now()}_${Math.random()
-            .toString(36)
-            .substr(2, 9)}`,
-          status: "CREATED",
-          amount,
-          currency,
-          plan: {
-            id: plan.id,
-            name: plan.name,
-            price: plan.price,
-            billingCycle: plan.billingCycle,
-          },
-        },
+    // DEMO MODE COMMENTED OUT FOR PRODUCTION - Only real PayPal payments allowed
+    // Check if PayPal credentials are configured (REQUIRED in production)
+    if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+      logger.error(
+        "PayPal credentials not configured - Payment cannot be processed",
+        {
+          hasClientId: !!env.PAYPAL_CLIENT_ID,
+          hasClientSecret: !!env.PAYPAL_CLIENT_SECRET,
+        }
+      );
+      res.status(500).json({
+        success: false,
+        message: "Payment service is not configured. Please contact support.",
       });
       return;
     }
+
+    // COMMENTED OUT: Demo mode functionality removed for production
+    // if (demoMode || !env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    //   logger.warn("Using demo mode for PayPal order", {
+    //     demoMode,
+    //     hasCredentials: !!env.PAYPAL_CLIENT_ID,
+    //   });
+    //   // Return demo order ID for testing
+    //   res.status(200).json({
+    //     success: true,
+    //     message: "Demo PayPal order created",
+    //     data: {
+    //       orderId: `demo_order_${Date.now()}_${Math.random()
+    //         .toString(36)
+    //         .substr(2, 9)}`,
+    //       status: "CREATED",
+    //       amount,
+    //       currency,
+    //       plan: {
+    //         id: plan.id,
+    //         name: plan.name,
+    //         price: plan.price,
+    //         billingCycle: plan.billingCycle,
+    //       },
+    //     },
+    //   });
+    //   return;
+    // }
 
     // Get access token
     const accessToken = await getPayPalAccessToken();
@@ -277,45 +294,228 @@ export const capturePayPalOrder = async (
     let captureAmount = "";
     let captureCurrency = "USD";
 
+    // DEMO MODE COMMENTED OUT FOR PRODUCTION - Only real PayPal payments allowed
     // Handle demo mode - skip all PayPal API calls
-    if (orderId.startsWith("demo_order_")) {
-      logger.info("Demo PayPal order captured:", orderId);
-      paymentStatus = "COMPLETED";
-      captureId = `demo_capture_${Date.now()}`;
-      // Set default values for demo orders
-      captureAmount = "0.00"; // Demo orders don't have real amounts
-      captureCurrency = "USD";
-      logger.info("Demo order processed, skipping PayPal API calls");
-      // Skip to organization creation below
-    } else {
-      // Check if PayPal credentials are configured
-      if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-        logger.error("PayPal credentials not configured", {
-          hasClientId: !!env.PAYPAL_CLIENT_ID,
-          hasClientSecret: !!env.PAYPAL_CLIENT_SECRET,
-          paypalMode: env.PAYPAL_MODE,
-        });
-        res.status(400).json({
-          success: false,
-          message:
-            "PayPal is not configured on the server. Please configure PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in your backend .env file.",
-          code: "PAYPAL_NOT_CONFIGURED",
-        });
-        return;
+    // if (orderId.startsWith("demo_order_")) {
+    //   logger.info("Demo PayPal order captured:", orderId);
+    //   paymentStatus = "COMPLETED";
+    //   captureId = `demo_capture_${Date.now()}`;
+    //   // Set default values for demo orders
+    //   captureAmount = "0.00"; // Demo orders don't have real amounts
+    //   captureCurrency = "USD";
+    //   logger.info("Demo order processed, skipping PayPal API calls");
+    //   // Skip to organization creation below
+    // } else {
+    // Check if PayPal credentials are configured (REQUIRED in production)
+    if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+      logger.error("PayPal credentials not configured", {
+        hasClientId: !!env.PAYPAL_CLIENT_ID,
+        hasClientSecret: !!env.PAYPAL_CLIENT_SECRET,
+        paypalMode: env.PAYPAL_MODE,
+      });
+      res.status(400).json({
+        success: false,
+        message:
+          "PayPal is not configured on the server. Please configure PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in your backend .env file.",
+        code: "PAYPAL_NOT_CONFIGURED",
+      });
+      return;
+    }
+
+    try {
+      // Get access token
+      const accessToken = await getPayPalAccessToken();
+
+      const baseURL =
+        env.PAYPAL_MODE === "live"
+          ? "https://api-m.paypal.com"
+          : "https://api-m.sandbox.paypal.com";
+
+      // First, check the order status before attempting to capture
+      const orderDetailsResponse = await axios.get(
+        `${baseURL}/v2/checkout/orders/${orderId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      let orderStatus = orderDetailsResponse.data?.status;
+      logger.info(
+        `PayPal order status check: ${orderId}, status: ${orderStatus}`
+      );
+
+      // Check if order is already completed
+      if (orderStatus === "COMPLETED") {
+        logger.warn(
+          `PayPal order ${orderId} is already completed. Retrieving existing capture details.`
+        );
+
+        // Get the existing capture details
+        const existingCapture =
+          orderDetailsResponse.data?.purchase_units?.[0]?.payments
+            ?.captures?.[0];
+
+        if (existingCapture) {
+          paymentStatus = "COMPLETED";
+          captureId = existingCapture.id || "";
+          captureAmount = existingCapture.amount?.value || "";
+          captureCurrency = existingCapture.amount?.currency_code || "USD";
+
+          logger.info(
+            `Using existing capture for order ${orderId}: ${captureId}`
+          );
+        } else {
+          res.status(400).json({
+            success: false,
+            message: "Order is already completed but no capture details found.",
+            code: "ORDER_ALREADY_COMPLETED",
+          });
+          return;
+        }
+      } else if (orderStatus !== "APPROVED") {
+        // Order might still be in CREATED state if onApprove was called too quickly
+        // Wait a bit and retry checking the order status
+        if (orderStatus === "CREATED") {
+          logger.info(
+            `Order ${orderId} is still CREATED, waiting for approval status update...`
+          );
+
+          // Wait up to 3 seconds for order status to update to APPROVED
+          let retryCount = 0;
+          const maxRetries = 6; // 6 retries * 500ms = 3 seconds max
+          let finalStatus = orderStatus;
+          let shouldCapture = false;
+
+          while (retryCount < maxRetries && finalStatus === "CREATED") {
+            await new Promise((resolve) => setTimeout(resolve, 500)); // Wait 500ms
+
+            try {
+              const retryResponse = await axios.get(
+                `${baseURL}/v2/checkout/orders/${orderId}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+              finalStatus = retryResponse.data?.status;
+              logger.info(
+                `Order ${orderId} status check (retry ${
+                  retryCount + 1
+                }): ${finalStatus}`
+              );
+
+              // If status changed to APPROVED, we can proceed with capture
+              if (finalStatus === "APPROVED") {
+                shouldCapture = true;
+                break;
+              }
+
+              // If status changed to COMPLETED, order was already captured
+              if (finalStatus === "COMPLETED") {
+                const existingCapture =
+                  retryResponse.data?.purchase_units?.[0]?.payments
+                    ?.captures?.[0];
+
+                if (existingCapture) {
+                  paymentStatus = "COMPLETED";
+                  captureId = existingCapture.id || "";
+                  captureAmount = existingCapture.amount?.value || "";
+                  captureCurrency =
+                    existingCapture.amount?.currency_code || "USD";
+                  logger.info(
+                    `Order ${orderId} was already completed during retry check.`
+                  );
+                  // Skip to organization creation - break out of while loop
+                  break;
+                } else {
+                  res.status(400).json({
+                    success: false,
+                    message:
+                      "Order is already completed but no capture details found.",
+                    code: "ORDER_ALREADY_COMPLETED",
+                  });
+                  return;
+                }
+              }
+            } catch (retryError) {
+              logger.error(
+                `Error checking order status on retry: ${retryError}`
+              );
+              break;
+            }
+
+            retryCount++;
+          }
+
+          // If still CREATED after retries, return error
+          if (finalStatus === "CREATED") {
+            logger.error(
+              `Order ${orderId} is still CREATED after ${maxRetries} retries. User may not have approved the order.`
+            );
+            res.status(400).json({
+              success: false,
+              message: `Order has not been approved yet. Please complete the PayPal approval process and try again.`,
+              code: "ORDER_NOT_APPROVED",
+              orderStatus: finalStatus,
+            });
+            return;
+          }
+
+          // If status changed to something other than APPROVED or COMPLETED, return error
+          if (finalStatus !== "APPROVED" && finalStatus !== "COMPLETED") {
+            logger.error(
+              `Order ${orderId} has unexpected status after retry: ${finalStatus}`
+            );
+            res.status(400).json({
+              success: false,
+              message: `Cannot capture order. Order status is "${finalStatus}". Order must be approved before capture.`,
+              code: "ORDER_NOT_APPROVED",
+              orderStatus: finalStatus,
+            });
+            return;
+          }
+
+          // Update orderStatus to reflect the final status after retry
+          orderStatus = finalStatus;
+
+          // If order was already completed, skip capture and continue to organization creation
+          if (finalStatus === "COMPLETED") {
+            // Already set paymentStatus, captureId, etc. above
+            // Continue to organization creation below
+          } else if (shouldCapture && finalStatus === "APPROVED") {
+            // Order is now APPROVED, proceed with capture below
+            logger.info(
+              `Order ${orderId} is now APPROVED after waiting, proceeding with capture.`
+            );
+            // Continue to capture logic below
+          }
+        } else {
+          // Order is in some other state (not CREATED or APPROVED)
+          logger.error(
+            `Cannot capture PayPal order ${orderId}. Current status: ${orderStatus}. Order must be in APPROVED state.`
+          );
+          res.status(400).json({
+            success: false,
+            message: `Cannot capture order. Order status is "${orderStatus}". Order must be approved before capture.`,
+            code: "ORDER_NOT_APPROVED",
+            orderStatus,
+          });
+          return;
+        }
       }
 
-      try {
-        // Get access token
-        const accessToken = await getPayPalAccessToken();
-
-        const baseURL =
-          env.PAYPAL_MODE === "live"
-            ? "https://api-m.paypal.com"
-            : "https://api-m.sandbox.paypal.com";
-
-        // First, check the order status before attempting to capture
-        const orderDetailsResponse = await axios.get(
-          `${baseURL}/v2/checkout/orders/${orderId}`,
+      // Only proceed with capture if order is APPROVED and not already completed
+      // Note: orderStatus may have been updated during retry logic above
+      if (paymentStatus !== "COMPLETED" && orderStatus === "APPROVED") {
+        // Order is APPROVED, proceed with capture
+        const response = await axios.post(
+          `${baseURL}/v2/checkout/orders/${orderId}/capture`,
+          {},
           {
             headers: {
               Authorization: `Bearer ${accessToken}`,
@@ -324,294 +524,111 @@ export const capturePayPalOrder = async (
           }
         );
 
-        let orderStatus = orderDetailsResponse.data?.status;
+        const captureData =
+          response.data.purchase_units[0]?.payments?.captures?.[0];
+
+        paymentStatus = response.data.status;
+        captureId = captureData?.id || "";
+        captureAmount = captureData?.amount?.value || "";
+        captureCurrency = captureData?.amount?.currency_code || "USD";
+
         logger.info(
-          `PayPal order status check: ${orderId}, status: ${orderStatus}`
+          `PayPal order captured: ${orderId}, capture ID: ${captureId}, status: ${paymentStatus}`
         );
+      }
+    } catch (error: any) {
+      logger.error("Error capturing PayPal order:", {
+        error: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        orderId,
+        paypalMode: env.PAYPAL_MODE,
+      });
 
-        // Check if order is already completed
-        if (orderStatus === "COMPLETED") {
-          logger.warn(
-            `PayPal order ${orderId} is already completed. Retrieving existing capture details.`
-          );
-
-          // Get the existing capture details
-          const existingCapture =
-            orderDetailsResponse.data?.purchase_units?.[0]?.payments
-              ?.captures?.[0];
-
-          if (existingCapture) {
-            paymentStatus = "COMPLETED";
-            captureId = existingCapture.id || "";
-            captureAmount = existingCapture.amount?.value || "";
-            captureCurrency = existingCapture.amount?.currency_code || "USD";
-
-            logger.info(
-              `Using existing capture for order ${orderId}: ${captureId}`
-            );
-          } else {
-            res.status(400).json({
-              success: false,
-              message:
-                "Order is already completed but no capture details found.",
-              code: "ORDER_ALREADY_COMPLETED",
-            });
-            return;
-          }
-        } else if (orderStatus !== "APPROVED") {
-          // Order might still be in CREATED state if onApprove was called too quickly
-          // Wait a bit and retry checking the order status
-          if (orderStatus === "CREATED") {
-            logger.info(
-              `Order ${orderId} is still CREATED, waiting for approval status update...`
-            );
-
-            // Wait up to 3 seconds for order status to update to APPROVED
-            let retryCount = 0;
-            const maxRetries = 6; // 6 retries * 500ms = 3 seconds max
-            let finalStatus = orderStatus;
-            let shouldCapture = false;
-
-            while (retryCount < maxRetries && finalStatus === "CREATED") {
-              await new Promise((resolve) => setTimeout(resolve, 500)); // Wait 500ms
-
-              try {
-                const retryResponse = await axios.get(
-                  `${baseURL}/v2/checkout/orders/${orderId}`,
-                  {
-                    headers: {
-                      Authorization: `Bearer ${accessToken}`,
-                      "Content-Type": "application/json",
-                    },
-                  }
-                );
-                finalStatus = retryResponse.data?.status;
-                logger.info(
-                  `Order ${orderId} status check (retry ${
-                    retryCount + 1
-                  }): ${finalStatus}`
-                );
-
-                // If status changed to APPROVED, we can proceed with capture
-                if (finalStatus === "APPROVED") {
-                  shouldCapture = true;
-                  break;
-                }
-
-                // If status changed to COMPLETED, order was already captured
-                if (finalStatus === "COMPLETED") {
-                  const existingCapture =
-                    retryResponse.data?.purchase_units?.[0]?.payments
-                      ?.captures?.[0];
-
-                  if (existingCapture) {
-                    paymentStatus = "COMPLETED";
-                    captureId = existingCapture.id || "";
-                    captureAmount = existingCapture.amount?.value || "";
-                    captureCurrency =
-                      existingCapture.amount?.currency_code || "USD";
-                    logger.info(
-                      `Order ${orderId} was already completed during retry check.`
-                    );
-                    // Skip to organization creation - break out of while loop
-                    break;
-                  } else {
-                    res.status(400).json({
-                      success: false,
-                      message:
-                        "Order is already completed but no capture details found.",
-                      code: "ORDER_ALREADY_COMPLETED",
-                    });
-                    return;
-                  }
-                }
-              } catch (retryError) {
-                logger.error(
-                  `Error checking order status on retry: ${retryError}`
-                );
-                break;
-              }
-
-              retryCount++;
-            }
-
-            // If still CREATED after retries, return error
-            if (finalStatus === "CREATED") {
-              logger.error(
-                `Order ${orderId} is still CREATED after ${maxRetries} retries. User may not have approved the order.`
-              );
-              res.status(400).json({
-                success: false,
-                message: `Order has not been approved yet. Please complete the PayPal approval process and try again.`,
-                code: "ORDER_NOT_APPROVED",
-                orderStatus: finalStatus,
-              });
-              return;
-            }
-
-            // If status changed to something other than APPROVED or COMPLETED, return error
-            if (finalStatus !== "APPROVED" && finalStatus !== "COMPLETED") {
-              logger.error(
-                `Order ${orderId} has unexpected status after retry: ${finalStatus}`
-              );
-              res.status(400).json({
-                success: false,
-                message: `Cannot capture order. Order status is "${finalStatus}". Order must be approved before capture.`,
-                code: "ORDER_NOT_APPROVED",
-                orderStatus: finalStatus,
-              });
-              return;
-            }
-
-            // Update orderStatus to reflect the final status after retry
-            orderStatus = finalStatus;
-
-            // If order was already completed, skip capture and continue to organization creation
-            if (finalStatus === "COMPLETED") {
-              // Already set paymentStatus, captureId, etc. above
-              // Continue to organization creation below
-            } else if (shouldCapture && finalStatus === "APPROVED") {
-              // Order is now APPROVED, proceed with capture below
-              logger.info(
-                `Order ${orderId} is now APPROVED after waiting, proceeding with capture.`
-              );
-              // Continue to capture logic below
-            }
-          } else {
-            // Order is in some other state (not CREATED or APPROVED)
-            logger.error(
-              `Cannot capture PayPal order ${orderId}. Current status: ${orderStatus}. Order must be in APPROVED state.`
-            );
-            res.status(400).json({
-              success: false,
-              message: `Cannot capture order. Order status is "${orderStatus}". Order must be approved before capture.`,
-              code: "ORDER_NOT_APPROVED",
-              orderStatus,
-            });
-            return;
-          }
-        }
-
-        // Only proceed with capture if order is APPROVED and not already completed
-        // Note: orderStatus may have been updated during retry logic above
-        if (paymentStatus !== "COMPLETED" && orderStatus === "APPROVED") {
-          // Order is APPROVED, proceed with capture
-          const response = await axios.post(
-            `${baseURL}/v2/checkout/orders/${orderId}/capture`,
-            {},
-            {
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-              },
-            }
-          );
-
-          const captureData =
-            response.data.purchase_units[0]?.payments?.captures?.[0];
-
-          paymentStatus = response.data.status;
-          captureId = captureData?.id || "";
-          captureAmount = captureData?.amount?.value || "";
-          captureCurrency = captureData?.amount?.currency_code || "USD";
-
-          logger.info(
-            `PayPal order captured: ${orderId}, capture ID: ${captureId}, status: ${paymentStatus}`
-          );
-        }
-      } catch (error: any) {
-        logger.error("Error capturing PayPal order:", {
-          error: error.message,
-          response: error.response?.data,
-          status: error.response?.status,
-          orderId,
-          paypalMode: env.PAYPAL_MODE,
-        });
-
-        // Provide more specific error messages
-        if (error.response?.status === 401) {
-          res.status(401).json({
-            success: false,
-            message:
-              "PayPal authentication failed. Please check your PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET credentials.",
-            code: "PAYPAL_AUTH_FAILED",
-          });
-          return;
-        }
-
-        if (error.response?.status === 404) {
-          res.status(404).json({
-            success: false,
-            message: `PayPal order not found: ${orderId}. The order may have expired or been cancelled.`,
-            code: "PAYPAL_ORDER_NOT_FOUND",
-          });
-          return;
-        }
-
-        // Handle PayPal validation errors
-        if (error.response?.data) {
-          const paypalError = error.response.data;
-          const errorName = paypalError.name || "";
-          const errorMessage = paypalError.message || "";
-          const errorDetails = paypalError.details || [];
-
-          // Check for specific validation errors
-          if (
-            errorName === "UNPROCESSABLE_ENTITY" ||
-            errorMessage.includes("semantically incorrect") ||
-            errorMessage.includes("failed business validation")
-          ) {
-            // Extract more details from error
-            const detailsMessage = errorDetails
-              .map((detail: any) => detail?.description || detail?.issue || "")
-              .filter(Boolean)
-              .join("; ");
-
-            logger.error("PayPal validation error:", {
-              orderId,
-              errorName,
-              errorMessage,
-              details: errorDetails,
-            });
-
-            res.status(422).json({
-              success: false,
-              message:
-                detailsMessage ||
-                errorMessage ||
-                "PayPal order validation failed. The order may have already been captured, expired, or is in an invalid state.",
-              code: "PAYPAL_VALIDATION_ERROR",
-              details: {
-                name: errorName,
-                message: errorMessage,
-                issues: errorDetails,
-              },
-            });
-            return;
-          }
-
-          // Generic PayPal error
-          res.status(error.response.status || 500).json({
-            success: false,
-            message:
-              errorMessage || `PayPal error: ${errorName || "Unknown error"}`,
-            code: "PAYPAL_ERROR",
-            details: paypalError,
-          });
-          return;
-        }
-
-        // Generic error
-        res.status(500).json({
+      // Provide more specific error messages
+      if (error.response?.status === 401) {
+        res.status(401).json({
           success: false,
           message:
-            "Failed to capture PayPal order. Please try again or contact support.",
-          code: "PAYPAL_CAPTURE_FAILED",
-          error: error.message,
+            "PayPal authentication failed. Please check your PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET credentials.",
+          code: "PAYPAL_AUTH_FAILED",
         });
         return;
       }
+
+      if (error.response?.status === 404) {
+        res.status(404).json({
+          success: false,
+          message: `PayPal order not found: ${orderId}. The order may have expired or been cancelled.`,
+          code: "PAYPAL_ORDER_NOT_FOUND",
+        });
+        return;
+      }
+
+      // Handle PayPal validation errors
+      if (error.response?.data) {
+        const paypalError = error.response.data;
+        const errorName = paypalError.name || "";
+        const errorMessage = paypalError.message || "";
+        const errorDetails = paypalError.details || [];
+
+        // Check for specific validation errors
+        if (
+          errorName === "UNPROCESSABLE_ENTITY" ||
+          errorMessage.includes("semantically incorrect") ||
+          errorMessage.includes("failed business validation")
+        ) {
+          // Extract more details from error
+          const detailsMessage = errorDetails
+            .map((detail: any) => detail?.description || detail?.issue || "")
+            .filter(Boolean)
+            .join("; ");
+
+          logger.error("PayPal validation error:", {
+            orderId,
+            errorName,
+            errorMessage,
+            details: errorDetails,
+          });
+
+          res.status(422).json({
+            success: false,
+            message:
+              detailsMessage ||
+              errorMessage ||
+              "PayPal order validation failed. The order may have already been captured, expired, or is in an invalid state.",
+            code: "PAYPAL_VALIDATION_ERROR",
+            details: {
+              name: errorName,
+              message: errorMessage,
+              issues: errorDetails,
+            },
+          });
+          return;
+        }
+
+        // Generic PayPal error
+        res.status(error.response.status || 500).json({
+          success: false,
+          message:
+            errorMessage || `PayPal error: ${errorName || "Unknown error"}`,
+          code: "PAYPAL_ERROR",
+          details: paypalError,
+        });
+        return;
+      }
+
+      // Generic error
+      res.status(500).json({
+        success: false,
+        message:
+          "Failed to capture PayPal order. Please try again or contact support.",
+        code: "PAYPAL_CAPTURE_FAILED",
+        error: error.message,
+      });
+      return;
     }
+    // } // END OF COMMENTED DEMO MODE ELSE BLOCK
 
     // Only create organization if payment was successful
     if (paymentStatus === "COMPLETED" && userId) {
@@ -976,7 +993,7 @@ export const capturePayPalOrder = async (
 
         // Calculate trial end date based on plan's trialDays
         const planTrialDays = plan.trialDays ?? 7; // Use plan's trialDays or default to 7
-        
+
         logger.info(`📊 Plan trialDays for plan ${planIdString}:`, {
           planId: planIdString,
           planName: plan.name,
@@ -989,12 +1006,12 @@ export const capturePayPalOrder = async (
             allFields: Object.keys(plan),
           },
         });
-        
+
         const trialEndsAt =
           planTrialDays > 0
             ? new Date(now.getTime() + planTrialDays * 24 * 60 * 60 * 1000)
             : null; // If trialDays is 0, no trial period
-        
+
         logger.info(`📅 Trial calculation:`, {
           planTrialDays,
           trialEndsAt: trialEndsAt?.toISOString(),
@@ -1028,7 +1045,7 @@ export const capturePayPalOrder = async (
           planTrialDays > 0 && trialEndsAt
             ? trialEndsAt // Trial period end
             : new Date(now.getTime() + subscriptionPeriodMs); // Regular subscription period end
-        
+
         logger.info(`📅 Period calculation:`, {
           planTrialDays,
           hasTrial: planTrialDays > 0,
@@ -1334,7 +1351,7 @@ export const capturePayPalOrder = async (
           message:
             "PayPal payment captured and organization created successfully",
           data: {
-            orderId: orderId.startsWith("demo_order_") ? orderId : orderId,
+            orderId: orderId, // DEMO MODE REMOVED - Only real PayPal orders
             status: paymentStatus,
             captureId: captureId,
             amount: captureAmount,
