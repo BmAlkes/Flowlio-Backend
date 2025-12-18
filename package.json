@@ -11,10 +11,12 @@
     "start": "node dist/src/server.js",
     "dbgenerate": "drizzle-kit generate",
     "dbgenerate:safe": "node scripts/dbgenerate-safe.js",
+    "dbmigrate": "drizzle-kit migrate",
     "dbpush": "drizzle-kit push",
     "dbstudio": "drizzle-kit studio --port 4983",
     "dbdrop": "drizzle-kit drop",
     "dbintrospect": "drizzle-kit introspect",
+    "dbmigrate:data": "ts-node -r tsconfig-paths/register scripts/migrate-database.ts",
     "swagger": "ts-node ./src/configs/swagger.config.ts",
     "tailwind": "npx @tailwindcss/cli -i ./public/input.css -o ./public/output.css --watch",
     "better-auth-generate": "npx @better-auth/cli@latest generate"
