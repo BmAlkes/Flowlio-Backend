@@ -445,23 +445,35 @@ export class GoogleCalendarService {
       // Get user's timezone from database
       const userTimezone = await this.getUserTimezone(userId);
 
-      // Create proper start and end times using startHour and endHour
-      const eventDate = new Date(appEvent.date);
-      const startDateTime = new Date(eventDate);
-      startDateTime.setHours(appEvent.startHour, 0, 0, 0);
+      // appEvent.date is stored as midnight UTC representing the date
+      // startHour and endHour are in the user's local timezone
+      // We need to create a date string in the format YYYY-MM-DDTHH:mm:ss
+      // that Google Calendar will interpret according to the timeZone field
 
-      const endDateTime = new Date(eventDate);
-      endDateTime.setHours(appEvent.endHour, 0, 0, 0);
+      const eventDate = new Date(appEvent.date);
+      // Get the date components (year, month, day) from the UTC date
+      const year = eventDate.getUTCFullYear();
+      const month = String(eventDate.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(eventDate.getUTCDate()).padStart(2, "0");
+
+      // Format hours with leading zeros
+      const startHourStr = String(appEvent.startHour).padStart(2, "0");
+      const endHourStr = String(appEvent.endHour).padStart(2, "0");
+
+      // Create date-time strings in the format Google Calendar expects
+      // Format: YYYY-MM-DDTHH:mm:ss (without timezone, Google will interpret based on timeZone field)
+      const startDateTimeStr = `${year}-${month}-${day}T${startHourStr}:00:00`;
+      const endDateTimeStr = `${year}-${month}-${day}T${endHourStr}:00:00`;
 
       const googleEvent: GoogleCalendarEvent = {
         summary: appEvent.title,
         description: appEvent.description,
         start: {
-          dateTime: startDateTime.toISOString(),
+          dateTime: startDateTimeStr,
           timeZone: userTimezone,
         },
         end: {
-          dateTime: endDateTime.toISOString(),
+          dateTime: endDateTimeStr,
           timeZone: userTimezone,
         },
         location: appEvent.location,
@@ -537,13 +549,51 @@ export class GoogleCalendarService {
         throw new Error("Invalid event start or end time");
       }
 
+      // Get user's timezone
+      const userTimezone = await this.getUserTimezone(userId);
+
+      // Parse the Google Calendar datetime (which includes timezone info)
+      const startDate = new Date(startDateTime);
+      const endDate = new Date(endDateTime);
+
+      // Get the date components in user's timezone
+      const startDateParts = startDate
+        .toLocaleDateString("en-CA", {
+          timeZone: userTimezone,
+        })
+        .split("-"); // Returns YYYY-MM-DD
+      const startYear = parseInt(startDateParts[0]);
+      const startMonth = parseInt(startDateParts[1]) - 1; // Month is 0-indexed
+      const startDay = parseInt(startDateParts[2]);
+
+      // Get hours in user's timezone
+      const startHourStr = startDate.toLocaleTimeString("en-US", {
+        timeZone: userTimezone,
+        hour: "2-digit",
+        hour12: false,
+      });
+      const startHour = parseInt(startHourStr.split(":")[0]);
+
+      const endHourStr = endDate.toLocaleTimeString("en-US", {
+        timeZone: userTimezone,
+        hour: "2-digit",
+        hour12: false,
+      });
+      const endHour = parseInt(endHourStr.split(":")[0]);
+
+      // Create date at midnight UTC for the date in user's timezone
+      // This represents the date (not time) in the user's timezone
+      const eventDate = new Date(
+        Date.UTC(startYear, startMonth, startDay, 0, 0, 0, 0)
+      );
+
       const appEvent = {
         id: crypto.randomUUID(),
         title: googleEvent.summary || "Untitled Event",
         description: googleEvent.description || "",
-        date: new Date(startDateTime),
-        startHour: new Date(startDateTime).getHours(),
-        endHour: new Date(endDateTime).getHours(),
+        date: eventDate,
+        startHour: startHour,
+        endHour: endHour,
         calendarType: "work" as const,
         platform: "google_meet" as const,
         meetLink: googleEvent.hangoutLink || "",
