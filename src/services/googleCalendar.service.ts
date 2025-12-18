@@ -445,16 +445,22 @@ export class GoogleCalendarService {
       // Get user's timezone from database
       const userTimezone = await this.getUserTimezone(userId);
 
-      // appEvent.date is stored as midnight UTC representing the date
+      // appEvent.date is stored as a Date object
       // startHour and endHour are in the user's local timezone
-      // We need to create a date string in the format YYYY-MM-DDTHH:mm:ss
-      // that Google Calendar will interpret according to the timeZone field
+      // We need to get the date components in the user's timezone, not UTC
+      // to avoid date shifting issues
 
       const eventDate = new Date(appEvent.date);
-      // Get the date components (year, month, day) from the UTC date
-      const year = eventDate.getUTCFullYear();
-      const month = String(eventDate.getUTCMonth() + 1).padStart(2, "0");
-      const day = String(eventDate.getUTCDate()).padStart(2, "0");
+
+      // Convert the date to the user's timezone and extract date components
+      // This ensures we get the correct date that the user selected, not a UTC date
+      const dateStr = eventDate.toLocaleDateString("en-CA", {
+        timeZone: userTimezone,
+      }); // Returns YYYY-MM-DD format
+      const dateParts = dateStr.split("-");
+      const year = dateParts[0];
+      const month = dateParts[1];
+      const day = dateParts[2];
 
       // Format hours with leading zeros
       const startHourStr = String(appEvent.startHour).padStart(2, "0");
