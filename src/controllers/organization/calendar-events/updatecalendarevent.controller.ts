@@ -1,11 +1,16 @@
 import { Request, Response } from "express";
-import { calendarEvents } from "@/schema/schema";
+import {
+  calendarEvents,
+  userOrganizations,
+  notifications,
+} from "@/schema/schema";
 import { database } from "../../../configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { eq, and } from "drizzle-orm";
 import { googleCalendarService } from "../../../services/googleCalendar.service";
 import { logActivity } from "@/utils/activity.util";
+import { randomUUID } from "crypto";
 
 interface UpdateCalendarEventRequest extends Request {
   user?: {
@@ -204,6 +209,72 @@ export const updateCalendarEvent = async (
         "Failed to sync updated event to Google Calendar:",
         syncError
       );
+    }
+
+    // Send notifications to all organization users (except the updater)
+    try {
+      const updaterId = req.user?.id;
+
+      if (organizationId) {
+        // Get all active users in the organization
+        const orgUsers = await database
+          .select({
+            userId: userOrganizations.userId,
+          })
+          .from(userOrganizations)
+          .where(
+            and(
+              eq(userOrganizations.organizationId, organizationId),
+              eq(userOrganizations.status, "active")
+            )
+          );
+
+        // Create notifications for all users except the updater
+        const notificationPromises = orgUsers
+          .filter((orgUser) => orgUser.userId !== updaterId)
+          .map((orgUser) =>
+            database.insert(notifications).values({
+              id: randomUUID(),
+              userId: orgUser.userId,
+              organizationId: organizationId,
+              type: "calendar_event_updated",
+              title: "Calendar Event Updated",
+              message: `${
+                req.user?.email || "A user"
+              } updated calendar event: ${updatedEvent.title}`,
+              data: {
+                eventId: updatedEvent.id,
+                eventTitle: updatedEvent.title,
+                eventDate: updatedEvent.date,
+                calendarType: updatedEvent.calendarType,
+                platform: updatedEvent.platform,
+                updatedBy: req.user?.email || "Unknown",
+                updatedFields: Object.keys(eventUpdateData),
+              },
+              read: false,
+              createdAt: new Date(),
+            })
+          );
+
+        if (notificationPromises.length > 0) {
+          await Promise.all(notificationPromises);
+          logger.info(
+            `Notifications sent to ${notificationPromises.length} organization users for calendar event update`,
+            {
+              eventId: updatedEvent.id,
+              organizationId,
+              updaterId,
+            }
+          );
+        }
+      }
+    } catch (notificationError) {
+      // Log error but don't fail the event update
+      logger.error("Failed to send notifications for calendar event update:", {
+        error: notificationError,
+        eventId: updatedEvent.id,
+        userId: req.user?.id,
+      });
     }
 
     const userId = req.user?.id;

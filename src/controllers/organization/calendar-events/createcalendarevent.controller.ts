@@ -1,5 +1,5 @@
 import { Response } from "express";
-import { calendarEvents } from "@/schema/schema";
+import { calendarEvents, userOrganizations, notifications } from "@/schema/schema";
 import { database } from "../../../configs/connection.config";
 import { createCalendarEventSchema } from "@/schema/validation";
 import { logger } from "@/utils/logger.util";
@@ -7,7 +7,7 @@ import status from "http-status";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { googleCalendarService } from "../../../services/googleCalendar.service";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logActivity } from "@/utils/activity.util";
 
 interface CreateCalendarEventRequest {
@@ -166,6 +166,70 @@ export const createCalendarEvent = async (
         errorStack: syncError instanceof Error ? syncError.stack : undefined,
       });
       // Don't fail the creation if sync fails
+    }
+
+    // Send notifications to all organization users (except the creator)
+    try {
+      const organizationId = req.user?.organizationId;
+      const creatorId = req.user?.id;
+      
+      if (organizationId) {
+        // Get all active users in the organization
+        const orgUsers = await database
+          .select({
+            userId: userOrganizations.userId,
+          })
+          .from(userOrganizations)
+          .where(
+            and(
+              eq(userOrganizations.organizationId, organizationId),
+              eq(userOrganizations.status, "active")
+            )
+          );
+
+        // Create notifications for all users except the creator
+        const notificationPromises = orgUsers
+          .filter((orgUser) => orgUser.userId !== creatorId)
+          .map((orgUser) =>
+            database.insert(notifications).values({
+              id: randomUUID(),
+              userId: orgUser.userId,
+              organizationId: organizationId,
+              type: "calendar_event_created",
+              title: "New Calendar Event Created",
+              message: `${req.user?.email || "A user"} created a new calendar event: ${validatedData.title}`,
+              data: {
+                eventId: newEvent.id,
+                eventTitle: validatedData.title,
+                eventDate: validatedData.date,
+                calendarType: validatedData.calendarType,
+                platform: validatedData.platform,
+                createdBy: req.user?.email || "Unknown",
+              },
+              read: false,
+              createdAt: new Date(),
+            })
+          );
+
+        if (notificationPromises.length > 0) {
+          await Promise.all(notificationPromises);
+          logger.info(
+            `Notifications sent to ${notificationPromises.length} organization users for calendar event creation`,
+            {
+              eventId: newEvent.id,
+              organizationId,
+              creatorId,
+            }
+          );
+        }
+      }
+    } catch (notificationError) {
+      // Log error but don't fail the event creation
+      logger.error("Failed to send notifications for calendar event:", {
+        error: notificationError,
+        eventId: newEvent.id,
+        userId: req.user?.id,
+      });
     }
 
     // Log activity

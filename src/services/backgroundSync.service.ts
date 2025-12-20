@@ -1,8 +1,15 @@
 import { googleCalendarService } from "./googleCalendar.service";
 import { database } from "../configs/connection.config";
-import { calendarEvents, account, userOrganizations } from "../schema/schema";
+import {
+  calendarEvents,
+  account,
+  userOrganizations,
+  notifications,
+  users,
+} from "../schema/schema";
 import { eq, and, isNotNull } from "drizzle-orm";
 import { logger } from "../utils/logger.util";
+import { randomUUID } from "crypto";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isRailway =
@@ -223,16 +230,91 @@ export class BackgroundSyncService {
               .limit(1);
 
             if (userOrg.length > 0) {
+              const organizationId = userOrg[0].organizationId;
+
               // Create new event in app
               const appEvent = await googleCalendarService.syncGoogleEventToApp(
                 userId,
                 googleEvent,
-                userOrg[0].organizationId
+                organizationId
               );
 
               logger.info(
                 `Created new event from Google Calendar: ${appEvent.id}`
               );
+
+              // Send notifications to all organization users (except the calendar owner)
+              try {
+                // Get calendar owner's email for notification
+                const calendarOwner = await database
+                  .select({ email: users.email, name: users.name })
+                  .from(users)
+                  .where(eq(users.id, userId))
+                  .limit(1);
+
+                const ownerEmail = calendarOwner[0]?.email || "Calendar Owner";
+                const ownerName = calendarOwner[0]?.name || ownerEmail;
+
+                // Get all active users in the organization
+                const orgUsers = await database
+                  .select({
+                    userId: userOrganizations.userId,
+                  })
+                  .from(userOrganizations)
+                  .where(
+                    and(
+                      eq(userOrganizations.organizationId, organizationId),
+                      eq(userOrganizations.status, "active")
+                    )
+                  );
+
+                // Create notifications for all users except the calendar owner
+                const notificationPromises = orgUsers
+                  .filter((orgUser) => orgUser.userId !== userId)
+                  .map((orgUser) =>
+                    database.insert(notifications).values({
+                      id: randomUUID(),
+                      userId: orgUser.userId,
+                      organizationId: organizationId,
+                      type: "calendar_event_synced",
+                      title: "New Calendar Event Synced",
+                      message: `A new calendar event "${appEvent.title}" was synced from ${ownerName}'s Google Calendar`,
+                      data: {
+                        eventId: appEvent.id,
+                        eventTitle: appEvent.title,
+                        eventDate: appEvent.date,
+                        calendarType: appEvent.calendarType,
+                        platform: appEvent.platform,
+                        syncedFrom: ownerEmail,
+                        source: "google_calendar",
+                      },
+                      read: false,
+                      createdAt: new Date(),
+                    })
+                  );
+
+                if (notificationPromises.length > 0) {
+                  await Promise.all(notificationPromises);
+                  logger.info(
+                    `Notifications sent to ${notificationPromises.length} organization users for synced Google Calendar event`,
+                    {
+                      eventId: appEvent.id,
+                      organizationId,
+                      calendarOwnerId: userId,
+                    }
+                  );
+                }
+              } catch (notificationError) {
+                // Log error but don't fail the sync
+                logger.error(
+                  "Failed to send notifications for synced Google Calendar event:",
+                  {
+                    error: notificationError,
+                    eventId: appEvent.id,
+                    userId,
+                  }
+                );
+              }
             }
           }
         } catch (error) {
