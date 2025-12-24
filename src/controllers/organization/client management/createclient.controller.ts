@@ -1,11 +1,12 @@
 import { Request, Response } from "express";
 import { database } from "../../../configs/connection.config";
-import { clients } from "../../../schema/schema";
+import { clients, organizations } from "../../../schema/schema";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logActivity } from "@/utils/activity.util";
 import { requireOrganizationId } from "@/utils/organization.util";
+import { logger } from "@/utils/logger.util";
 
 export const createClient = async (req: Request, res: Response) => {
   try {
@@ -18,6 +19,27 @@ export const createClient = async (req: Request, res: Response) => {
     const organizationId = requireOrganizationId(req, res);
     if (!organizationId) {
       return; // Response already sent by requireOrganizationId
+    }
+
+    // Verify that the organization exists in the database
+    const organization = await database
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, organizationId))
+      .limit(1);
+
+    if (organization.length === 0) {
+      logger.error("Organization not found in database", {
+        organizationId,
+        userId: req.user?.id,
+      });
+      return res.status(404).json({
+        success: false,
+        error: "Organization not found",
+        message:
+          "The organization associated with your account does not exist. Please contact support.",
+        code: "ORGANIZATION_NOT_FOUND",
+      });
     }
 
     // Extract client data from request body
@@ -144,9 +166,23 @@ export const createClient = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error("Error creating client:", error);
+    logger.error("Error creating client:", error);
+    
+    // Check if it's a foreign key constraint violation
+    if (error instanceof Error && error.message.includes("foreign key constraint")) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid organization",
+        message:
+          "The organization associated with your account is invalid. Please contact support or try logging out and logging back in.",
+        code: "ORGANIZATION_INVALID",
+      });
+    }
+
     res.status(500).json({
+      success: false,
       error: "Internal server error while creating client",
+      message: error instanceof Error ? error.message : "Unknown error occurred",
     });
   }
 };

@@ -307,8 +307,10 @@ export const projects = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     createdBy: text("created_by")
       .notNull()
-      .references(() => users.id),
-    assignedTo: text("assigned_to").references(() => users.id),
+      .references(() => users.id, { onDelete: "cascade" }),
+    assignedTo: text("assigned_to").references(() => users.id, {
+      onDelete: "set null",
+    }),
     status: text("status").$defaultFn(() => "active"),
     startDate: timestamp("start_date"),
     endDate: timestamp("end_date"),
@@ -399,10 +401,12 @@ export const tasks = pgTable(
     projectId: text("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    assignedTo: text("assigned_to").references(() => users.id),
+    assignedTo: text("assigned_to").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdBy: text("created_by")
       .notNull()
-      .references(() => users.id),
+      .references(() => users.id, { onDelete: "cascade" }),
     status: text("status")
       .$type<
         "todo" | "in_progress" | "completed" | "updated" | "delay" | "changes"
@@ -1150,7 +1154,9 @@ export const calendarEvents = pgTable(
     whatsappNumber: text("whatsapp_number"),
     outlookEvent: text("outlook_event"),
     organizationId: text("organization_id").notNull(),
-    userId: text("user_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     // Google Calendar integration fields
     googleEventId: text("google_event_id"), // Google Calendar event ID
     googleCalendarId: text("google_calendar_id"), // Google Calendar ID (usually 'primary')

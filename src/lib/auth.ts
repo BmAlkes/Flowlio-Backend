@@ -506,11 +506,49 @@ export const auth = betterAuth({
       sendDeleteAccountVerification: async () => {
         // Send delete account verification
       },
-      beforeDelete: async () => {
+      beforeDelete: async (ctx: { id: string }) => {
         // Perform actions before user deletion
+        const userId = ctx.id;
+        logger.info(`🗑️ Starting user deletion process for user: ${userId}`);
+
+        try {
+          // Delete calendar events created by this user
+          // (cascade delete is now in schema, but we'll log it)
+          const calendarEventsCount = await database
+            .select({ count: schema.calendarEvents.id })
+            .from(schema.calendarEvents)
+            .where(eq(schema.calendarEvents.userId, userId));
+
+          logger.info(
+            `📅 Will delete ${calendarEventsCount.length} calendar events for user ${userId}`
+          );
+
+          // Delete recent activities where user is the actor
+          // (We keep activities for history, but can optionally delete)
+          const activitiesCount = await database
+            .select({ count: schema.recentActivities.id })
+            .from(schema.recentActivities)
+            .where(eq(schema.recentActivities.actorId, userId));
+
+          logger.info(
+            `📊 Found ${activitiesCount.length} activities by user ${userId} (keeping for history)`
+          );
+
+          logger.info(`✅ Pre-deletion checks completed for user ${userId}`);
+        } catch (error) {
+          logger.error(
+            `❌ Error during beforeDelete hook for user ${userId}:`,
+            error
+          );
+          // Don't throw - let the deletion proceed
+        }
       },
-      afterDelete: async () => {
+      afterDelete: async (ctx: { id: string }) => {
         // Perform cleanup after user deletion
+        const userId = ctx.id;
+        logger.info(
+          `✅ User ${userId} deleted successfully. Cleanup completed.`
+        );
       },
     },
   },

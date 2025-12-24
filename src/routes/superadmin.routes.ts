@@ -29,6 +29,8 @@ import {
   getNewsletterStats,
 } from "../controllers/super admin/newsletter/getnewslettersubscribers.controller";
 import { sendNewsletter } from "../controllers/super admin/newsletter/sendnewsletter.controller";
+import { getAllUsers } from "../controllers/super admin/users/getallusers.controller";
+import { deleteUser } from "../controllers/super admin/users/deleteuser.controller";
 
 const router = Router();
 
@@ -140,5 +142,9 @@ router.post(
   requireSuperAdmin,
   sendNewsletter
 );
+
+// USERS MANAGEMENT ROUTES - require super admin role
+router.get("/users", isAuthenticated, requireSuperAdmin, getAllUsers);
+router.delete("/users/:userId", isAuthenticated, requireSuperAdmin, deleteUser);
 
 export default router;

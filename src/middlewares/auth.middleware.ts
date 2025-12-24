@@ -276,9 +276,19 @@ export const isAuthenticated = async (
           }
 
           // Add organization info to user object
+          // Only set organizationId if organization actually exists in database
+          if (activeUserOrg?.organizationId && !activeUserOrg?.organization) {
+            logger.warn(
+              `⚠️ User ${freshUser.id} has organizationId ${activeUserOrg.organizationId} in userOrganizations but organization doesn't exist in organizations table. This is a data integrity issue.`
+            );
+          }
+
           const userWithOrg = {
             ...freshUser,
-            organizationId: activeUserOrg?.organizationId || null,
+            organizationId:
+              activeUserOrg?.organization && activeUserOrg?.organizationId
+                ? activeUserOrg.organizationId
+                : null,
             organization: activeUserOrg?.organization || null,
             userOrganization: activeUserOrg || null,
           };
