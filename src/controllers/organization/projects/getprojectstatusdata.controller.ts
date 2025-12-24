@@ -41,10 +41,13 @@ export const getProjectStatusData = async (
     );
 
     // Get project status counts for this organization
+    // Note: Projects don't have a 'delayed' status - only tasks can be manually marked as delayed
+    // Pending projects should NOT be counted as delayed - they are just pending/not started yet
+    // Delayed count should be 0 unless we add a 'delayed' status for projects in the future
     const result = await database
       .select({
         ongoing: sql<number>`COUNT(CASE WHEN ${projects.status} IN ('ongoing', 'active') THEN 1 END)`,
-        delayed: sql<number>`COUNT(CASE WHEN ${projects.status} = 'pending' THEN 1 END)`,
+        delayed: sql<number>`COUNT(CASE WHEN ${projects.status} = 'delayed' THEN 1 END)`, // Only count if manually marked as delayed (currently 0)
         finished: sql<number>`COUNT(CASE WHEN ${projects.status} = 'completed' THEN 1 END)`,
         total: sql<number>`COUNT(*)`,
       })
