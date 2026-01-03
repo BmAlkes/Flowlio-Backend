@@ -13,7 +13,8 @@ interface NotificationData {
     | "newUserSignup"
     | "pendingPayment"
     | "userUnsubscribe"
-    | "planUpgrade";
+    | "planUpgrade"
+    | "subscriptionRenewed";
   title: string;
   message: string;
   details?: Record<string, any>;
@@ -31,6 +32,7 @@ export const getSuperAdminsForNotification = async (
     | "pendingPaymentNotifications"
     | "userUnsubscribeNotifications"
     | "planUpgradeNotifications"
+    | "subscriptionRenewedNotifications"
 ) => {
   try {
     const allSuperAdmins = await database.query.users.findMany({
@@ -75,6 +77,7 @@ export const notifySuperAdmins = async (data: NotificationData) => {
       | "pendingPaymentNotifications"
       | "userUnsubscribeNotifications"
       | "planUpgradeNotifications"
+      | "subscriptionRenewedNotifications"
     > = {
       userSubscribe: "userSubscribeNotifications",
       newCompany: "newCompanyNotifications",
@@ -83,6 +86,7 @@ export const notifySuperAdmins = async (data: NotificationData) => {
       pendingPayment: "pendingPaymentNotifications",
       userUnsubscribe: "userUnsubscribeNotifications",
       planUpgrade: "planUpgradeNotifications",
+      subscriptionRenewed: "subscriptionRenewedNotifications",
     };
 
     const notificationKey = notificationTypeMap[data.type];
@@ -170,6 +174,7 @@ export const notifySuperAdmins = async (data: NotificationData) => {
           pendingPayment: "pending_payment",
           userUnsubscribe: "user_unsubscribed",
           planUpgrade: "plan_upgraded",
+          subscriptionRenewed: "subscription_renewed",
         };
 
         await database.insert(notifications).values({
