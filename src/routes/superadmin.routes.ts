@@ -19,6 +19,7 @@ import { getCompanyDetails } from "../controllers/super admin/organizations/getc
 import { getAllData } from "../controllers/super admin/organizations/getalldata.controller";
 import { getTotalInvoices } from "../controllers/super admin/organizations/gettotalinvoices.controller";
 import { getSuperadminOverview } from "../controllers/super admin/organizations/getoverview.controller";
+import { getSubscriptionHistory } from "../controllers/super admin/organizations/getsubscriptionhistory.controller";
 import { createDemoAccount } from "../controllers/super admin/demo/createDemoAccount.controller";
 import { deactivateDemoAccount } from "../controllers/super admin/demo/deactivateDemoAccount.controller";
 import { listDemoAccounts } from "../controllers/super admin/demo/listDemoAccounts.controller";
@@ -43,6 +44,12 @@ router.get(
   isAuthenticated,
   requireSuperOrSubAdmin,
   getCompanyDetails as any
+);
+router.get(
+  "/organizations/:organizationId/subscription-history",
+  isAuthenticated,
+  requireSuperOrSubAdmin,
+  getSubscriptionHistory as any
 );
 router.get(
   "/all-data",

@@ -211,12 +211,14 @@ export class AutoRenewalService {
       })
       .where(eq(subscriptions.id, subscription.id));
 
-    // Update organization subscription dates
+    // Update organization subscription dates and status
+    // This ensures super admin subscriptions table shows updated data
     await database
       .update(organizations)
       .set({
         subscriptionStatus: "active",
-        subscriptionEndDate: newPeriodEnd,
+        subscriptionStartDate: newPeriodStart, // Update start date for new period
+        subscriptionEndDate: newPeriodEnd, // Update end date for new period
         updatedAt: now,
       })
       .where(eq(organizations.id, organization.id));
