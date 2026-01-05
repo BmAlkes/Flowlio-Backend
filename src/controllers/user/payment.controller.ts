@@ -229,8 +229,20 @@ export const createPayPalOrder = async (
       }
     );
 
+    // Log merchant account that will receive payment
+    const merchantId =
+      response.data.purchase_units?.[0]?.payee?.merchant_id || "Not available";
+    const merchantEmail =
+      response.data.purchase_units?.[0]?.payee?.email_address ||
+      "Not available";
+
     logger.info(
       `PayPal order created: ${response.data.id} for plan: ${planId}, amount: ${amount} ${currency}`
+    );
+    logger.info(
+      `💳 PAYMENT WILL GO TO - Merchant Account: ${merchantEmail} (ID: ${merchantId}), Mode: ${
+        env.PAYPAL_MODE || "live"
+      }`
     );
 
     res.status(200).json({
@@ -532,8 +544,25 @@ export const capturePayPalOrder = async (
         captureAmount = captureData?.amount?.value || "";
         captureCurrency = captureData?.amount?.currency_code || "USD";
 
+        // Log merchant/receiver account information
+        const merchantId =
+          response.data.purchase_units?.[0]?.payee?.merchant_id ||
+          "Not available";
+        const merchantEmail =
+          response.data.purchase_units?.[0]?.payee?.email_address ||
+          "Not available";
+        const payerEmail =
+          response.data.payer?.email_address || "Not available";
+        const payerName =
+          response.data.payer?.name?.given_name +
+            " " +
+            response.data.payer?.name?.surname || "Not available";
+
         logger.info(
           `PayPal order captured: ${orderId}, capture ID: ${captureId}, status: ${paymentStatus}`
+        );
+        logger.info(
+          `💰 PAYMENT RECEIVED - Merchant Account: ${merchantEmail} (ID: ${merchantId}), Payer: ${payerName} (${payerEmail}), Amount: ${captureAmount} ${captureCurrency}`
         );
       }
     } catch (error: any) {

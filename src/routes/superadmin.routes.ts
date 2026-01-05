@@ -175,4 +175,13 @@ router.post(
 router.get("/users", isAuthenticated, requireSuperAdmin, getAllUsers);
 router.delete("/users/:userId", isAuthenticated, requireSuperAdmin, deleteUser);
 
+// PAYPAL CONFIGURATION ROUTES - require super admin role
+import { checkPayPalConfig } from "../controllers/super admin/paypal/checkpaypalconfig.controller";
+router.get(
+  "/paypal/config",
+  isAuthenticated,
+  requireSuperAdmin,
+  checkPayPalConfig
+);
+
 export default router;
