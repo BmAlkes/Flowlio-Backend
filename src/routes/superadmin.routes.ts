@@ -21,6 +21,8 @@ import { getTotalInvoices } from "../controllers/super admin/organizations/getto
 import { getSuperadminOverview } from "../controllers/super admin/organizations/getoverview.controller";
 import { getSubscriptionHistory } from "../controllers/super admin/organizations/getsubscriptionhistory.controller";
 import { auditSubscriptions } from "../controllers/super admin/organizations/auditsubscriptions.controller";
+import { reactivateSubscription } from "../controllers/super admin/organizations/reactivatesubscription.controller";
+import { deactivateSubscription } from "../controllers/super admin/organizations/deactivatesubscription.controller";
 import { createDemoAccount } from "../controllers/super admin/demo/createDemoAccount.controller";
 import { deactivateDemoAccount } from "../controllers/super admin/demo/deactivateDemoAccount.controller";
 import { listDemoAccounts } from "../controllers/super admin/demo/listDemoAccounts.controller";
@@ -57,6 +59,18 @@ router.get(
   isAuthenticated,
   requireSuperAdmin,
   auditSubscriptions as any
+);
+router.put(
+  "/subscriptions/:subscriptionId/reactivate",
+  isAuthenticated,
+  requireSuperAdmin,
+  reactivateSubscription as any
+);
+router.put(
+  "/subscriptions/:subscriptionId/deactivate",
+  isAuthenticated,
+  requireSuperAdmin,
+  deactivateSubscription as any
 );
 router.get(
   "/all-data",

@@ -427,7 +427,73 @@ export class AutoRenewalService {
       );
     }
 
+    // FINAL SAFETY CHECK: Before updating database, verify payment one more time
+    // This is the last line of defense to prevent renewal without payment
+    if (requiresPayment) {
+      // Double-check payment result is actually successful
+      if (!paymentResult.success || !paymentVerified) {
+        logger.error(
+          `🚨 FINAL SAFETY CHECK FAILED: Cannot renew subscription ${subscription.id} - payment verification failed at final check`,
+          {
+            subscriptionId: subscription.id,
+            organizationId: organization.id,
+            paymentResult,
+            paymentVerified,
+          }
+        );
+
+        // Mark as past_due
+        await database
+          .update(subscriptions)
+          .set({
+            status: "past_due",
+            updatedAt: now,
+            metadata: {
+              ...((subscription.metadata as any) || {}),
+              finalSafetyCheckFailed: true,
+              finalSafetyCheckFailedAt: now.toISOString(),
+              renewalPaymentStatus: "FAILED",
+              flaggedForReview: true,
+            },
+          })
+          .where(eq(subscriptions.id, subscription.id));
+
+        await database
+          .update(organizations)
+          .set({
+            subscriptionStatus: "past_due",
+            updatedAt: now,
+          })
+          .where(eq(organizations.id, organization.id));
+
+        // Notify super admins
+        notifySuperAdmins({
+          type: "pendingPayment",
+          title: "🚨 FINAL SAFETY CHECK: Renewal Blocked - No Payment",
+          message: `Final safety check blocked renewal for "${organization.name}" - payment verification failed.`,
+          details: {
+            "Organization Name": organization.name || "N/A",
+            "Organization ID": organization.id,
+            "Subscription ID": subscription.id,
+            "Plan Name": plan.name || "N/A",
+            "Plan Price": `${plan.price} ${plan.currency}`,
+            Reason: "Final payment verification failed",
+          },
+        }).catch((error) => {
+          logger.error(
+            "Failed to send final safety check notification:",
+            error
+          );
+        });
+
+        throw new Error(
+          "Final safety check failed: Payment verification required before renewal"
+        );
+      }
+    }
+
     // Update subscription with payment verification flag
+    // Only reach here if payment is verified (or plan is free)
     await database
       .update(subscriptions)
       .set({
@@ -448,12 +514,91 @@ export class AutoRenewalService {
               : "N/A"
             : "FREE_PLAN",
           flaggedForReview: false, // Clear any previous flags
+          finalSafetyCheckPassed: true, // Mark that final check passed
+          finalSafetyCheckPassedAt: now.toISOString(),
         },
       })
       .where(eq(subscriptions.id, subscription.id));
 
+    // POST-UPDATE VERIFICATION: Immediately verify the update was correct
+    // This catches any edge cases where update succeeded but payment wasn't recorded
+    const verifyUpdatedSubscription =
+      await database.query.subscriptions.findFirst({
+        where: (subs, { eq }) => eq(subs.id, subscription.id),
+      });
+
+    if (verifyUpdatedSubscription) {
+      const verifyMetadata = (verifyUpdatedSubscription.metadata as any) || {};
+      const verifyPaymentProcessed = verifyMetadata.renewalPaymentProcessed;
+      const verifyPaymentStatus = verifyMetadata.renewalPaymentStatus;
+
+      // If payment was required but not processed, immediately revert
+      if (
+        requiresPayment &&
+        (!verifyPaymentProcessed || verifyPaymentStatus !== "SUCCESS")
+      ) {
+        logger.error(
+          `🚨 POST-UPDATE VERIFICATION FAILED: Subscription ${subscription.id} was updated but payment verification failed! Reverting...`,
+          {
+            subscriptionId: subscription.id,
+            organizationId: organization.id,
+            verifyPaymentProcessed,
+            verifyPaymentStatus,
+          }
+        );
+
+        // Revert to past_due
+        await database
+          .update(subscriptions)
+          .set({
+            status: "past_due",
+            updatedAt: new Date(),
+            metadata: {
+              ...verifyMetadata,
+              postUpdateVerificationFailed: true,
+              postUpdateVerificationFailedAt: new Date().toISOString(),
+              flaggedForReview: true,
+            },
+          })
+          .where(eq(subscriptions.id, subscription.id));
+
+        await database
+          .update(organizations)
+          .set({
+            subscriptionStatus: "past_due",
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id));
+
+        // Notify super admins
+        notifySuperAdmins({
+          type: "pendingPayment",
+          title: "🚨 POST-UPDATE VERIFICATION: Renewal Reverted - No Payment",
+          message: `Subscription for "${organization.name}" was updated but post-update verification failed. Status reverted to past_due.`,
+          details: {
+            "Organization Name": organization.name || "N/A",
+            "Organization ID": organization.id,
+            "Subscription ID": subscription.id,
+            "Plan Name": plan.name || "N/A",
+            "Plan Price": `${plan.price} ${plan.currency}`,
+            Reason: "Post-update payment verification failed",
+          },
+        }).catch((error) => {
+          logger.error(
+            "Failed to send post-update verification notification:",
+            error
+          );
+        });
+
+        throw new Error(
+          "Post-update verification failed: Payment not properly recorded"
+        );
+      }
+    }
+
     // Update organization subscription dates and status
     // This ensures super admin subscriptions table shows updated data
+    // Only update if subscription update was successful and verified
     await database
       .update(organizations)
       .set({
