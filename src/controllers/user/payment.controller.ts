@@ -17,7 +17,6 @@ interface CreatePayPalOrderRequest {
   planId: string;
   amount: number;
   currency?: string;
-  // demoMode?: boolean; // Force demo mode even if PayPal is configured - COMMENTED OUT FOR PRODUCTION
 }
 
 interface CapturePayPalOrderRequest {
@@ -167,34 +166,6 @@ export const createPayPalOrder = async (
       return;
     }
 
-    // COMMENTED OUT: Demo mode functionality removed for production
-    // if (demoMode || !env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-    //   logger.warn("Using demo mode for PayPal order", {
-    //     demoMode,
-    //     hasCredentials: !!env.PAYPAL_CLIENT_ID,
-    //   });
-    //   // Return demo order ID for testing
-    //   res.status(200).json({
-    //     success: true,
-    //     message: "Demo PayPal order created",
-    //     data: {
-    //       orderId: `demo_order_${Date.now()}_${Math.random()
-    //         .toString(36)
-    //         .substr(2, 9)}`,
-    //       status: "CREATED",
-    //       amount,
-    //       currency,
-    //       plan: {
-    //         id: plan.id,
-    //         name: plan.name,
-    //         price: plan.price,
-    //         billingCycle: plan.billingCycle,
-    //       },
-    //     },
-    //   });
-    //   return;
-    // }
-
     // Get access token
     const accessToken = await getPayPalAccessToken();
 
@@ -301,7 +272,7 @@ export const capturePayPalOrder = async (
       return;
     }
 
-    let paymentStatus = "COMPLETED";
+    let paymentStatus = "PENDING"; // Initialize as PENDING, only set to COMPLETED after successful capture
     let captureId = "";
     let captureAmount = "";
     let captureCurrency = "USD";
@@ -359,6 +330,23 @@ export const capturePayPalOrder = async (
         `PayPal order status check: ${orderId}, status: ${orderStatus}`
       );
 
+      // Check if order has expired (PayPal orders expire after 3 hours if not captured)
+      const orderCreateTime = orderDetailsResponse.data?.create_time;
+      if (orderCreateTime) {
+        const createDate = new Date(orderCreateTime);
+        const now = new Date();
+        const hoursSinceCreation =
+          (now.getTime() - createDate.getTime()) / (1000 * 60 * 60);
+
+        if (hoursSinceCreation > 3 && orderStatus !== "COMPLETED") {
+          logger.warn(
+            `PayPal order ${orderId} was created ${hoursSinceCreation.toFixed(
+              2
+            )} hours ago and may have expired. Status: ${orderStatus}`
+          );
+        }
+      }
+
       // Check if order is already completed
       if (orderStatus === "COMPLETED") {
         logger.warn(
@@ -370,9 +358,9 @@ export const capturePayPalOrder = async (
           orderDetailsResponse.data?.purchase_units?.[0]?.payments
             ?.captures?.[0];
 
-        if (existingCapture) {
+        if (existingCapture && existingCapture.id) {
           paymentStatus = "COMPLETED";
-          captureId = existingCapture.id || "";
+          captureId = existingCapture.id;
           captureAmount = existingCapture.amount?.value || "";
           captureCurrency = existingCapture.amount?.currency_code || "USD";
 
@@ -380,10 +368,14 @@ export const capturePayPalOrder = async (
             `Using existing capture for order ${orderId}: ${captureId}`
           );
         } else {
+          logger.error(
+            `Order ${orderId} is marked as COMPLETED but no capture ID found. This should not happen.`
+          );
           res.status(400).json({
             success: false,
-            message: "Order is already completed but no capture details found.",
-            code: "ORDER_ALREADY_COMPLETED",
+            message:
+              "Order is already completed but no capture details found. Please contact support.",
+            code: "ORDER_ALREADY_COMPLETED_NO_CAPTURE",
           });
           return;
         }
@@ -433,23 +425,26 @@ export const capturePayPalOrder = async (
                   retryResponse.data?.purchase_units?.[0]?.payments
                     ?.captures?.[0];
 
-                if (existingCapture) {
+                if (existingCapture && existingCapture.id) {
                   paymentStatus = "COMPLETED";
-                  captureId = existingCapture.id || "";
+                  captureId = existingCapture.id;
                   captureAmount = existingCapture.amount?.value || "";
                   captureCurrency =
                     existingCapture.amount?.currency_code || "USD";
                   logger.info(
-                    `Order ${orderId} was already completed during retry check.`
+                    `Order ${orderId} was already completed during retry check. Capture ID: ${captureId}`
                   );
                   // Skip to organization creation - break out of while loop
                   break;
                 } else {
+                  logger.error(
+                    `Order ${orderId} is marked as COMPLETED but no capture ID found during retry.`
+                  );
                   res.status(400).json({
                     success: false,
                     message:
-                      "Order is already completed but no capture details found.",
-                    code: "ORDER_ALREADY_COMPLETED",
+                      "Order is already completed but no capture details found. Please contact support.",
+                    code: "ORDER_ALREADY_COMPLETED_NO_CAPTURE",
                   });
                   return;
                 }
@@ -539,10 +534,28 @@ export const capturePayPalOrder = async (
         const captureData =
           response.data.purchase_units[0]?.payments?.captures?.[0];
 
+        // Validate that capture was successful and has an ID
+        if (!captureData || !captureData.id) {
+          logger.error(
+            `PayPal capture response missing capture ID for order ${orderId}`,
+            {
+              responseData: response.data,
+              captureData,
+            }
+          );
+          res.status(500).json({
+            success: false,
+            message:
+              "PayPal capture completed but no capture ID was returned. Please contact support.",
+            code: "PAYPAL_CAPTURE_NO_ID",
+          });
+          return;
+        }
+
         paymentStatus = response.data.status;
-        captureId = captureData?.id || "";
-        captureAmount = captureData?.amount?.value || "";
-        captureCurrency = captureData?.amount?.currency_code || "USD";
+        captureId = captureData.id;
+        captureAmount = captureData.amount?.value || "";
+        captureCurrency = captureData.amount?.currency_code || "USD";
 
         // Log merchant/receiver account information
         const merchantId =
@@ -586,9 +599,12 @@ export const capturePayPalOrder = async (
       }
 
       if (error.response?.status === 404) {
+        logger.error(
+          `PayPal order not found: ${orderId}. Order may have expired (PayPal orders expire after 3 hours) or been cancelled.`
+        );
         res.status(404).json({
           success: false,
-          message: `PayPal order not found: ${orderId}. The order may have expired or been cancelled.`,
+          message: `PayPal order not found: ${orderId}. The order may have expired (orders expire after 3 hours if not captured) or been cancelled. Please create a new order.`,
           code: "PAYPAL_ORDER_NOT_FOUND",
         });
         return;
@@ -659,8 +675,9 @@ export const capturePayPalOrder = async (
     }
     // } // END OF COMMENTED DEMO MODE ELSE BLOCK
 
-    // Only create organization if payment was successful
-    if (paymentStatus === "COMPLETED" && userId) {
+    // Only create organization if payment was successful AND capture ID exists
+    // This ensures we never create a subscription without a valid PayPal capture
+    if (paymentStatus === "COMPLETED" && captureId && userId) {
       try {
         // Get user data including pending organization data
         const userData = await database.query.users.findFirst({
@@ -1407,12 +1424,30 @@ export const capturePayPalOrder = async (
       }
     }
 
+    // Validate that we have a capture ID before returning success
+    if (!captureId) {
+      logger.error(
+        `Payment processing completed but no capture ID for order ${orderId}`,
+        {
+          paymentStatus,
+          orderId,
+        }
+      );
+      res.status(500).json({
+        success: false,
+        message:
+          "Payment processing completed but capture ID is missing. Please contact support.",
+        code: "PAYPAL_CAPTURE_ID_MISSING",
+      });
+      return;
+    }
+
     // If payment successful but no organization data provided, just return payment status
     res.status(200).json({
       success: true,
       message: "PayPal order captured successfully",
       data: {
-        orderId: orderId.startsWith("demo_order_") ? orderId : orderId,
+        orderId: orderId,
         status: paymentStatus,
         captureId: captureId,
         amount: captureAmount,
