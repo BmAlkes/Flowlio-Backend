@@ -60,22 +60,9 @@ export const createOrganizationWithPlan = async (
       });
     }
 
-    // Check if organization name/slug already exists (to prevent duplicates after payment)
-    const slug = organizationName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "");
-
-    const existingOrg = await database.query.organizations.findFirst({
-      where: (orgs, { eq }) => eq(orgs.slug, slug),
-    });
-
-    if (existingOrg) {
-      return res.status(409).json({
-        success: false,
-        message: "An organization with this name already exists",
-      });
-    }
+    // Allow multiple organizations with same name - slug will be made unique with user ID
+    // No need to check for duplicates here since slug includes user ID in payment controller
+    // This allows multiple users to have organizations with the same name
 
     // Store plan selection and organization data in user record (pending until payment)
     // Organization will be created after payment is completed

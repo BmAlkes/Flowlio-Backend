@@ -722,9 +722,10 @@ export const capturePayPalOrder = async (
             },
           });
 
-        // If user already has an organization and no organizationName is provided,
-        // just create/update subscription for existing organization
-        if (existingUserOrg?.organization && !finalOrganizationName) {
+        // IMPORTANT FIX: If user already has an organization, use that one
+        // regardless of whether organizationName is provided
+        // This prevents payment from failing when user tries to create account through pricing page
+        if (existingUserOrg?.organization) {
           logger.info(
             `User ${userId} already has organization ${existingUserOrg.organizationId}, creating subscription only`
           );
@@ -966,13 +967,27 @@ export const capturePayPalOrder = async (
         }
 
         // Create organization slug from name (use finalOrgName which has fallback)
-        const slug = finalOrgName
+        // Include user ID in slug to allow multiple organizations with same name
+        const baseSlug = finalOrgName
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/(^-|-$)/g, "");
 
-        // Check if organization already exists (pending payment) for this user
-        let existingOrg = null;
+        // Make slug unique by appending user ID (allows multiple orgs with same name)
+        let slug = userId
+          ? `${baseSlug}-${userId.substring(0, 8)}`
+          : `${baseSlug}-${Date.now()}`;
+
+        // IMPORTANT: First check if user already has an organization
+        // If user has an org, use that one regardless of the name provided
+        // This prevents issues when user tries to create account through pricing page
+        let userExistingOrg: {
+          id: string;
+          settings: any;
+          subscriptionStatus: string | null;
+          [key: string]: any;
+        } | null = null;
+
         if (userId) {
           // Find organization by user's organization relationship
           const userOrg = await database.query.userOrganizations.findFirst({
@@ -983,58 +998,78 @@ export const capturePayPalOrder = async (
           });
 
           if (userOrg?.organization) {
-            existingOrg = userOrg.organization;
-            // Also check by slug as fallback
-            if (!existingOrg || existingOrg.slug !== slug) {
-              existingOrg = await database.query.organizations.findFirst({
-                where: (orgs, { eq }) => eq(orgs.slug, slug),
-              });
-            }
-          } else {
-            // Check by slug
-            existingOrg = await database.query.organizations.findFirst({
-              where: (orgs, { eq }) => eq(orgs.slug, slug),
-            });
+            // User already has an organization - use that one
+            userExistingOrg = userOrg.organization;
+            logger.info(
+              `User ${userId} already has organization ${userExistingOrg.id}. Using existing organization instead of creating new one.`
+            );
           }
-        } else {
-          // Check by slug only if no userId
-          existingOrg = await database.query.organizations.findFirst({
-            where: (orgs, { eq }) => eq(orgs.slug, slug),
-          });
         }
 
         const now = new Date();
         let organizationId: string;
         let shouldUpdate = false;
 
-        // If organization exists and is pending, update it; otherwise create new
-        if (existingOrg && existingOrg.subscriptionStatus === "pending") {
-          organizationId = existingOrg.id;
-          shouldUpdate = true;
-          logger.info(
-            `Updating existing pending organization: ${organizationId} after payment`
-          );
-        } else if (
-          existingOrg &&
-          existingOrg.subscriptionStatus !== "pending"
-        ) {
-          // Organization exists but is not pending (already paid or active)
-          logger.error(
-            `Organization with slug already exists and is not pending: ${slug}`
-          );
-          res.status(409).json({
-            success: false,
-            message:
-              "An organization with this name already exists and is active",
-          });
-          return;
+        // If user already has an organization, use that one
+        if (userExistingOrg) {
+          organizationId = userExistingOrg.id;
+          // Check if it's pending or needs update
+          if (userExistingOrg.subscriptionStatus === "pending") {
+            shouldUpdate = true;
+            logger.info(
+              `Updating existing pending organization: ${organizationId} after payment`
+            );
+          } else {
+            // User's org exists but is not pending - still update subscription
+            shouldUpdate = true;
+            logger.info(
+              `User already has organization ${organizationId} (status: ${userExistingOrg.subscriptionStatus}). Updating subscription after payment.`
+            );
+          }
         } else {
-          // Create new organization
-          organizationId = crypto.randomUUID().replace(/-/g, "");
-          shouldUpdate = false;
-          logger.info(
-            `Creating new organization: ${organizationId} after payment`
-          );
+          // User doesn't have an organization - check if pending org exists for this user
+          // Since slug now includes user ID, we check by user's pending orgs instead
+          if (userId) {
+            // Check if user has a pending organization (by checking user-org relationships)
+            const pendingUserOrg =
+              await database.query.userOrganizations.findFirst({
+                where: (userOrgs, { eq, and }) =>
+                  and(
+                    eq(userOrgs.userId, userId),
+                    eq(userOrgs.status, "active")
+                  ),
+                with: {
+                  organization: true,
+                },
+              });
+
+            if (
+              pendingUserOrg?.organization &&
+              pendingUserOrg.organization.subscriptionStatus === "pending"
+            ) {
+              // User has a pending organization - update it
+              organizationId = pendingUserOrg.organization.id;
+              shouldUpdate = true;
+              logger.info(
+                `Updating existing pending organization: ${organizationId} after payment`
+              );
+            } else {
+              // No pending org for this user - create new organization
+              // Slug is already unique (includes user ID), so no conflict possible
+              organizationId = crypto.randomUUID().replace(/-/g, "");
+              shouldUpdate = false;
+              logger.info(
+                `Creating new organization: ${organizationId} with slug: ${slug} after payment`
+              );
+            }
+          } else {
+            // No userId - create new organization with timestamp-based unique slug
+            organizationId = crypto.randomUUID().replace(/-/g, "");
+            shouldUpdate = false;
+            logger.info(
+              `Creating new organization: ${organizationId} with slug: ${slug} after payment`
+            );
+          }
         }
 
         // Calculate trial end date based on plan's trialDays
@@ -1101,9 +1136,20 @@ export const capturePayPalOrder = async (
         });
 
         // Check if existing organization is a demo org (for shouldUpdate case)
+        // Get org settings from userExistingOrg or fetch from database if updating pending org
         let existingOrgSettings: any = null;
-        if (shouldUpdate && existingOrg) {
-          existingOrgSettings = existingOrg.settings as any;
+        if (shouldUpdate) {
+          if (userExistingOrg) {
+            existingOrgSettings = userExistingOrg.settings as any;
+          } else {
+            // If updating a pending org, fetch it to get settings
+            const orgToUpdate = await database.query.organizations.findFirst({
+              where: (orgs, { eq }) => eq(orgs.id, organizationId),
+            });
+            if (orgToUpdate) {
+              existingOrgSettings = orgToUpdate.settings as any;
+            }
+          }
         }
 
         // If demo organization, prepare to remove demo flag
@@ -1122,9 +1168,11 @@ export const capturePayPalOrder = async (
         // Update or create organization
         let newOrganization;
         if (shouldUpdate) {
-          // Update existing pending organization
+          // Update existing organization (pending or user's existing org)
           const updateData: any = {
-            name: finalOrgName,
+            // Only update name if it's a pending org, not if user already has an org
+            // This prevents overwriting user's existing org name when they provide a conflicting name
+            ...(userExistingOrg ? {} : { name: finalOrgName }),
             website: finalOrganizationWebsite,
             industry: finalOrganizationIndustry,
             size: finalOrganizationSize,
