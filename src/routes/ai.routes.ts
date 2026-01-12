@@ -7,6 +7,7 @@ import {
   advancedConversation,
   generateImage,
   testOpenAI,
+  generateTaskFromNaturalLanguage,
   upload,
 } from "../controllers/ai/aiAssistant.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
@@ -65,6 +66,14 @@ router.post(
   isAuthenticated,
   requirePlanFeature("aiAssist"),
   generateImage
+);
+
+// Generate task from natural language input
+router.post(
+  "/generate-task",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  generateTaskFromNaturalLanguage
 );
 
 // Test OpenAI service connection

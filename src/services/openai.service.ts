@@ -1098,6 +1098,162 @@ Always be helpful, accurate, and engaging. If you need to generate images, use t
   }
 
   /**
+   * Generate task from natural language input
+   */
+  async generateTaskFromNaturalLanguage(
+    userInput: string,
+    context?: {
+      availableProjects?: Array<{
+        id: string;
+        name: string;
+        projectNumber?: string;
+      }>;
+      availableUsers?: Array<{ id: string; name: string; email: string }>;
+      organizationName?: string;
+    }
+  ): Promise<{
+    title: string;
+    description?: string;
+    projectId?: string;
+    assignedTo?: string;
+    startDate?: string;
+    endDate?: string;
+    estimatedHours?: number;
+    suggestions?: string[];
+  } | null> {
+    try {
+      if (!this.openai) {
+        logger.warn(
+          "OpenAI service not available. Returning fallback response."
+        );
+        return {
+          title: userInput.substring(0, 100),
+          description:
+            "AI features are currently unavailable. Please fill in the details manually.",
+        };
+      }
+
+      logger.info("🤖 AI Task Creation Request:", {
+        userInput,
+        hasProjects: !!context?.availableProjects,
+        hasUsers: !!context?.availableUsers,
+      });
+
+      // Build context string for available projects
+      let projectsContext = "";
+      if (context?.availableProjects && context.availableProjects.length > 0) {
+        projectsContext = `\n\nAvailable Projects:\n${context.availableProjects
+          .map(
+            (p) =>
+              `- ${p.name}${
+                p.projectNumber ? ` (${p.projectNumber})` : ""
+              } [ID: ${p.id}]`
+          )
+          .join("\n")}`;
+      }
+
+      // Build context string for available users
+      let usersContext = "";
+      if (context?.availableUsers && context.availableUsers.length > 0) {
+        usersContext = `\n\nAvailable Team Members:\n${context.availableUsers
+          .map((u) => `- ${u.name} (${u.email}) [ID: ${u.id}]`)
+          .join("\n")}`;
+      }
+
+      const systemPrompt = `You are Flowlio AI, a task management assistant. Your job is to extract structured task information from natural language input.
+
+Analyze the user's natural language input and extract the following information:
+1. Task title (required) - A clear, concise title
+2. Description (optional) - Detailed description of the task
+3. Project ID (optional) - Match the project name mentioned in the input to one of the available projects
+4. Assigned user ID (optional) - Match the person/team member mentioned to one of the available users
+5. Start date (optional) - Extract dates mentioned (e.g., "tomorrow", "next Monday", "2024-12-25")
+6. End date (optional) - Extract deadline dates
+7. Estimated hours (optional) - Extract time estimates (e.g., "2 hours", "half day", "3 days")
+
+IMPORTANT RULES:
+- Return ONLY valid JSON, no additional text
+- Use ISO date format (YYYY-MM-DD) for dates
+- For dates like "tomorrow", calculate the actual date
+- For dates like "next Monday", calculate the actual date
+- Match project names/numbers from the available projects list
+- Match user names/emails from the available users list
+- If no project is mentioned, leave projectId as null
+- If no user is mentioned, leave assignedTo as null
+- Convert time estimates to hours (e.g., "2 days" = 16 hours, "half day" = 4 hours)
+- Include helpful suggestions in the suggestions array if the input is vague
+
+Return JSON in this exact format:
+{
+  "title": "Task title here",
+  "description": "Task description here (optional)",
+  "projectId": "project-id-if-matched-or-null",
+  "assignedTo": "user-id-if-matched-or-null",
+  "startDate": "YYYY-MM-DD or null",
+  "endDate": "YYYY-MM-DD or null",
+  "estimatedHours": number or null,
+  "suggestions": ["suggestion 1", "suggestion 2"]
+}${projectsContext}${usersContext}`;
+
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userInput },
+        ],
+        temperature: 0.3,
+        max_tokens: 1000,
+        response_format: { type: "json_object" },
+      });
+
+      const aiResponse = response.choices[0]?.message?.content;
+      if (!aiResponse) {
+        logger.error("No AI response received");
+        return null;
+      }
+
+      // Parse JSON response
+      let taskData;
+      try {
+        taskData = JSON.parse(aiResponse);
+      } catch (parseError) {
+        logger.error("Failed to parse AI response as JSON:", parseError);
+        // Fallback: extract title from input
+        return {
+          title: userInput.substring(0, 100),
+          description:
+            "Failed to parse AI response. Please review and edit manually.",
+        };
+      }
+
+      // Validate and clean the response
+      const result = {
+        title: taskData.title || userInput.substring(0, 100),
+        description: taskData.description || undefined,
+        projectId: taskData.projectId || undefined,
+        assignedTo: taskData.assignedTo || undefined,
+        startDate: taskData.startDate || undefined,
+        endDate: taskData.endDate || undefined,
+        estimatedHours: taskData.estimatedHours
+          ? Number(taskData.estimatedHours)
+          : undefined,
+        suggestions: taskData.suggestions || [],
+      };
+
+      logger.info("✅ AI Task Generated:", result);
+
+      return result;
+    } catch (error) {
+      logger.error("❌ Error generating task from natural language:", error);
+      return {
+        title: userInput.substring(0, 100),
+        description:
+          "Error generating task. Please fill in the details manually.",
+      };
+    }
+  }
+
+  /**
    * Clean up uploaded files
    */
   cleanupFile(filePath: string): void {

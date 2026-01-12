@@ -17,7 +17,12 @@ const debugError = (...args: any[]) => {
 import { Response } from "express";
 import { logger } from "@/utils/logger.util";
 import { database } from "@/configs/connection.config";
-import { calendarEvents, users } from "@/schema/schema";
+import {
+  calendarEvents,
+  users,
+  projects,
+  userManagement,
+} from "@/schema/schema";
 import { eq, gte, lte } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
@@ -644,6 +649,124 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
     res.status(500).json({
       success: false,
       message: "Failed to generate image",
+      error: process.env.NODE_ENV === "development" ? error : undefined,
+    });
+  }
+};
+
+/**
+ * Generate task from natural language input using AI
+ */
+export const generateTaskFromNaturalLanguage = async (
+  req: any,
+  res: Response
+): Promise<void> => {
+  try {
+    debugLog("🤖🤖🤖 AI TASK CREATION CONTROLLER CALLED 🤖🤖🤖");
+
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    const { userInput } = req.body;
+
+    if (!userInput || typeof userInput !== "string") {
+      res.status(400).json({
+        success: false,
+        message: "Valid user input is required",
+      });
+      return;
+    }
+
+    const organizationId = (req.user as any)?.organizationId;
+    if (!organizationId) {
+      res.status(400).json({
+        success: false,
+        message: "Organization ID is required",
+      });
+      return;
+    }
+
+    // Fetch available projects for context
+    const availableProjects = await database
+      .select({
+        id: projects.id,
+        name: projects.name,
+        projectNumber: projects.projectNumber,
+      })
+      .from(projects)
+      .where(eq(projects.organizationId, organizationId))
+      .limit(50); // Limit to prevent too much context
+
+    // Fetch available users for context from userManagement table
+    const availableUserMembers = await database
+      .select({
+        id: userManagement.id,
+        firstname: userManagement.firstname,
+        lastname: userManagement.lastname,
+        email: userManagement.email,
+      })
+      .from(userManagement)
+      .where(eq(userManagement.organizationId, organizationId))
+      .limit(50); // Limit to prevent too much context
+
+    // Format users for AI context
+    const availableUsers = availableUserMembers.map((um) => ({
+      id: um.id,
+      name: `${um.firstname} ${um.lastname}`,
+      email: um.email,
+    }));
+
+    // Lazy load OpenAI service
+    const { openaiService } = await import("@/services/openai.service");
+    const service = openaiService.instance;
+    if (!service) {
+      res.status(500).json({
+        success: false,
+        message: "AI service is not available",
+      });
+      return;
+    }
+
+    // Generate task from natural language
+    const taskData = await service.generateTaskFromNaturalLanguage(userInput, {
+      availableProjects: availableProjects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        projectNumber: p.projectNumber || undefined,
+      })),
+      availableUsers: availableUsers.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+      })),
+      organizationName: (req.user as any)?.organization?.name,
+    });
+
+    if (!taskData) {
+      res.status(500).json({
+        success: false,
+        message: "Failed to generate task from natural language",
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Task generated successfully from natural language",
+      data: taskData,
+    });
+  } catch (error) {
+    logger.error("Error generating task from natural language:", error);
+    debugError("Full error details:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while generating task",
       error: process.env.NODE_ENV === "development" ? error : undefined,
     });
   }
