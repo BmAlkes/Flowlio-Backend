@@ -50,7 +50,7 @@ router.post(
   "/ai/suggestions",
   isAuthenticated,
   requirePlanFeature("aiAssist"),
-  generateEventSuggestions
+  generateEventSuggestions,
 );
 
 // Generate event categories and tags
@@ -58,7 +58,7 @@ router.post(
   "/ai/categories",
   isAuthenticated,
   requirePlanFeature("aiAssist"),
-  generateEventCategories
+  generateEventCategories,
 );
 
 // Enhance event description with AI
@@ -66,7 +66,7 @@ router.post(
   "/ai/enhance-description",
   isAuthenticated,
   requirePlanFeature("aiAssist"),
-  enhanceEventDescription
+  enhanceEventDescription,
 );
 
 // Get AI-powered calendar insights
@@ -74,7 +74,7 @@ router.get(
   "/ai/insights",
   isAuthenticated,
   requirePlanFeature("aiAssist"),
-  getCalendarInsights
+  getCalendarInsights,
 );
 
 // Advanced AI conversation with file analysis
@@ -83,7 +83,7 @@ router.post(
   isAuthenticated,
   requirePlanFeature("aiAssist"),
   upload.array("files", 5),
-  advancedConversation
+  advancedConversation,
 );
 
 // Generate images using DALL-E
@@ -91,7 +91,7 @@ router.post(
   "/ai/generate-image",
   isAuthenticated,
   requirePlanFeature("aiAssist"),
-  generateImage
+  generateImage,
 );
 
 // Test OpenAI service connection
@@ -99,7 +99,7 @@ router.get(
   "/ai/test",
   isAuthenticated,
   requirePlanFeature("aiAssist"),
-  testOpenAI
+  testOpenAI,
 );
 
 // ==================== VIEWER CALENDAR ROUTES ====================

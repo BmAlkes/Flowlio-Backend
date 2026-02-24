@@ -96,8 +96,7 @@ const getPayPalAccessToken = async (): Promise<string> => {
     }
 
     throw new Error(
-      `Failed to authenticate with PayPal: ${
-        error.response?.data?.error_description || error.message
+      `Failed to authenticate with PayPal: ${error.response?.data?.error_description || error.message
       }`
     );
   }
@@ -114,7 +113,7 @@ export const createPayPalOrder = async (
       amount,
       currency = "USD",
     }: // demoMode = false, // COMMENTED OUT FOR PRODUCTION - Only real payments allowed
-    CreatePayPalOrderRequest = req.body;
+      CreatePayPalOrderRequest = req.body;
 
     // Validate required fields
     if (!planId || !amount) {
@@ -211,8 +210,7 @@ export const createPayPalOrder = async (
       `PayPal order created: ${response.data.id} for plan: ${planId}, amount: ${amount} ${currency}`
     );
     logger.info(
-      `💳 PAYMENT WILL GO TO - Merchant Account: ${merchantEmail} (ID: ${merchantId}), Mode: ${
-        env.PAYPAL_MODE || "live"
+      `💳 PAYMENT WILL GO TO - Merchant Account: ${merchantEmail} (ID: ${merchantId}), Mode: ${env.PAYPAL_MODE || "live"
       }`
     );
 
@@ -408,8 +406,7 @@ export const capturePayPalOrder = async (
               );
               finalStatus = retryResponse.data?.status;
               logger.info(
-                `Order ${orderId} status check (retry ${
-                  retryCount + 1
+                `Order ${orderId} status check (retry ${retryCount + 1
                 }): ${finalStatus}`
               );
 
@@ -568,8 +565,8 @@ export const capturePayPalOrder = async (
           response.data.payer?.email_address || "Not available";
         const payerName =
           response.data.payer?.name?.given_name +
-            " " +
-            response.data.payer?.name?.surname || "Not available";
+          " " +
+          response.data.payer?.name?.surname || "Not available";
 
         logger.info(
           `PayPal order captured: ${orderId}, capture ID: ${captureId}, status: ${paymentStatus}`
@@ -859,11 +856,14 @@ export const capturePayPalOrder = async (
           }
 
           // Activate user and clear pending data (important for frontend status display)
+          // Set isOrganizationOwner=true and role=user after successful purchase
           if (userId) {
             const updatedUser = await database
               .update(users)
               .set({
                 status: "active",
+                role: "user",
+                isOrganizationOwner: true,
                 selectedPlanId: null,
                 pendingOrganizationData: null,
               })
@@ -1387,10 +1387,13 @@ export const capturePayPalOrder = async (
         );
 
         // Activate user and clear pending data
+        // Set isOrganizationOwner=true and role=user after successful purchase
         await database
           .update(users)
           .set({
             status: "active",
+            role: "user",
+            isOrganizationOwner: true,
             selectedPlanId: null,
             pendingOrganizationData: null,
           })
@@ -1546,10 +1549,10 @@ export const capturePayPalOrder = async (
       error:
         process.env.NODE_ENV === "development"
           ? {
-              message: error.message,
-              response: error.response?.data,
-              status: error.response?.status,
-            }
+            message: error.message,
+            response: error.response?.data,
+            status: error.response?.status,
+          }
           : undefined,
     });
     return;

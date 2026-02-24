@@ -1,5 +1,29 @@
 import { Request, Response } from "express";
 import { logger } from "./logger.util";
+import { database } from "@/configs/connection.config";
+import { userOrganizations } from "@/schema/schema";
+import { eq, and } from "drizzle-orm";
+
+/**
+ * Resolve the real organization owner (purchaser) userId for an organization.
+ * The real owner is the user with userOrganizations.role === "owner" for that org.
+ * Used to prevent demoting the purchaser.
+ */
+export async function getRealOrganizationOwnerUserId(
+  organizationId: string
+): Promise<string | null> {
+  const row = await database
+    .select({ userId: userOrganizations.userId })
+    .from(userOrganizations)
+    .where(
+      and(
+        eq(userOrganizations.organizationId, organizationId),
+        eq(userOrganizations.role, "owner")
+      )
+    )
+    .limit(1);
+  return row.length ? row[0].userId : null;
+}
 
 export function getOrganizationId(req: Request | any): string | null {
   const organizationId = (req.user as any)?.organizationId;

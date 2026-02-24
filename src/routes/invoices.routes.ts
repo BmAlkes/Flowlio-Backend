@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
+import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
 import { createInvoice } from "@/controllers/organization/invoices/createinvoice.controller";
 import { getInvoices } from "@/controllers/organization/invoices/getinvoices.controller";
 import { deleteInvoice } from "@/controllers/organization/invoices/deleteinvoice.controller";
@@ -8,21 +9,12 @@ import { exportInvoices } from "@/controllers/organization/invoices/exportinvoic
 
 const router = Router();
 
-// ==================== INVOICE ROUTES ====================
+const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 
-// Create invoice - requires authentication
-router.post("/", isAuthenticated, createInvoice);
-
-// Get invoices - requires authentication
-router.get("/", isAuthenticated, getInvoices);
-
-// Generate invoice PDF - requires authentication
-router.post("/:id/generate-pdf", isAuthenticated, generateInvoicePDF);
-
-// Delete invoice - requires authentication
-router.delete("/:id", isAuthenticated, deleteInvoice);
-
-// Export invoices - requires authentication
-router.post("/export", isAuthenticated, exportInvoices);
+router.post("/", ...orgOwner, createInvoice);
+router.get("/", ...orgOwner, getInvoices);
+router.post("/:id/generate-pdf", ...orgOwner, generateInvoicePDF);
+router.delete("/:id", ...orgOwner, deleteInvoice);
+router.post("/export", ...orgOwner, exportInvoices);
 
 export default router;

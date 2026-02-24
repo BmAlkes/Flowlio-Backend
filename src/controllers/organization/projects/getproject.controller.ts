@@ -24,7 +24,7 @@ export const getAllProjects = async (
 
     const organizationId = req.user?.organizationId as string;
     logger.info("🏢 Organization ID:", organizationId);
-
+    
     // Create aliases for users table to avoid conflicts
     const assignedUsers = alias(users, "assigned_users");
     const createdByUsers = alias(users, "created_by_users");
@@ -59,6 +59,7 @@ export const getAllProjects = async (
         // Created by user information
         createdByName: createdByUsers.name,
         createdByEmail: createdByUsers.email,
+        customFields: projects.customFields,
       })
       .from(projects)
       .leftJoin(clients, eq(projects.clientId, clients.id))
@@ -94,6 +95,7 @@ export const getAllProjects = async (
       assignedTo: project.assignedTo,
       contractfile: project.contractfile,
       projectFiles: project.projectFiles,
+      customFields: project.customFields,
     }));
 
     logger.info(
@@ -107,9 +109,10 @@ export const getAllProjects = async (
     });
   } catch (error) {
     logger.error("Error fetching projects:", error);
+    console.error("Full error:", error);
     res.status(500).json({
       success: false,
-      message: (error as Error)?.message ?? "Internal server error",
+      message: (error as Error)?.message ?? "Internal server error"
     });
   }
 };
@@ -170,6 +173,7 @@ export const getProjectById = async (
         // Created by user information
         createdByName: createdByUsers.name,
         createdByEmail: createdByUsers.email,
+        customFields: projects.customFields,
       })
       .from(projects)
       .leftJoin(clients, eq(projects.clientId, clients.id))
@@ -215,6 +219,7 @@ export const getProjectById = async (
       assignedTo: projectData.assignedTo,
       contractfile: projectData.contractfile,
       projectFiles: projectData.projectFiles,
+      customFields: projectData.customFields,
     };
 
     logger.info(
@@ -228,9 +233,10 @@ export const getProjectById = async (
     });
   } catch (error) {
     logger.error("Error fetching project:", error);
+    console.error("Full error:", error);
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,
-      message: (error as Error)?.message ?? "Internal server error",
+      message: (error as Error)?.message ?? "Internal server error"
     });
   }
 };

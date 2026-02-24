@@ -329,6 +329,7 @@ export const createProject = async (
                 totalFileSizeBytes > 0 ? Math.round(totalFileSizeBytes) : 0, // Store total file size in bytes in JSON
             }
           : null,
+        customFields: validatedData.customFields ?? null,
         tags: [],
         createdAt: new Date(),
         updatedAt: new Date(),

@@ -85,6 +85,15 @@ export const operator = ac.newRole({
   Notifications: ["read", "view", "update", "delete"],
 });
 
+// client: Can view dashboard and their own projects
+export const client = ac.newRole({
+  Dashboard: ["view"],
+  Projects: ["read"],
+  Calender: ["read"],
+  "Support Tickets": ["create", "read"],
+  Notifications: ["read", "view"],
+});
+
 // Export roles for the adminClient plugin - using the correct structure
 export const roles = {
   superadmin,
@@ -92,4 +101,5 @@ export const roles = {
   subadmin,
   viewer,
   user,
+  client,
 };

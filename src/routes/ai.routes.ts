@@ -9,17 +9,14 @@ import {
   testOpenAI,
   generateTaskFromNaturalLanguage,
   upload,
+  getProjectInsights,
 } from "../controllers/ai/aiAssistant.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
+import { generateWeeklyProjectSummary } from "@/controllers/ai/generateweeklyprojectsummary.controller";
 
 const router = Router();
 
-/**
- * AI Assistant Routes for Calendar Management
- */
-
-// Generate AI-powered event suggestions
 router.post(
   "/suggestions",
   isAuthenticated,
@@ -27,7 +24,6 @@ router.post(
   generateEventSuggestions
 );
 
-// Generate event categories and tags
 router.post(
   "/categories",
   isAuthenticated,
@@ -35,7 +31,6 @@ router.post(
   generateEventCategories
 );
 
-// Enhance event description with AI
 router.post(
   "/enhance-description",
   isAuthenticated,
@@ -43,7 +38,6 @@ router.post(
   enhanceEventDescription
 );
 
-// Get AI-powered calendar insights
 router.get(
   "/insights",
   isAuthenticated,
@@ -51,7 +45,6 @@ router.get(
   getCalendarInsights
 );
 
-// Advanced AI conversation with file analysis
 router.post(
   "/conversation",
   isAuthenticated,
@@ -60,7 +53,6 @@ router.post(
   advancedConversation
 );
 
-// Generate images using DALL-E
 router.post(
   "/generate-image",
   isAuthenticated,
@@ -68,7 +60,6 @@ router.post(
   generateImage
 );
 
-// Generate task from natural language input
 router.post(
   "/generate-task",
   isAuthenticated,
@@ -76,7 +67,20 @@ router.post(
   generateTaskFromNaturalLanguage
 );
 
-// Test OpenAI service connection
+router.get(
+  "/weekly-summary",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  generateWeeklyProjectSummary
+);
+
+router.get(
+  "/project-insights",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  getProjectInsights
+);
+
 router.get(
   "/test",
   isAuthenticated,

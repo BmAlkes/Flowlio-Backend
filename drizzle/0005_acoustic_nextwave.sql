@@ -1,0 +1,1 @@
+ALTER TABLE "clients" ADD COLUMN "social_media_links" json;

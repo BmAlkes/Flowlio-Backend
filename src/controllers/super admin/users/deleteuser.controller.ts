@@ -25,7 +25,7 @@ import { eq, or } from "drizzle-orm";
 
 export const deleteUser = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { userId } = req.params;
@@ -133,7 +133,7 @@ export const deleteUser = async (
         .delete(userManagement)
         .where(eq(userManagement.createdBy, userId));
       logger.info(
-        `✅ Deleted user management records created by user ${userId}`
+        `✅ Deleted user management records created by user ${userId}`,
       );
 
       // 14. Update subadmin records where user is the creator (set to null)
@@ -150,8 +150,8 @@ export const deleteUser = async (
         .where(
           or(
             eq(recentActivities.actorId, userId),
-            eq(recentActivities.userId, userId)
-          )
+            eq(recentActivities.userId, userId),
+          ),
         );
       logger.info(`✅ Deleted recent activities for user ${userId}`);
 

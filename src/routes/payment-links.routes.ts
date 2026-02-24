@@ -1,20 +1,18 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
+import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
 import { createPaymentLink } from "@/controllers/organization/payment-links/createpaymentlink.controller";
 import { getPaymentLinks } from "@/controllers/organization/payment-links/getpaymentlinks.controller";
 import { deletePaymentLink } from "@/controllers/organization/payment-links/deletepaymentlink.controller";
 
 const router = Router();
 
+const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
+
 // ==================== PAYMENT LINKS ROUTES ====================
 
-// Create payment link - requires authentication
-router.post("/", isAuthenticated, createPaymentLink);
-
-// Get payment links - requires authentication
-router.get("/", isAuthenticated, getPaymentLinks);
-
-// Delete payment link - requires authentication
-router.delete("/:id", isAuthenticated, deletePaymentLink);
+router.post("/", ...orgOwner, createPaymentLink);
+router.get("/", ...orgOwner, getPaymentLinks);
+router.delete("/:id", ...orgOwner, deletePaymentLink);
 
 export default router;

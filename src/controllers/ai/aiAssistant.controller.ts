@@ -22,8 +22,10 @@ import {
   users,
   projects,
   userManagement,
+  tasks,
+  timeEntries,
 } from "@/schema/schema";
-import { eq, gte, lte } from "drizzle-orm";
+import { eq, gte, lte, inArray } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -321,6 +323,506 @@ export const getCalendarInsights = async (
     res.status(500).json({
       success: false,
       message: "Failed to generate calendar insights",
+      error: process.env.NODE_ENV === "development" ? error : undefined,
+    });
+  }
+};
+
+/**
+ * Get comprehensive AI-powered insights for projects and tasks
+ * Includes: Risk detection, delay predictions, priority insights
+ */
+export const getProjectInsights = async (
+  req: any,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      res.status(400).json({
+        success: false,
+        message: "Organization ID is required",
+      });
+      return;
+    }
+
+    // Fetch all projects for the organization
+    const allProjects = await database
+      .select()
+      .from(projects)
+      .where(eq(projects.organizationId, organizationId));
+
+    // Fetch all tasks for these projects
+    const projectIds = allProjects.map((p) => p.id);
+    const allTasks =
+      projectIds.length > 0
+        ? await database
+            .select()
+            .from(tasks)
+            .where(inArray(tasks.projectId, projectIds))
+        : [];
+
+    // Fetch time entries for analysis
+    const allTimeEntries =
+      projectIds.length > 0
+        ? await database
+            .select()
+            .from(timeEntries)
+            .where(inArray(timeEntries.projectId, projectIds))
+        : [];
+
+    const now = new Date();
+
+    // Helper function to format hours and minutes
+    const formatHoursMinutes = (totalMinutes: number) => {
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = Math.round(totalMinutes % 60);
+      if (hours > 0 && minutes > 0) {
+        return `${hours}h ${minutes}m`;
+      } else if (hours > 0) {
+        return `${hours}h`;
+      } else if (minutes > 0) {
+        return `${minutes}m`;
+      }
+      return "0m";
+    };
+
+    const insights = {
+      riskAnalysis: {
+        highRiskProjects: [] as any[],
+        mediumRiskProjects: [] as any[],
+        lowRiskProjects: [] as any[],
+        totalRisks: 0,
+      },
+      delayPredictions: {
+        projectsAtRisk: [] as any[],
+        tasksAtRisk: [] as any[],
+        predictedDelays: [] as any[],
+      },
+      priorityInsights: {
+        urgentTasks: [] as any[],
+        overdueTasks: [] as any[],
+        highPriorityProjects: [] as any[],
+        recommendations: [] as string[],
+      },
+      resourceAllocation: {
+        overAllocatedUsers: [] as any[],
+        underUtilizedUsers: [] as any[],
+        workloadDistribution: {} as Record<string, number>,
+      },
+      timelinePredictions: {
+        projectsOnTrack: 0,
+        projectsDelayed: 0,
+        projectsAtRisk: 0,
+        averageCompletionTime: 0,
+      },
+      summary: {
+        totalProjects: allProjects.length,
+        totalTasks: allTasks.length,
+        completedTasks: allTasks.filter((t) => t.status === "completed").length,
+        inProgressTasks: allTasks.filter(
+          (t) =>
+            t.status === "in_progress" ||
+            t.status === "delay" ||
+            t.status === "updated" ||
+            t.status === "changes"
+        ).length,
+        overdueTasks: 0,
+        totalHoursTracked: allTimeEntries.reduce(
+          (sum, entry) => sum + (entry.duration || 0), // Keep in minutes for formatting
+          0
+        ),
+        totalHoursTrackedFormatted: "", // Will be set later
+      },
+    };
+
+    // Analyze each project for risks
+    for (const project of allProjects) {
+      const projectTasks = allTasks.filter((t) => t.projectId === project.id);
+      const projectTimeEntries = allTimeEntries.filter(
+        (te) => te.projectId === project.id
+      );
+
+      const completedTasks = projectTasks.filter(
+        (t) => t.status === "completed"
+      ).length;
+      const totalTasks = projectTasks.length;
+      const completionRate =
+        totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+      // Calculate risk factors
+      const riskFactors = {
+        delayRisk: 0,
+        budgetRisk: 0,
+        resourceRisk: 0,
+        overallRisk: 0,
+      };
+
+      // Check for delays
+      if (project.endDate) {
+        const endDate = new Date(project.endDate);
+        const daysRemaining = Math.ceil(
+          (endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const progress = project.progress || 0;
+        const expectedProgress =
+          daysRemaining > 0
+            ? Math.max(
+                0,
+                100 -
+                  (daysRemaining /
+                    ((endDate.getTime() -
+                      (project.startDate
+                        ? new Date(project.startDate).getTime()
+                        : now.getTime())) /
+                      (1000 * 60 * 60 * 24))) *
+                    100
+              )
+            : 100;
+
+        if (progress < expectedProgress - 10) {
+          riskFactors.delayRisk = Math.min(
+            100,
+            (expectedProgress - progress) * 2
+          );
+        }
+      }
+
+      // Check for overdue tasks
+      const overdueTasks = projectTasks.filter((task) => {
+        if (!task.endDate) return false;
+        return new Date(task.endDate) < now && task.status !== "completed";
+      });
+
+      if (overdueTasks.length > 0) {
+        riskFactors.delayRisk += overdueTasks.length * 15;
+      }
+
+      // Check resource allocation
+      const estimatedHours = projectTasks.reduce(
+        (sum, task) => sum + (Number(task.estimatedHours) || 0),
+        0
+      );
+      const actualHours = projectTimeEntries.reduce(
+        (sum, entry) => sum + (entry.duration || 0) / 60,
+        0
+      );
+
+      if (estimatedHours > 0 && actualHours > estimatedHours * 1.2) {
+        riskFactors.budgetRisk = Math.min(
+          100,
+          ((actualHours - estimatedHours) / estimatedHours) * 50
+        );
+      }
+
+      // Calculate overall risk
+      riskFactors.overallRisk = Math.min(
+        100,
+        riskFactors.delayRisk * 0.5 +
+          riskFactors.budgetRisk * 0.3 +
+          riskFactors.resourceRisk * 0.2
+      );
+
+      const projectRisk = {
+        projectId: project.id,
+        projectName: project.name,
+        projectNumber: project.projectNumber,
+        riskScore: Math.round(riskFactors.overallRisk),
+        delayRisk: Math.round(riskFactors.delayRisk),
+        budgetRisk: Math.round(riskFactors.budgetRisk),
+        progress: project.progress || 0,
+        status: project.status,
+        overdueTasks: overdueTasks.length,
+        totalTasks: totalTasks,
+        completionRate: Math.round(completionRate),
+        reasons: [] as string[],
+      };
+
+      if (riskFactors.delayRisk > 50) {
+        projectRisk.reasons.push("High delay risk detected");
+      }
+      if (riskFactors.budgetRisk > 50) {
+        projectRisk.reasons.push("Budget overrun risk");
+      }
+      if (overdueTasks.length > 0) {
+        projectRisk.reasons.push(`${overdueTasks.length} overdue tasks`);
+      }
+      if (completionRate < 50 && totalTasks > 5) {
+        projectRisk.reasons.push("Low completion rate");
+      }
+
+      if (riskFactors.overallRisk >= 70) {
+        insights.riskAnalysis.highRiskProjects.push(projectRisk);
+      } else if (riskFactors.overallRisk >= 40) {
+        insights.riskAnalysis.mediumRiskProjects.push(projectRisk);
+      } else {
+        insights.riskAnalysis.lowRiskProjects.push(projectRisk);
+      }
+    }
+
+    // Analyze tasks for delays and priorities
+    for (const task of allTasks) {
+      if (task.endDate) {
+        // Ensure endDate is a valid Date object
+        let endDate: Date;
+        if (task.endDate instanceof Date) {
+          endDate = task.endDate;
+        } else if (typeof task.endDate === "string") {
+          endDate = new Date(task.endDate);
+        } else {
+          // Handle timestamp or other formats
+          endDate = new Date(task.endDate);
+        }
+
+        // Skip if date is invalid
+        if (isNaN(endDate.getTime())) {
+          logger.warn(`Invalid endDate for task ${task.id}: ${task.endDate}`);
+          continue;
+        }
+
+        // Calculate days until due (negative means overdue)
+        const daysUntilDue = Math.ceil(
+          (endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        );
+
+        // Log for debugging if date seems very old
+        if (daysUntilDue < -100) {
+          logger.warn(`Task ${task.id} has very old due date:`, {
+            taskId: task.id,
+            title: task.title,
+            endDate: task.endDate,
+            endDateParsed: endDate.toISOString(),
+            daysUntilDue,
+            currentDate: now.toISOString(),
+          });
+        }
+
+        // Overdue tasks (only if not completed)
+        // Also include tasks with "delay" status as they are delayed
+        const isOverdue = daysUntilDue < 0 && task.status !== "completed";
+        const isDelayStatus = task.status === "delay";
+
+        if (isOverdue || isDelayStatus) {
+          const daysOverdue =
+            isDelayStatus && daysUntilDue >= 0
+              ? 0 // If status is delay but date is not overdue, show as delayed
+              : Math.abs(daysUntilDue);
+          insights.priorityInsights.overdueTasks.push({
+            taskId: task.id,
+            title: task.title,
+            projectId: task.projectId,
+            daysOverdue, // Always positive for overdue
+            status: task.status,
+          });
+        }
+
+        // Tasks at risk (due within 3 days and not completed, but not overdue)
+        // Only include if daysUntilDue is positive (not overdue)
+        if (
+          daysUntilDue >= 0 &&
+          daysUntilDue <= 3 &&
+          task.status !== "completed"
+        ) {
+          insights.delayPredictions.tasksAtRisk.push({
+            taskId: task.id,
+            title: task.title,
+            projectId: task.projectId,
+            daysUntilDue, // Positive value
+            status: task.status,
+          });
+        }
+
+        // Urgent tasks (due today or tomorrow, but NOT overdue)
+        // CRITICAL: Only include if daysUntilDue is 0 or 1 (not negative)
+        if (
+          daysUntilDue >= 0 &&
+          daysUntilDue <= 1 &&
+          task.status !== "completed"
+        ) {
+          insights.priorityInsights.urgentTasks.push({
+            taskId: task.id,
+            title: task.title,
+            projectId: task.projectId,
+            daysUntilDue, // Should always be 0 or 1
+            status: task.status,
+          });
+        }
+      }
+    }
+
+    // Analyze projects for delays
+    for (const project of allProjects) {
+      if (project.endDate) {
+        // Ensure endDate is a valid Date object
+        const endDate =
+          project.endDate instanceof Date
+            ? project.endDate
+            : new Date(project.endDate);
+
+        // Skip if date is invalid
+        if (isNaN(endDate.getTime())) {
+          continue;
+        }
+
+        const daysRemaining = Math.ceil(
+          (endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const progress = project.progress || 0;
+
+        if (daysRemaining < 0) {
+          // Project is overdue
+          insights.delayPredictions.projectsAtRisk.push({
+            projectId: project.id,
+            projectName: project.name,
+            daysOverdue: Math.abs(daysRemaining), // Always positive
+            progress,
+            status: project.status,
+          });
+          insights.timelinePredictions.projectsDelayed++;
+        } else if (daysRemaining <= 7 && progress < 80) {
+          // Project is at risk (due soon but low progress)
+          insights.delayPredictions.projectsAtRisk.push({
+            projectId: project.id,
+            projectName: project.name,
+            daysRemaining, // Positive days remaining
+            progress,
+            status: project.status,
+          });
+          insights.timelinePredictions.projectsAtRisk++;
+        } else {
+          // Project is on track
+          insights.timelinePredictions.projectsOnTrack++;
+        }
+      } else {
+        // No end date - consider on track
+        insights.timelinePredictions.projectsOnTrack++;
+      }
+    }
+
+    // Generate recommendations
+    if (insights.priorityInsights.overdueTasks.length > 0) {
+      insights.priorityInsights.recommendations.push(
+        `You have ${insights.priorityInsights.overdueTasks.length} overdue tasks. Consider reassigning or extending deadlines.`
+      );
+    }
+
+    if (insights.riskAnalysis.highRiskProjects.length > 0) {
+      insights.priorityInsights.recommendations.push(
+        `${insights.riskAnalysis.highRiskProjects.length} project(s) are at high risk. Review and take immediate action.`
+      );
+    }
+
+    if (insights.delayPredictions.tasksAtRisk.length > 0) {
+      insights.priorityInsights.recommendations.push(
+        `${insights.delayPredictions.tasksAtRisk.length} task(s) are at risk of delay. Prioritize these tasks.`
+      );
+    }
+
+    // Calculate summary
+    insights.riskAnalysis.totalRisks =
+      insights.riskAnalysis.highRiskProjects.length +
+      insights.riskAnalysis.mediumRiskProjects.length;
+    insights.summary.overdueTasks =
+      insights.priorityInsights.overdueTasks.length;
+
+    // Format hours tracked (convert minutes to formatted string)
+    const totalMinutes = insights.summary.totalHoursTracked;
+    insights.summary.totalHoursTrackedFormatted =
+      formatHoursMinutes(totalMinutes);
+
+    // Log task dates and status for debugging
+    logger.info("📊 Complete Task Analysis:", {
+      totalTasks: allTasks.length,
+      currentDate: now.toISOString(),
+      allTasks: allTasks.map((t) => {
+        const taskEndDate = t.endDate
+          ? t.endDate instanceof Date
+            ? t.endDate
+            : new Date(t.endDate as any)
+          : null;
+        const daysUntilDue = taskEndDate
+          ? Math.ceil(
+              (taskEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+            )
+          : null;
+        return {
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          endDate: t.endDate,
+          endDateParsed: taskEndDate?.toISOString() || null,
+          daysUntilDue,
+          isInProgress:
+            t.status === "in_progress" ||
+            t.status === "delay" ||
+            t.status === "updated" ||
+            t.status === "changes",
+          isCompleted: t.status === "completed",
+          isOverdue:
+            daysUntilDue !== null &&
+            daysUntilDue < 0 &&
+            t.status !== "completed",
+          isDelayStatus: t.status === "delay",
+        };
+      }),
+      summary: {
+        totalTasks: allTasks.length,
+        completed: allTasks.filter((t) => t.status === "completed").length,
+        inProgress: allTasks.filter(
+          (t) =>
+            t.status === "in_progress" ||
+            t.status === "delay" ||
+            t.status === "updated" ||
+            t.status === "changes"
+        ).length,
+        overdue: insights.priorityInsights.overdueTasks.length,
+      },
+      projectsAtRisk: insights.delayPredictions.projectsAtRisk.map((p) => ({
+        projectId: p.projectId,
+        projectName: p.projectName,
+        daysRemaining: p.daysRemaining,
+        daysOverdue: p.daysOverdue,
+        progress: p.progress,
+        status: p.status,
+      })),
+    });
+
+    // Calculate average completion time
+    const completedTasksWithTime = allTasks.filter(
+      (t) => t.status === "completed" && t.startDate && t.updatedAt
+    );
+    if (completedTasksWithTime.length > 0) {
+      const totalCompletionTime = completedTasksWithTime.reduce((sum, task) => {
+        const start = new Date(task.startDate!).getTime();
+        const end = new Date(task.updatedAt).getTime();
+        return sum + (end - start);
+      }, 0);
+      insights.timelinePredictions.averageCompletionTime = Math.round(
+        totalCompletionTime /
+          completedTasksWithTime.length /
+          (1000 * 60 * 60 * 24)
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "AI insights generated successfully",
+      data: insights,
+    });
+  } catch (error) {
+    logger.error("Error generating project insights:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate project insights",
       error: process.env.NODE_ENV === "development" ? error : undefined,
     });
   }

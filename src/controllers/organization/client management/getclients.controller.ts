@@ -3,17 +3,22 @@ import { database } from "../../../configs/connection.config";
 import { clients, projects } from "../../../schema/schema";
 import { eq, and, like, desc } from "drizzle-orm";
 
-export const getClients = async (req: Request, res: Response) => {
+export const getClients = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
     // Check if user is authenticated and has organization ID
     if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized" });
+      res.status(401).json({ error: "Unauthorized" });
+      return;
     }
 
     const organizationId = req.user.organizationId;
 
     if (!organizationId) {
-      return res.status(400).json({ error: "Organization ID is required" });
+      res.status(400).json({ error: "Organization ID is required" });
+      return;
     }
 
     // Get query parameters for filtering (no pagination)
@@ -74,6 +79,7 @@ export const getClients = async (req: Request, res: Response) => {
         address: clients.address,
         socialMediaLinks: clients.socialMediaLinks,
         status: clients.status,
+        customFields: clients.customFields,
         createdAt: clients.createdAt,
         updatedAt: clients.updatedAt,
       })
@@ -110,7 +116,7 @@ export const getClients = async (req: Request, res: Response) => {
           ...client,
           projects: mappedProjects,
         };
-      })
+      }),
     );
 
     res.status(200).json({
@@ -196,16 +202,16 @@ export const getClientStats = async (req: Request, res: Response) => {
     // Calculate statistics
     const totalClients = allClients.length;
     const activeClients = allClients.filter(
-      (client) => client.status === "active"
+      (client) => client.status === "active",
     ).length;
     const inactiveClients = allClients.filter(
-      (client) => client.status === "inactive"
+      (client) => client.status === "inactive",
     ).length;
     const prospectClients = allClients.filter(
-      (client) => client.status === "prospect"
+      (client) => client.status === "prospect",
     ).length;
     const leadClients = allClients.filter(
-      (client) => client.status === "lead"
+      (client) => client.status === "lead",
     ).length;
 
     // Calculate monthly growth (last 6 months)
@@ -213,7 +219,7 @@ export const getClientStats = async (req: Request, res: Response) => {
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
     const recentClients = allClients.filter(
-      (client) => new Date(client.createdAt) >= sixMonthsAgo
+      (client) => new Date(client.createdAt) >= sixMonthsAgo,
     );
 
     const monthlyGrowth = Array.from({ length: 6 }, (_, i) => {
@@ -230,7 +236,7 @@ export const getClientStats = async (req: Request, res: Response) => {
       const count = recentClients.filter(
         (client) =>
           new Date(client.createdAt) >= monthStart &&
-          new Date(client.createdAt) <= monthEnd
+          new Date(client.createdAt) <= monthEnd,
       ).length;
 
       return {

@@ -13,8 +13,6 @@ import {
 import { relations } from "drizzle-orm";
 import crypto from "crypto";
 
-// ==================== CORE USER & AUTH TABLES ====================
-
 export const users = pgTable(
   "users",
   {
@@ -31,12 +29,18 @@ export const users = pgTable(
     phone: text("phone"),
     address: text("address"),
     role: text("role").$defaultFn(() => "user"), // Required by Better Auth admin plugin
-    status: text("status").$defaultFn(() => "pending"), // active, pending - pending until payment is completed
+    status: text("status").$defaultFn(() => "pending"),
+    isOrganizationOwner: boolean("is_organization_owner").$defaultFn(
+      () => false,
+    ),
+    isOrganizationManager: boolean("is_organization_manager").$defaultFn(
+      () => false,
+    ),
     isSuperAdmin: boolean("is_super_admin")
       .$defaultFn(() => false)
       .notNull(),
     subadminId: text("subadmin_id"),
-    selectedPlanId: text("selected_plan_id"), // Plan selected before payment
+    selectedPlanId: text("selected_plan_id"),
     pendingOrganizationData: json("pending_organization_data").$type<{
       organizationName?: string;
       organizationWebsite?: string;
@@ -75,10 +79,8 @@ export const users = pgTable(
   (table) => ({
     emailIdx: index("users_email_idx").on(table.email),
     superAdminIdx: index("users_super_admin_idx").on(table.isSuperAdmin),
-  })
+  }),
 );
-
-// ==================== TWO-FACTOR AUTHENTICATION TABLES ====================
 
 export const twoFactor = pgTable("two_factor", {
   id: text("id").primaryKey(),
@@ -117,8 +119,8 @@ export const subscriptionPlans = pgTable(
     name: text("name").notNull(), // "Free", "Basic", "Pro", "Enterprise"
     slug: text("slug").notNull().unique(), // "free", "basic", "pro", "enterprise"
     description: text("description"),
-    customPlanName: text("custom_plan_name"), // Custom display name (optional)
-    price: decimal("price", { precision: 10, scale: 2 }).notNull(), // Monthly price
+    customPlanName: text("custom_plan_name"),
+    price: decimal("price", { precision: 10, scale: 2 }).notNull(),
     currency: text("currency")
       .$defaultFn(() => "USD")
       .notNull(),
@@ -157,7 +159,7 @@ export const subscriptionPlans = pgTable(
   (table) => ({
     slugIdx: index("subscription_plans_slug_idx").on(table.slug),
     activeIdx: index("subscription_plans_active_idx").on(table.isActive),
-  })
+  }),
 );
 
 // ==================== ORGANIZATIONS ====================
@@ -174,11 +176,11 @@ export const organizations = pgTable(
     website: text("website"),
     industry: text("industry"),
     size: text("size"), // "1-10", "11-50", "51-200", "200+"
-    status: text("status").$defaultFn(() => "active"), // active, suspended, inactive, pending
+    status: text("status").$defaultFn(() => "active"),
     subscriptionPlanId: text("subscription_plan_id").references(
-      () => subscriptionPlans.id
+      () => subscriptionPlans.id,
     ),
-    subscriptionStatus: text("subscription_status").$defaultFn(() => "active"), // active, expired, cancelled, past_due
+    subscriptionStatus: text("subscription_status").$defaultFn(() => "active"),
     subscriptionStartDate: timestamp("subscription_start_date"),
     subscriptionEndDate: timestamp("subscription_end_date"),
     trialEndsAt: timestamp("trial_ends_at"),
@@ -214,12 +216,10 @@ export const organizations = pgTable(
     slugIdx: index("organizations_slug_idx").on(table.slug),
     statusIdx: index("organizations_status_idx").on(table.status),
     subscriptionIdx: index("organizations_subscription_idx").on(
-      table.subscriptionStatus
+      table.subscriptionStatus,
     ),
-  })
+  }),
 );
-
-// ==================== USER-ORGANIZATION RELATIONSHIPS ====================
 
 export const userOrganizations = pgTable(
   "user_organizations",
@@ -233,10 +233,10 @@ export const userOrganizations = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     role: text("role")
       .notNull()
-      .$defaultFn(() => "member"), // owner, admin, manager, member, viewer
+      .$defaultFn(() => "member"),
     status: text("status")
       .notNull()
-      .$defaultFn(() => "active"), // active, invited, suspended, pending
+      .$defaultFn(() => "active"),
     permissions: json("permissions").$type<{
       canManageUsers: boolean;
       canManageProjects: boolean;
@@ -258,11 +258,11 @@ export const userOrganizations = pgTable(
   (table) => ({
     userOrgIdx: index("user_organizations_user_org_idx").on(
       table.userId,
-      table.organizationId
+      table.organizationId,
     ),
     roleIdx: index("user_organizations_role_idx").on(table.role),
     statusIdx: index("user_organizations_status_idx").on(table.status),
-  })
+  }),
 );
 
 // ==================== SUB ADMIN TABLE ====================
@@ -324,11 +324,12 @@ export const projects = pgTable(
         publicId: string;
         name: string;
         type: string;
-        size?: number; // File size in bytes
+        size?: number;
       };
-      totalSize?: number; // Total file size in bytes for all files
-    }>(), // Project PDF file
+      totalSize?: number;
+    }>(),
     tags: json("tags").$type<string[]>(),
+    customFields: json("custom_fields").$type<Record<string, any>>(),
     settings: json("settings").$type<{
       allowGuestAccess: boolean;
       autoAssignTasks: boolean;
@@ -349,11 +350,11 @@ export const projects = pgTable(
     clientIdx: index("projects_client_idx").on(table.clientId),
     assignedToIdx: index("projects_assigned_to_idx").on(table.assignedTo),
     projectNumberIdx: index("projects_project_number_idx").on(
-      table.projectNumber
+      table.projectNumber,
     ),
     // Composite index for getProjectById query optimization
     orgIdIdx: index("projects_org_id_idx").on(table.organizationId, table.id),
-  })
+  }),
 );
 
 // ==================== PROJECT COMMENTS ====================
@@ -385,7 +386,7 @@ export const projectComments = pgTable(
     userIdx: index("project_comments_user_idx").on(table.userId),
     parentIdx: index("project_comments_parent_idx").on(table.parentId),
     createdAtIdx: index("project_comments_created_at_idx").on(table.createdAt),
-  })
+  }),
 );
 
 // ==================== TASKS ====================
@@ -413,6 +414,8 @@ export const tasks = pgTable(
       >()
       .$defaultFn(() => "todo"),
     endDate: timestamp("end_date"),
+    startAfter: text("start_after"),
+    finishBefore: text("finish_before"),
     startDate: timestamp("start_date"),
     estimatedHours: decimal("estimated_hours", { precision: 10, scale: 2 }),
     actualHours: decimal("actual_hours", { precision: 10, scale: 2 }),
@@ -425,6 +428,9 @@ export const tasks = pgTable(
         type: string;
       }[]
     >(),
+    parentId: text("parent_id").references((): any => tasks.id, {
+      onDelete: "cascade",
+    }),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -437,7 +443,8 @@ export const tasks = pgTable(
     assignedToIdx: index("tasks_assigned_to_idx").on(table.assignedTo),
     statusIdx: index("tasks_status_idx").on(table.status),
     dueDateIdx: index("tasks_end_date_idx").on(table.endDate),
-  })
+    parentIdIdx: index("tasks_parent_id_idx").on(table.parentId),
+  }),
 );
 
 // ==================== BILLING & PAYMENTS ====================
@@ -473,7 +480,7 @@ export const subscriptions = pgTable(
     orgIdx: index("subscriptions_organization_idx").on(table.organizationId),
     statusIdx: index("subscriptions_status_idx").on(table.status),
     stripeIdx: index("subscriptions_stripe_idx").on(table.stripeSubscriptionId),
-  })
+  }),
 );
 
 export const invoices = pgTable(
@@ -515,10 +522,10 @@ export const invoices = pgTable(
     clientIdx: index("invoices_client_idx").on(table.clientId),
     statusIdx: index("invoices_status_idx").on(table.status),
     invoiceNumberIdx: index("invoices_invoice_number_idx").on(
-      table.invoiceNumber
+      table.invoiceNumber,
     ),
     createdByIdx: index("invoices_created_by_idx").on(table.createdBy),
-  })
+  }),
 );
 
 // ==================== AUTH TABLES (Better Auth) ====================
@@ -559,9 +566,9 @@ export const account = pgTable(
     // Add unique constraint for (userId, providerId) combination
     userProviderUnique: unique("user_provider_unique").on(
       table.userId,
-      table.providerId
+      table.providerId,
     ),
-  })
+  }),
 );
 
 export const verification = pgTable("verification", {
@@ -626,7 +633,7 @@ export const userManagement = pgTable(
     orgIdx: index("user_management_organization_idx").on(table.organizationId),
     statusIdx: index("user_management_status_idx").on(table.status),
     roleIdx: index("user_management_role_idx").on(table.userrole),
-  })
+  }),
 );
 
 // ==================== CLIENT MANAGEMENT ====================
@@ -638,6 +645,7 @@ export const clients = pgTable(
     organizationId: text("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     email: text("email").notNull(),
     image: text("image"),
@@ -652,6 +660,7 @@ export const clients = pgTable(
         url: string;
       }>
     >(),
+    customFields: json("custom_fields").$type<Record<string, any>>(),
     status: text("status").$defaultFn(() => "New Lead"),
     createdBy: text("created_by")
       .notNull()
@@ -665,13 +674,14 @@ export const clients = pgTable(
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
+    userIdx: index("clients_user_idx").on(table.userId),
     statusIdx: index("clients_status_idx").on(table.status),
     emailIdx: index("clients_email_idx").on(table.email),
     emailOrgIdx: index("clients_email_org_idx").on(
       table.email,
-      table.organizationId
+      table.organizationId,
     ),
-  })
+  }),
 );
 
 // ==================== TIME TRACKING ====================
@@ -708,7 +718,7 @@ export const timeEntries = pgTable(
     projectIdx: index("time_entries_project_idx").on(table.projectId),
     taskIdx: index("time_entries_task_idx").on(table.taskId),
     startTimeIdx: index("time_entries_start_time_idx").on(table.startTime),
-  })
+  }),
 );
 
 // ==================== NOTIFICATIONS ====================
@@ -736,7 +746,7 @@ export const notifications = pgTable(
     userIdx: index("notifications_user_idx").on(table.userId),
     readIdx: index("notifications_read_idx").on(table.read),
     typeIdx: index("notifications_type_idx").on(table.type),
-  })
+  }),
 );
 
 // ==================== AUDIT LOGS ====================
@@ -765,7 +775,7 @@ export const auditLogs = pgTable(
     actionIdx: index("audit_logs_action_idx").on(table.action),
     resourceIdx: index("audit_logs_resource_idx").on(table.resource),
     createdAtIdx: index("audit_logs_created_at_idx").on(table.createdAt),
-  })
+  }),
 );
 
 // ==================== INVITATIONS ====================
@@ -808,7 +818,39 @@ export const invitations = pgTable(
     emailIdx: index("invitations_email_idx").on(table.email),
     tokenIdx: index("invitations_token_idx").on(table.token),
     statusIdx: index("invitations_status_idx").on(table.status),
-  })
+  }),
+);
+
+// ==================== CUSTOM FIELDS ====================
+
+export const customFieldDefinitions = pgTable(
+  "custom_field_definitions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    entityType: text("entity_type")
+      .notNull()
+      .$defaultFn(() => "project"),
+    name: text("name").notNull(),
+    type: text("type").notNull(),
+    options: json("options").$type<string[]>(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("custom_field_definitions_org_idx").on(table.organizationId),
+    entityTypeIdx: index("custom_field_definitions_entity_type_idx").on(
+      table.entityType,
+    ),
+  }),
 );
 
 // ==================== SUPPORT TICKETS ====================
@@ -841,7 +883,7 @@ export const supportTickets = pgTable(
     statusIdx: index("status_idx").on(table.status),
     priorityIdx: index("priority_idx").on(table.priority),
     submittedByIdx: index("submitted_by_idx").on(table.submittedby),
-  })
+  }),
 );
 // ==================== PAYMENT LINKS ====================
 
@@ -882,9 +924,9 @@ export const paymentLinks = pgTable(
     projectIdx: index("payment_links_project_idx").on(table.projectId),
     createdByIdx: index("payment_links_created_by_idx").on(table.createdBy),
     paymentLinkIdx: index("payment_links_payment_link_idx").on(
-      table.paymentLink
+      table.paymentLink,
     ),
-  })
+  }),
 );
 
 // ==================== RECENT ACTIVITIES ====================
@@ -895,11 +937,11 @@ export const recentActivities = pgTable(
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
     organizationId: text("organization_id").references(() => organizations.id),
-    userId: text("user_id").references(() => users.id), // subject of activity (optional)
-    actorId: text("actor_id").references(() => users.id), // who performed the action
-    type: text("type").notNull(), // auth, user, task, project, invoice, system
-    action: text("action").notNull(), // create, update, delete, login, logout, assign, etc.
-    resource: text("resource").notNull(), // user, task, project, invoice, etc.
+    userId: text("user_id").references(() => users.id),
+    actorId: text("actor_id").references(() => users.id),
+    type: text("type").notNull(),
+    action: text("action").notNull(),
+    resource: text("resource").notNull(),
     resourceId: text("resource_id"),
     message: text("message"),
     metadata: json("metadata"),
@@ -912,7 +954,7 @@ export const recentActivities = pgTable(
     actorIdx: index("recent_activities_actor_idx").on(table.actorId),
     typeIdx: index("recent_activities_type_idx").on(table.type),
     resIdx: index("recent_activities_res_idx").on(table.resource),
-  })
+  }),
 );
 
 // ==================== RELATIONS ====================
@@ -961,7 +1003,7 @@ export const organizationsRelations = relations(
     auditLogs: many(auditLogs),
     userManagement: many(userManagement),
     calendarEvents: many(calendarEvents),
-  })
+  }),
 );
 
 export const subscriptionPlansRelations = relations(
@@ -969,7 +1011,7 @@ export const subscriptionPlansRelations = relations(
   ({ many }) => ({
     organizations: many(organizations),
     subscriptions: many(subscriptions),
-  })
+  }),
 );
 
 export const invoicesRelations = relations(invoices, ({ one }) => ({
@@ -1016,6 +1058,14 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
     fields: [tasks.createdBy],
     references: [users.id],
     relationName: "taskCreator",
+  }),
+  parentTask: one(tasks, {
+    fields: [tasks.parentId],
+    references: [tasks.id],
+    relationName: "subtasks",
+  }),
+  subtasks: many(tasks, {
+    relationName: "subtasks",
   }),
   timeEntries: many(timeEntries),
 }));
@@ -1122,7 +1172,7 @@ export const userOrganizationsRelations = relations(
       references: [users.id],
       relationName: "invitationSender",
     }),
-  })
+  }),
 );
 
 export const subadminRelations = relations(subadmin, ({ one }) => ({
@@ -1185,14 +1235,14 @@ export const calendarEvents = pgTable(
   },
   (table) => ({
     organizationIdx: index("calendar_events_organization_idx").on(
-      table.organizationId
+      table.organizationId,
     ),
     userIdx: index("calendar_events_user_idx").on(table.userId),
     dateIdx: index("calendar_events_date_idx").on(table.date),
     calendarTypeIdx: index("calendar_events_calendar_type_idx").on(
-      table.calendarType
+      table.calendarType,
     ),
-  })
+  }),
 );
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -1259,7 +1309,7 @@ export const projectCommentsRelations = relations(
     replies: many(projectComments, {
       relationName: "commentReplies",
     }),
-  })
+  }),
 );
 
 // ==================== NEWSLETTER SUBSCRIBERS ====================
@@ -1286,9 +1336,9 @@ export const newsletterSubscribers = pgTable(
   (table) => ({
     emailIdx: index("newsletter_subscribers_email_idx").on(table.email),
     subscribedIdx: index("newsletter_subscribers_subscribed_idx").on(
-      table.subscribed
+      table.subscribed,
     ),
-  })
+  }),
 );
 
 export const calendarEventsRelations = relations(calendarEvents, ({ one }) => ({
@@ -1317,5 +1367,5 @@ export const recentActivitiesRelations = relations(
       fields: [recentActivities.userId],
       references: [users.id],
     }),
-  })
+  }),
 );

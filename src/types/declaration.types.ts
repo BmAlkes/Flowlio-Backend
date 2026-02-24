@@ -15,6 +15,8 @@ declare module "express" {
       name?: string;
       emailVerified?: boolean;
       isSuperAdmin?: boolean;
+      isOrganizationOwner?: boolean;
+      isOrganizationManager?: boolean;
       timezone?: string;
       createdAt?: Date;
       updatedAt?: Date;

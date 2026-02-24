@@ -1,16 +1,17 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
-import status from "http-status";
+import { StatusCodes } from "http-status-codes";
 import { userOrganizations, organizations } from "@/schema/schema";
 import { eq } from "drizzle-orm";
 
 export const getCurrentUserProfile = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
-    if (!req.user || !req.user.id) {
+    const userReq = req as any;
+    if (!userReq.user || !userReq.user.id) {
       res.status(401).json({
         success: false,
         message: "Authentication required",
@@ -18,7 +19,7 @@ export const getCurrentUserProfile = async (
       return;
     }
 
-    const userId = req.user.id;
+    const userId = userReq.user.id;
 
     // Get user data with role column
     const user = await database.query.users.findFirst({
@@ -34,6 +35,8 @@ export const getCurrentUserProfile = async (
         notificationPreferences: true,
         image: true,
         role: true,
+        isOrganizationOwner: true,
+        isOrganizationManager: true,
         isSuperAdmin: true,
         subadminId: true,
         status: true, // Include user status (pending/active)
@@ -54,9 +57,17 @@ export const getCurrentUserProfile = async (
       return;
     }
 
+    // Fetch client profile if role is 'client'
+    let clientProfile = null;
+    if (user.role === "client") {
+      clientProfile = await database.query.clients.findFirst({
+        where: (t, { eq }) => eq(t.userId, userId),
+      });
+    }
+
     // Check if user status is pending (needs to complete payment)
     // Allow pending users to access profile but return special code for frontend redirect
-    if (!user.isSuperAdmin && !user.subadminId) {
+    if (!user.isSuperAdmin && !user.subadminId && user.role !== "client") {
       const userStatus = user.status?.toLowerCase?.() || user.status || "";
       const isPending =
         userStatus === "pending" || !user.status || user.status === null;
@@ -114,7 +125,7 @@ export const getCurrentUserProfile = async (
         .from(userOrganizations)
         .innerJoin(
           organizations,
-          eq(userOrganizations.organizationId, organizations.id)
+          eq(userOrganizations.organizationId, organizations.id),
         )
         .where(eq(userOrganizations.userId, userId))
         .limit(1);
@@ -137,7 +148,7 @@ export const getCurrentUserProfile = async (
         // Check 1: Organization is deactivated
         if (orgStatus === "suspended" || orgStatus === "inactive") {
           logger.warn(
-            `User ${userId} attempted to login with deactivated organization ${orgData.organizationId}`
+            `User ${userId} attempted to login with deactivated organization ${orgData.organizationId}`,
           );
           res.status(403).json({
             success: false,
@@ -165,7 +176,7 @@ export const getCurrentUserProfile = async (
             logger.warn(
               `User ${userId} attempted to login with expired trial organization ${
                 orgData.organizationId
-              }. Trial ended: ${trialEndDate.toISOString()}`
+              }. Trial ended: ${trialEndDate.toISOString()}`,
             );
             res.status(403).json({
               success: false,
@@ -181,8 +192,8 @@ export const getCurrentUserProfile = async (
     }
 
     // Get organization information from req.user (set by auth middleware)
-    const organizationId = req.user?.organizationId;
-    const organization = req.user?.organization;
+    const organizationId = userReq.user?.organizationId;
+    const organization = userReq.user?.organization;
 
     // Use the actual role from database, but override for superadmin/subadmin
     const userWithRole = {
@@ -190,21 +201,24 @@ export const getCurrentUserProfile = async (
       role: user.isSuperAdmin
         ? "superadmin"
         : user.subadminId
-        ? "subadmin"
-        : user.role || "user", // Use actual role from database
+          ? "subadmin"
+          : user.role || "user", // Use actual role from database
+      isOrganizationOwner: user.isOrganizationOwner ?? false,
+      isOrganizationManager: user.isOrganizationManager ?? false,
       organizationId: organizationId || null,
       organization: organization || null,
       demoOrgInfo: demoOrgInfo, // Include demo organization info
+      clientProfile: clientProfile, // Include client business profile if role is 'client'
     };
 
     // logger.info(`User profile fetched for user: ${userId}`);
     // logger.info(`User isSuperAdmin: ${userWithRole.isSuperAdmin}`);
     // logger.info(`User role: ${userWithRole.role}`);
     logger.info(
-      `User role from database: ${user.role}, Final role: ${userWithRole.role}`
+      `User role from database: ${user.role}, Final role: ${userWithRole.role}`,
     );
     logger.info(
-      `User isSuperAdmin: ${user.isSuperAdmin}, subadminId: ${user.subadminId}`
+      `User isSuperAdmin: ${user.isSuperAdmin}, subadminId: ${user.subadminId}`,
     );
     logger.info(`Raw user data:`, JSON.stringify(user, null, 2));
     // logger.info(`Final response data:`, JSON.stringify(userWithRole, null, 2));
@@ -216,7 +230,7 @@ export const getCurrentUserProfile = async (
     });
   } catch (error) {
     logger.error("Error fetching user profile:", error);
-    res.status(status.INTERNAL_SERVER_ERROR).json({
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
       success: false,
       message: "Internal server error while fetching user profile",
       error: process.env.NODE_ENV === "development" ? error : undefined,

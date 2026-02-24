@@ -3,8 +3,43 @@ import { getSession } from "@/utils/getsession.util";
 import { logger } from "@/utils/logger.util";
 // import { status } from "http-status";
 import { database } from "@/configs/connection.config";
-import { subscriptions } from "@/schema/schema";
+import { subscriptions, users } from "@/schema/schema";
 import { eq, and } from "drizzle-orm";
+
+// In-memory cache for organization data (TTL: 10 seconds)
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const orgCache = new Map<string, CacheEntry<any>>();
+const CACHE_TTL = 10 * 1000; // 10 seconds
+
+const getCachedOrFetch = async <T>(
+  key: string,
+  fetcher: () => Promise<T>,
+): Promise<T> => {
+  const cached = orgCache.get(key);
+  const now = Date.now();
+
+  if (cached && now - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+
+  const data = await fetcher();
+  orgCache.set(key, { data, timestamp: now });
+  return data;
+};
+
+// Clean up old cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of orgCache.entries()) {
+    if (now - entry.timestamp >= CACHE_TTL) {
+      orgCache.delete(key);
+    }
+  }
+}, CACHE_TTL);
 
 declare global {
   namespace Express {
@@ -16,6 +51,8 @@ declare global {
         emailVerified: boolean;
         image?: string;
         isSuperAdmin: boolean;
+        isOrganizationOwner?: boolean;
+        isOrganizationManager?: boolean;
         subadminId?: string;
         createdAt: Date;
         updatedAt: Date;
@@ -32,42 +69,63 @@ declare global {
 export const isAuthenticated = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
-    logger.info("🚀 isAuthenticated middleware called");
+    // Reduced logging for performance - only log in development
+    const isDevelopment = process.env.NODE_ENV !== "production";
+    if (isDevelopment) {
+      logger.debug("🚀 isAuthenticated middleware called");
+    }
 
     const session = await getSession(req);
-    logger.info("🔍 Session data:", {
-      hasSession: !!session,
-      hasUser: !!session?.user,
-    });
 
     if (session && session.user) {
       const sessionUser = session.user as any;
-      logger.info("🔍 Original session user data:", {
-        id: sessionUser.id,
-        email: sessionUser.email,
-        isSuperAdmin: sessionUser.isSuperAdmin,
-        subadminId: sessionUser.subadminId,
-        role: sessionUser.role,
-      });
 
-      const freshUser = await database.query.users.findFirst({
-        where: (t, { eq }) => eq(t.id, sessionUser.id),
-        columns: {
-          id: true,
-          name: true,
-          email: true,
-          emailVerified: true,
-          image: true,
-          isSuperAdmin: true,
-          subadminId: true,
-          createdAt: true,
-          updatedAt: true,
-          role: true,
-        },
-      });
+      // Session may not have isOrganizationOwner/Manager if created before we added it
+      // Fetch from DB when missing so org owner/manager access works without re-login
+      let isOrganizationOwner = sessionUser.isOrganizationOwner;
+      let isOrganizationManager = sessionUser.isOrganizationManager;
+
+      if (
+        isOrganizationOwner === undefined ||
+        isOrganizationManager === undefined
+      ) {
+        const dbUser = await database
+          .select({
+            isOrganizationOwner: users.isOrganizationOwner,
+            isOrganizationManager: users.isOrganizationManager,
+          })
+          .from(users)
+          .where(eq(users.id, sessionUser.id))
+          .limit(1);
+
+        if (dbUser.length > 0) {
+          isOrganizationOwner = dbUser[0].isOrganizationOwner ?? false;
+          isOrganizationManager = dbUser[0].isOrganizationManager ?? false;
+        } else {
+          isOrganizationOwner = false;
+          isOrganizationManager = false;
+        }
+      }
+
+      // Use session data directly to avoid unnecessary DB query
+      // Only fetch from DB if we need fresh data for security checks
+      const freshUser = {
+        id: sessionUser.id,
+        name: sessionUser.name,
+        email: sessionUser.email,
+        emailVerified: sessionUser.emailVerified,
+        image: sessionUser.image,
+        isSuperAdmin: sessionUser.isSuperAdmin,
+        isOrganizationOwner: isOrganizationOwner ?? false,
+        isOrganizationManager: isOrganizationManager ?? false,
+        subadminId: sessionUser.subadminId,
+        createdAt: sessionUser.createdAt,
+        updatedAt: sessionUser.updatedAt,
+        role: sessionUser.role,
+      };
 
       if (freshUser) {
         // Check sub admin permission status if user is a sub admin
@@ -111,19 +169,29 @@ export const isAuthenticated = async (
           });
         }
 
-        // Fetch user's organization information
-        logger.info("🔍 Fetching organization for user:", freshUser.id);
+        // Fetch user's organization information (with caching)
+        const isDevelopment = process.env.NODE_ENV !== "production";
+        if (isDevelopment) {
+          logger.debug("🔍 Fetching organization for user:", freshUser.id);
+        }
 
         try {
-          // Get all user organizations and find the active one
-          const userOrgs = await database.query.userOrganizations.findMany({
-            where: (userOrgs, { eq }) => eq(userOrgs.userId, freshUser.id),
-            with: {
-              organization: true,
+          // Get all user organizations and find the active one (cached)
+          const userOrgs = await getCachedOrFetch(
+            `userOrgs:${freshUser.id}`,
+            async () => {
+              return await database.query.userOrganizations.findMany({
+                where: (userOrgs, { eq }) => eq(userOrgs.userId, freshUser.id),
+                with: {
+                  organization: true,
+                },
+              });
             },
-          });
+          );
 
-          logger.info("🔍 User organizations found:", userOrgs.length);
+          if (isDevelopment) {
+            logger.debug("🔍 User organizations found:", userOrgs.length);
+          }
 
           // Find the active organization (prioritize 'active' status)
           let activeUserOrg = userOrgs.find((org) => org.status === "active");
@@ -133,28 +201,17 @@ export const isAuthenticated = async (
             activeUserOrg = userOrgs[0];
             logger.warn(
               "⚠️ No active organization found, using first available:",
-              activeUserOrg.organizationId
+              activeUserOrg.organizationId,
             );
           }
 
-          logger.info("🔍 Selected organization:", {
-            userOrgFound: !!activeUserOrg,
-            userOrgData: activeUserOrg
-              ? {
-                  id: activeUserOrg.id,
-                  userId: activeUserOrg.userId,
-                  organizationId: activeUserOrg.organizationId,
-                  status: activeUserOrg.status,
-                  organization: activeUserOrg.organization
-                    ? {
-                        id: activeUserOrg.organization.id,
-                        name: activeUserOrg.organization.name,
-                        slug: activeUserOrg.organization.slug,
-                      }
-                    : null,
-                }
-              : null,
-          });
+          // Reduced logging - only in development
+          if (isDevelopment && activeUserOrg) {
+            logger.debug("🔍 Selected organization:", {
+              organizationId: activeUserOrg.organizationId,
+              status: activeUserOrg.status,
+            });
+          }
 
           // Check if organization is deactivated or trial expired (unless super admin)
           if (!freshUser.isSuperAdmin && activeUserOrg?.organization) {
@@ -164,7 +221,7 @@ export const isAuthenticated = async (
             // Check 1: Organization is deactivated
             if (orgStatus === "suspended" || orgStatus === "inactive") {
               logger.warn(
-                `User ${freshUser.id} attempted to access route with deactivated organization ${activeUserOrg.organizationId}`
+                `User ${freshUser.id} attempted to access route with deactivated organization ${activeUserOrg.organizationId}`,
               );
               res.status(403).json({
                 error: "Forbidden",
@@ -194,7 +251,7 @@ export const isAuthenticated = async (
                     freshUser.id
                   } attempted to access route with expired trial organization ${
                     activeUserOrg.organizationId
-                  }. Trial ended: ${trialEndDate.toISOString()}`
+                  }. Trial ended: ${trialEndDate.toISOString()}`,
                 );
                 res.status(403).json({
                   error: "Forbidden",
@@ -207,21 +264,26 @@ export const isAuthenticated = async (
             }
 
             // Check 3: Subscription period has expired (based on plan duration)
-            // Get the active subscription for this organization
-            const activeSubscription = await database
-              .select()
-              .from(subscriptions)
-              .where(
-                and(
-                  eq(
-                    subscriptions.organizationId,
-                    activeUserOrg.organizationId
-                  ),
-                  eq(subscriptions.status, "active")
-                )
-              )
-              .orderBy(subscriptions.createdAt)
-              .limit(1);
+            // Get the active subscription for this organization (cached)
+            const activeSubscription = await getCachedOrFetch(
+              `subscription:${activeUserOrg.organizationId}`,
+              async () => {
+                return await database
+                  .select()
+                  .from(subscriptions)
+                  .where(
+                    and(
+                      eq(
+                        subscriptions.organizationId,
+                        activeUserOrg.organizationId,
+                      ),
+                      eq(subscriptions.status, "active"),
+                    ),
+                  )
+                  .orderBy(subscriptions.createdAt)
+                  .limit(1);
+              },
+            );
 
             if (activeSubscription.length > 0) {
               const subscription = activeSubscription[0];
@@ -235,8 +297,8 @@ export const isAuthenticated = async (
                   } attempted to access route with expired subscription for organization ${
                     activeUserOrg.organizationId
                   }. Subscription ended: ${new Date(
-                    currentPeriodEnd
-                  ).toISOString()}`
+                    currentPeriodEnd,
+                  ).toISOString()}`,
                 );
                 res.status(403).json({
                   error: "Forbidden",
@@ -259,7 +321,7 @@ export const isAuthenticated = async (
                     freshUser.id
                   } has subscription scheduled to cancel at period end for organization ${
                     activeUserOrg.organizationId
-                  }. Period ends: ${new Date(currentPeriodEnd).toISOString()}`
+                  }. Period ends: ${new Date(currentPeriodEnd).toISOString()}`,
                 );
                 // Allow access but subscription will expire at period end
               }
@@ -270,7 +332,7 @@ export const isAuthenticated = async (
               // If organization shows active but no subscription found, allow access
               // This might be a trial-only organization
               logger.info(
-                `User ${freshUser.id} has active organization status but no subscription record for organization ${activeUserOrg.organizationId}`
+                `User ${freshUser.id} has active organization status but no subscription record for organization ${activeUserOrg.organizationId}`,
               );
             }
           }
@@ -279,7 +341,7 @@ export const isAuthenticated = async (
           // Only set organizationId if organization actually exists in database
           if (activeUserOrg?.organizationId && !activeUserOrg?.organization) {
             logger.warn(
-              `⚠️ User ${freshUser.id} has organizationId ${activeUserOrg.organizationId} in userOrganizations but organization doesn't exist in organizations table. This is a data integrity issue.`
+              `⚠️ User ${freshUser.id} has organizationId ${activeUserOrg.organizationId} in userOrganizations but organization doesn't exist in organizations table. This is a data integrity issue.`,
             );
           }
 
@@ -293,25 +355,16 @@ export const isAuthenticated = async (
             userOrganization: activeUserOrg || null,
           };
 
-          logger.info("🔄 Fresh user data with organization:", {
-            id: userWithOrg.id,
-            email: userWithOrg.email,
-            isSuperAdmin: userWithOrg.isSuperAdmin,
-            subadminId: userWithOrg.subadminId,
-            role: userWithOrg.role,
-            organizationId: userWithOrg.organizationId,
-            organizationName: userWithOrg.organization?.name,
-            finalUserObject: JSON.stringify(userWithOrg, null, 2),
-          });
-
           // Set the user data
           req.user = userWithOrg as any;
 
-          logger.info("✅ Final req.user set:", {
-            reqUserKeys: req.user ? Object.keys(req.user) : [],
-            reqUserOrganizationId: req.user?.organizationId,
-            reqUserType: typeof req.user,
-          });
+          // Only log in development
+          if (isDevelopment) {
+            logger.debug("✅ User authenticated:", {
+              userId: userWithOrg.id,
+              organizationId: userWithOrg.organizationId,
+            });
+          }
 
           return next();
         } catch (orgError) {
@@ -340,7 +393,7 @@ export const isAuthenticated = async (
 export const isUnAuthenticated = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const session = await getSession(req);

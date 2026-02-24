@@ -488,6 +488,12 @@ export const auth = betterAuth({
         required: false,
         type: "string",
       },
+      isOrganizationOwner: {
+        fieldName: "is_organization_owner",
+        defaultValue: false,
+        required: false,
+        type: "boolean",
+      },
       timezone: {
         fieldName: "timezone",
         defaultValue: "UTC",
@@ -567,6 +573,7 @@ export const auth = betterAuth({
       "image",
       "role",
       "isSuperAdmin",
+      "isOrganizationOwner",
       "subadminId",
       "timezone",
       "createdAt",

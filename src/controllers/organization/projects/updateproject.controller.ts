@@ -253,6 +253,8 @@ export const updateProject = async (
       updateData.status = validatedData.status;
     if (validatedData.progress !== undefined)
       updateData.progress = validatedData.progress;
+    if (validatedData.customFields !== undefined)
+      updateData.customFields = validatedData.customFields;
 
     // Always update file-related fields if they were processed
     updateData.contractfile = contractfileUrl;
