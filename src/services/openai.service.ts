@@ -1254,6 +1254,287 @@ Return JSON in this exact format:
   }
 
   /**
+   * Generate weekly project summary using AI
+   */
+  async generateWeeklyProjectSummary(projectData: {
+    projects: Array<{
+      id: string;
+      name: string;
+      projectNumber: string;
+      status: string;
+      progress: number;
+      startDate?: Date | null;
+      endDate?: Date | null;
+      description?: string | null;
+    }>;
+    tasks: Array<{
+      id: string;
+      title: string;
+      description?: string | null;
+      status: string;
+      projectId: string;
+      assignedTo?: string | null;
+      startDate?: Date | null;
+      endDate?: Date | null;
+      estimatedHours?: number | null;
+      actualHours?: number | null;
+    }>;
+    timeEntries?: Array<{
+      projectId: string;
+      taskId?: string | null;
+      duration: number;
+      billable: boolean;
+      description?: string | null;
+    }>;
+    weekStart: Date;
+    weekEnd: Date;
+    organizationName?: string;
+  }): Promise<{
+    summary: string;
+    highlights: string[];
+    metrics: {
+      totalProjects: number;
+      activeProjects: number;
+      totalTasks: number;
+      completedTasks: number;
+      inProgressTasks: number;
+      totalHours: number;
+      billableHours: number;
+    };
+    projectBreakdown: Array<{
+      projectName: string;
+      projectNumber: string;
+      status: string;
+      progress: number;
+      tasksCompleted: number;
+      tasksInProgress: number;
+      tasksPending: number;
+      hoursSpent: number;
+      summary: string;
+    }>;
+    recommendations: string[];
+  } | null> {
+    try {
+      if (!this.openai) {
+        logger.warn(
+          "OpenAI service not available. Cannot generate weekly summary."
+        );
+        return null;
+      }
+
+      logger.info("📊 Generating weekly project summary:", {
+        projectCount: projectData.projects.length,
+        taskCount: projectData.tasks.length,
+        weekStart: projectData.weekStart.toISOString(),
+        weekEnd: projectData.weekEnd.toISOString(),
+      });
+
+      // Format project data for AI analysis
+      const projectsSummary = projectData.projects.map((project) => {
+        const projectTasks = projectData.tasks.filter(
+          (task) => task.projectId === project.id
+        );
+        const projectTimeEntries =
+          projectData.timeEntries?.filter(
+            (entry) => entry.projectId === project.id
+          ) || [];
+
+        const totalHours = projectTimeEntries.reduce(
+          (sum, entry) => sum + (entry.duration || 0),
+          0
+        );
+        const billableHours = projectTimeEntries
+          .filter((entry) => entry.billable)
+          .reduce((sum, entry) => sum + (entry.duration || 0), 0);
+
+        return {
+          name: project.name,
+          projectNumber: project.projectNumber,
+          status: project.status,
+          progress: project.progress || 0,
+          startDate: project.startDate?.toISOString() || null,
+          endDate: project.endDate?.toISOString() || null,
+          description: project.description || "",
+          tasksCount: projectTasks.length,
+          completedTasks: projectTasks.filter((t) => t.status === "completed")
+            .length,
+          inProgressTasks: projectTasks.filter(
+            (t) => t.status === "in_progress"
+          ).length,
+          pendingTasks: projectTasks.filter((t) => t.status === "todo").length,
+          totalHours: totalHours / 60, // Convert minutes to hours
+          billableHours: billableHours / 60,
+          tasks: projectTasks.map((task) => ({
+            title: task.title,
+            status: task.status,
+            estimatedHours: task.estimatedHours || null,
+            actualHours: task.actualHours || null,
+          })),
+        };
+      });
+
+      // Calculate overall metrics
+      const totalTasks = projectData.tasks.length;
+      const completedTasks = projectData.tasks.filter(
+        (t) => t.status === "completed"
+      ).length;
+      const inProgressTasks = projectData.tasks.filter(
+        (t) => t.status === "in_progress"
+      ).length;
+      const totalTimeEntries = projectData.timeEntries || [];
+      const totalHours =
+        totalTimeEntries.reduce(
+          (sum, entry) => sum + (entry.duration || 0),
+          0
+        ) / 60;
+      const billableHours =
+        totalTimeEntries
+          .filter((entry) => entry.billable)
+          .reduce((sum, entry) => sum + (entry.duration || 0), 0) / 60;
+
+      const systemPrompt = `You are Flowlio AI, a project management assistant. Your task is to generate a comprehensive weekly project summary report.
+
+Analyze the provided project data for the week from ${projectData.weekStart.toLocaleDateString()} to ${projectData.weekEnd.toLocaleDateString()} and create a detailed summary.
+
+**REQUIREMENTS:**
+1. Generate a comprehensive executive summary (2-3 paragraphs) highlighting:
+   - Overall project health and progress
+   - Key achievements and milestones
+   - Challenges and blockers
+   - Team productivity and time allocation
+
+2. Create 5-7 key highlights (bullet points) covering:
+   - Major completions
+   - Critical updates
+   - Important milestones
+   - Notable achievements
+
+3. For each project, provide a brief breakdown including:
+   - Current status and progress
+   - Tasks completed vs. in progress vs. pending
+   - Hours spent
+   - Key accomplishments or concerns
+
+4. Provide 3-5 actionable recommendations for:
+   - Risk mitigation
+   - Resource optimization
+   - Timeline adjustments
+   - Process improvements
+
+**RESPONSE FORMAT:**
+Return a valid JSON object with this exact structure:
+{
+  "summary": "Executive summary text (2-3 paragraphs)",
+  "highlights": ["highlight 1", "highlight 2", ...],
+  "metrics": {
+    "totalProjects": number,
+    "activeProjects": number,
+    "totalTasks": number,
+    "completedTasks": number,
+    "inProgressTasks": number,
+    "totalHours": number,
+    "billableHours": number
+  },
+  "projectBreakdown": [
+    {
+      "projectName": "Project name",
+      "projectNumber": "Project number",
+      "status": "status",
+      "progress": number,
+      "tasksCompleted": number,
+      "tasksInProgress": number,
+      "tasksPending": number,
+      "hoursSpent": number,
+      "summary": "Brief project summary (2-3 sentences)"
+    }
+  ],
+  "recommendations": ["recommendation 1", "recommendation 2", ...]
+}
+
+**IMPORTANT:**
+- Be specific and data-driven
+- Use professional but engaging language
+- Focus on actionable insights
+- Highlight both successes and areas for improvement
+- Keep summaries concise but informative`;
+
+      const userPrompt = `Generate a weekly project summary for ${
+        projectData.organizationName || "the organization"
+      }.
+
+**Week Period:** ${projectData.weekStart.toLocaleDateString()} - ${projectData.weekEnd.toLocaleDateString()}
+
+**Projects Data:**
+${JSON.stringify(projectsSummary, null, 2)}
+
+**Overall Metrics:**
+- Total Projects: ${projectData.projects.length}
+- Active Projects: ${
+        projectData.projects.filter((p) => p.status === "active").length
+      }
+- Total Tasks: ${totalTasks}
+- Completed Tasks: ${completedTasks}
+- In Progress Tasks: ${inProgressTasks}
+- Total Hours: ${totalHours.toFixed(2)}
+- Billable Hours: ${billableHours.toFixed(2)}
+
+Please analyze this data and generate a comprehensive weekly summary.`;
+
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.7,
+        max_tokens: 3000,
+        response_format: { type: "json_object" },
+      });
+
+      const aiResponse = response.choices[0]?.message?.content;
+      if (!aiResponse) {
+        logger.error("No AI response received for weekly summary");
+        return null;
+      }
+
+      // Parse JSON response
+      let summaryData;
+      try {
+        summaryData = JSON.parse(aiResponse);
+      } catch (parseError) {
+        logger.error("Failed to parse AI response as JSON:", parseError);
+        return null;
+      }
+
+      // Merge AI-generated data with actual metrics
+      const result = {
+        summary:
+          summaryData.summary || "Weekly summary generated successfully.",
+        highlights: summaryData.highlights || [],
+        metrics: {
+          totalProjects: projectData.projects.length,
+          activeProjects: projectData.projects.filter(
+            (p) => p.status === "active"
+          ).length,
+          totalTasks,
+          completedTasks,
+          inProgressTasks,
+          totalHours: Math.round(totalHours * 100) / 100,
+          billableHours: Math.round(billableHours * 100) / 100,
+        },
+        projectBreakdown: summaryData.projectBreakdown || [],
+        recommendations: summaryData.recommendations || [],
+      };
+
+      logger.info("✅ Weekly project summary generated successfully");
+      return result;
+    } catch (error) {
+      logger.error("❌ Error generating weekly project summary:", error);
+      return null;
+    }
+  }
+
+  /**
    * Clean up uploaded files
    */
   cleanupFile(filePath: string): void {

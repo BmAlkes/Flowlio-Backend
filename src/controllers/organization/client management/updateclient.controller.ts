@@ -1,29 +1,36 @@
 import { Request, Response } from "express";
 import { database } from "../../../configs/connection.config";
-import { clients } from "../../../schema/schema";
+import { clients, users } from "../../../schema/schema";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logActivity } from "@/utils/activity.util";
 
-export const updateClient = async (req: Request, res: Response) => {
+export const updateClient = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
+    const userReq = req as any;
     // Check if user is authenticated and has organization ID
-    if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized" });
+    if (!userReq.user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
     }
 
     const { id: clientId } = req.params;
 
     if (!clientId) {
-      return res.status(400).json({
+      res.status(400).json({
         error: "Client ID is required",
       });
+      return;
     }
 
-    const organizationId = req.user.organizationId;
+    const organizationId = userReq.user.organizationId;
 
     if (!organizationId) {
-      return res.status(400).json({ error: "Organization ID is required" });
+      res.status(400).json({ error: "Organization ID is required" });
+      return;
     }
 
     // Extract update data
@@ -37,6 +44,7 @@ export const updateClient = async (req: Request, res: Response) => {
       socialMediaLinks,
       status,
       image,
+      customFields,
     } = req.body;
 
     // Check if client exists
@@ -46,37 +54,38 @@ export const updateClient = async (req: Request, res: Response) => {
       .where(
         and(
           eq(clients.id, clientId),
-          eq(clients.organizationId, organizationId)
-        )
+          eq(clients.organizationId, organizationId),
+        ),
       )
       .limit(1);
 
-    const clientExists = existingClient.length > 0;
-    const currentClient = clientExists ? existingClient[0] : null;
+    if (existingClient.length === 0) {
+      res.status(404).json({
+        error: "Client not found or access denied",
+      });
+      return;
+    }
 
-    // Check email conflicts (only if email is being changed)
-    if (email && (!currentClient || email !== currentClient.email)) {
+    const currentClient = existingClient[0];
+
+    // Check email conflicts in users table (auth identity)
+    if (email && email !== currentClient.email) {
       const emailConflict = await database
         .select()
-        .from(clients)
-        .where(
-          and(
-            eq(clients.email, email),
-            eq(clients.organizationId, organizationId),
-            ne(clients.id, clientId)
-          )
-        )
+        .from(users)
+        .where(eq(users.email, email))
         .limit(1);
 
       if (emailConflict.length > 0) {
-        return res.status(409).json({
-          error: "Another client with this email already exists",
+        res.status(409).json({
+          error: "Another user with this email already exists",
         });
+        return;
       }
     }
 
-    let imageUrl = currentClient?.image || null;
-    let imagePublicId = currentClient?.imagePublicId || null;
+    let imageUrl = currentClient.image || null;
+    let imagePublicId = currentClient.imagePublicId || null;
 
     // Handle image if provided
     if (image && typeof image === "string" && image.startsWith("data:image")) {
@@ -86,162 +95,113 @@ export const updateClient = async (req: Request, res: Response) => {
         imagePublicId = uploadResult.public_id;
       } catch (uploadError) {
         console.error("Image upload failed:", uploadError);
-        return res.status(500).json({
+        res.status(500).json({
           error: "Failed to upload client image",
         });
+        return;
       }
     }
 
-    // Prepare data for upsert
-    const clientData: any = {
-      id: clientId,
-      organizationId,
-      updatedAt: new Date(),
-    };
+    // Parse social media links and custom fields
+    const parsedSocialMediaLinks =
+      socialMediaLinks !== undefined
+        ? typeof socialMediaLinks === "string"
+          ? JSON.parse(socialMediaLinks)
+          : socialMediaLinks
+        : currentClient.socialMediaLinks;
 
-    // Only set fields that are explicitly provided (UPSERT approach)
-    if (name !== undefined && name !== null && name !== "") {
-      clientData.name = name;
-    } else if (clientExists) {
-      clientData.name = currentClient?.name; // Keep existing
-    }
+    const parsedCustomFields =
+      customFields !== undefined
+        ? typeof customFields === "string"
+          ? JSON.parse(customFields)
+          : customFields
+        : currentClient.customFields;
 
-    if (email !== undefined && email !== null && email !== "") {
-      clientData.email = email;
-    } else if (clientExists) {
-      clientData.email = currentClient?.email; // Keep existing
-    }
-
-    if (phone !== undefined && phone !== null) {
-      clientData.phone = phone;
-    } else if (clientExists) {
-      clientData.phone = currentClient?.phone; // Keep existing
-    }
-
-    if (cpfcnpj !== undefined && cpfcnpj !== null) {
-      clientData.cpfcnpj = cpfcnpj;
-    } else if (clientExists) {
-      clientData.cpfcnpj = currentClient?.cpfcnpj; // Keep existing
-    }
-
-    if (businessIndustry !== undefined && businessIndustry !== null) {
-      clientData.businessIndustry = businessIndustry;
-    } else if (clientExists) {
-      clientData.businessIndustry = currentClient?.businessIndustry; // Keep existing
-    }
-
-    if (address !== undefined && address !== null) {
-      clientData.address = address;
-    } else if (clientExists) {
-      clientData.address = currentClient?.address; // Keep existing
-    }
-
-    // Parse social media links if provided
-    if (socialMediaLinks !== undefined && socialMediaLinks !== null) {
-      try {
-        clientData.socialMediaLinks =
-          typeof socialMediaLinks === "string"
-            ? JSON.parse(socialMediaLinks)
-            : socialMediaLinks;
-      } catch (error) {
-        console.error("Error parsing social media links:", error);
-        // Keep existing if parse fails
-        if (clientExists) {
-          clientData.socialMediaLinks = currentClient?.socialMediaLinks;
-        }
+    // Update client and associated user in a transaction
+    const result = await database.transaction(async (tx) => {
+      // 1. Update user if name or email changed
+      if (
+        (name && name !== currentClient.name) ||
+        (email && email !== currentClient.email)
+      ) {
+        await tx
+          .update(users)
+          .set({
+            name: name || currentClient.name,
+            email: email || currentClient.email,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, currentClient.userId as string));
       }
-    } else if (clientExists) {
-      clientData.socialMediaLinks = currentClient?.socialMediaLinks; // Keep existing
-    }
 
-    if (status !== undefined && status !== null && status !== "") {
-      clientData.status = status;
-    } else if (clientExists) {
-      clientData.status = currentClient?.status; // Keep existing
-    } else {
-      clientData.status = "New Lead"; // Default for new clients
-    }
-
-    if (imageUrl !== currentClient?.image) {
-      clientData.image = imageUrl;
-      clientData.imagePublicId = imagePublicId;
-    } else if (clientExists) {
-      clientData.image = currentClient?.image; // Keep existing
-      clientData.imagePublicId = currentClient?.imagePublicId; // Keep existing
-    }
-
-    // Set createdAt for new clients
-    if (!clientExists) {
-      clientData.createdAt = new Date();
-    }
-
-    let result;
-    if (clientExists) {
-      // UPDATE existing client
-      result = await database
+      // 2. Update client
+      const [updatedClient] = await tx
         .update(clients)
-        .set(clientData)
-        .where(
-          and(
-            eq(clients.id, clientId),
-            eq(clients.organizationId, organizationId)
-          )
-        )
+        .set({
+          name: name || currentClient.name,
+          email: email || currentClient.email,
+          phone: phone !== undefined ? phone : currentClient.phone,
+          cpfcnpj: cpfcnpj !== undefined ? cpfcnpj : currentClient.cpfcnpj,
+          businessIndustry:
+            businessIndustry !== undefined
+              ? businessIndustry
+              : currentClient.businessIndustry,
+          address: address !== undefined ? address : currentClient.address,
+          socialMediaLinks: parsedSocialMediaLinks,
+          customFields: parsedCustomFields,
+          status: status || currentClient.status,
+          image: imageUrl,
+          imagePublicId,
+          updatedAt: new Date(),
+        })
+        .where(eq(clients.id, clientId))
         .returning();
-    } else {
-      // INSERT new client
-      result = await database.insert(clients).values(clientData).returning();
-    }
 
-    if (result.length === 0) {
-      return res.status(500).json({
-        error: clientExists
-          ? "Failed to update client"
-          : "Failed to create client",
+      return updatedClient;
+    });
+
+    if (!result) {
+      res.status(500).json({
+        error: "Failed to update client",
       });
+      return;
     }
-
-    const operation = clientExists ? "updated" : "created";
 
     // Log activity
-    const userId = req.user?.id;
-    if (organizationId && userId && result[0]) {
-      await logActivity({
-        organizationId,
-        actorId: userId,
-        type: "client",
-        action: operation === "updated" ? "update" : "create",
-        resource: "client",
-        resourceId: clientId,
-        message: `${
-          operation.charAt(0).toUpperCase() + operation.slice(1)
-        } client: ${result[0].name}`,
-        metadata: { email: result[0].email, status: result[0].status },
-      });
-    }
+    await logActivity({
+      organizationId,
+      actorId: userReq.user.id,
+      type: "client",
+      action: "update",
+      resource: "client",
+      resourceId: clientId,
+      message: `Updated client: ${result.name}`,
+      metadata: { email: result.email, status: result.status },
+    });
 
     res.status(200).json({
       success: true,
-      message: `Client ${operation} successfully`,
+      message: "Client updated successfully",
       data: {
-        id: result[0].id,
-        name: result[0].name,
-        email: result[0].email,
-        image: result[0].image,
-        phone: result[0].phone,
-        cpfcnpj: result[0].cpfcnpj,
-        businessIndustry: result[0].businessIndustry,
-        address: result[0].address,
-        socialMediaLinks: result[0].socialMediaLinks,
-        status: result[0].status,
-        createdAt: result[0].createdAt,
-        updatedAt: result[0].updatedAt,
+        id: result.id,
+        name: result.name,
+        email: result.email,
+        image: result.image,
+        phone: result.phone,
+        cpfcnpj: result.cpfcnpj,
+        businessIndustry: result.businessIndustry,
+        address: result.address,
+        socialMediaLinks: result.socialMediaLinks,
+        status: result.status,
+        customFields: result.customFields,
+        createdAt: result.createdAt,
+        updatedAt: result.updatedAt,
       },
     });
   } catch (error) {
-    console.error("Error upserting client:", error);
+    console.error("Error updating client:", error);
     res.status(500).json({
-      error: "Internal server error while upserting client",
+      error: "Internal server error while updating client",
     });
   }
 };

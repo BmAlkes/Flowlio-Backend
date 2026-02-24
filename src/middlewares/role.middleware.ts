@@ -20,7 +20,7 @@ export const ROLE_HIERARCHY: Record<UserRole, number> = {
 // Check if user has required role or higher
 export const hasRole = (
   userRole: UserRole,
-  requiredRole: UserRole
+  requiredRole: UserRole,
 ): boolean => {
   return ROLE_HIERARCHY[userRole] >= ROLE_HIERARCHY[requiredRole];
 };
@@ -91,7 +91,7 @@ export const requireSubAdmin = requireRole(USER_ROLES.SUB_ADMIN);
 export const requireSuperOrSubAdmin = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     if (!req.user) {
@@ -155,11 +155,61 @@ export const requireAdmin = requireRole(USER_ROLES.SUB_ADMIN);
 export const requireMember = requireRole(USER_ROLES.USER);
 export const requireViewer = requireRole(USER_ROLES.USER);
 
+// Middleware for org-level access: Invoices, Payment Links, Client Mgmt, User Mgmt
+// Allow: superadmin | subadmin | (user AND isOrganizationOwner)
+export const requireOrgOwnerAccess = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    if (!req.user) {
+      logger.warn("Org owner access check failed: No user in request");
+      res.status(401).json({
+        error: "Unauthorized",
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    const userRole = req.user.role as UserRole;
+    const isOrganizationOwner = req.user.isOrganizationOwner === true;
+    const isOrganizationManager = req.user.isOrganizationManager === true;
+
+    const hasAccess =
+      userRole === USER_ROLES.SUPER_ADMIN ||
+      userRole === USER_ROLES.SUB_ADMIN ||
+      (userRole === USER_ROLES.USER &&
+        (isOrganizationOwner || isOrganizationManager));
+
+    if (!hasAccess) {
+      logger.warn("Org owner access denied", {
+        userId: req.user.id,
+        userRole,
+        isOrganizationOwner,
+      });
+      res.status(403).json({
+        error: "Forbidden",
+        message: "Access Denied",
+      });
+      return;
+    }
+
+    next();
+  } catch (error) {
+    logger.error("Org owner access check error:", error);
+    res.status(500).json({
+      error: "Internal server error",
+      message: "Failed to verify access",
+    });
+  }
+};
+
 // Middleware to check if user belongs to organization
 export const requireOrganizationAccess = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     if (!req.user) {
@@ -175,7 +225,7 @@ export const requireOrganizationAccess = (
         "Organization access check failed: User not in organization",
         {
           userId: req.user.id,
-        }
+        },
       );
       res.status(403).json({
         error: "Forbidden",

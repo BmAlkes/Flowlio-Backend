@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { database } from "../../../configs/connection.config";
 import status from "http-status";
-import { tasks } from "../../../schema/schema";
+import { tasks, projects } from "../../../schema/schema";
+import { eq, and } from "drizzle-orm";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { logActivity } from "@/utils/activity.util";
 
@@ -36,6 +37,9 @@ interface CreateTaskRequest extends Request {
       size: number;
       type: string;
     }>;
+    parentId?: string;
+    startAfter?: string;
+    finishBefore?: string;
   };
 }
 
@@ -64,6 +68,9 @@ export const createTask = async (
       estimatedHours,
       actualHours,
       attachments,
+      parentId,
+      startAfter,
+      finishBefore,
     } = req.body;
 
     // Validate required fields
@@ -73,6 +80,42 @@ export const createTask = async (
         message: "Title and projectId are required.",
       });
       return;
+    }
+
+    // Normalize parentId: empty string -> null
+    const normalizedParentId =
+      parentId === "" || parentId == null ? null : parentId;
+
+    // If parentId provided, validate parent exists and same project
+    if (normalizedParentId) {
+      const organizationId = (req.user as any)?.organizationId;
+      const parentTask = await database
+        .select({ id: tasks.id, projectId: tasks.projectId })
+        .from(tasks)
+        .leftJoin(projects, eq(tasks.projectId, projects.id))
+        .where(
+          and(
+            eq(tasks.id, normalizedParentId),
+            eq(projects.organizationId, organizationId as string)
+          )
+        )
+        .limit(1);
+
+      if (!parentTask.length) {
+        res.status(400).json({
+          success: false,
+          message: "Parent task not found",
+        });
+        return;
+      }
+
+      if (parentTask[0].projectId !== projectId) {
+        res.status(400).json({
+          success: false,
+          message: "Subtask must belong to same project as parent task",
+        });
+        return;
+      }
     }
 
     // Handle file uploads if attachments are provided
@@ -123,6 +166,9 @@ export const createTask = async (
       estimatedHours: estimatedHours ? estimatedHours.toString() : null,
       actualHours: actualHours ? actualHours.toString() : null,
       attachments: processedAttachments,
+      parentId: normalizedParentId,
+      startAfter: startAfter || null,
+      finishBefore: finishBefore || null,
     };
 
     const newTask = await database.insert(tasks).values(taskData).returning();

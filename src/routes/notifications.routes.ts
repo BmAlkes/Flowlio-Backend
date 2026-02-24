@@ -8,7 +8,6 @@ import { deleteAllNotifications } from "@/controllers/notifications/delete-all-n
 
 const router = Router();
 
-// Notification Routes
 router.get("/", isAuthenticated, getNotifications);
 
 router.put("/read-all", isAuthenticated, markAllNotificationsAsRead);

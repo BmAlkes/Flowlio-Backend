@@ -8,6 +8,7 @@ import {
   getOrganizationClients,
   getOrganizationUsers,
 } from "../controllers/organization/projects/getproject.controller";
+import { getProjectsByClient } from "../controllers/organization/projects/getprojectsbyclient.controller";
 import { deleteProject } from "../controllers/organization/projects/deleteproject.controller";
 import { getProjectComments } from "../controllers/organization/projects/getprojectcomments.controller";
 import { createProjectComment } from "../controllers/organization/projects/createprojectcomment.controller";
@@ -23,6 +24,7 @@ router.put("/update/:id", isAuthenticated, updateProject as any);
 router.get("/all", isAuthenticated, getAllProjects);
 router.get("/schedule-data", isAuthenticated, getProjectScheduleData);
 router.get("/status-data", isAuthenticated, getProjectStatusData);
+router.get("/client/:clientId", isAuthenticated, getProjectsByClient);
 router.get("/:id", isAuthenticated, getProjectById);
 router.delete("/:id", isAuthenticated, deleteProject);
 

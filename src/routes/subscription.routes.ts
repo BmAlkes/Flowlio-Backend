@@ -6,31 +6,26 @@ import { isAuthenticated } from "@/middlewares/auth.middleware";
 
 const router = Router();
 
-// Get subscription status (requires authentication)
 router.get(
   "/status",
   isAuthenticated,
   subscriptionController.getSubscriptionStatus
 );
 
-// Get available plans (no authentication required)
 router.get("/plans", subscriptionController.getAvailablePlans);
 
-// Update subscription plan (requires authentication)
 router.put(
   "/update-plan",
   isAuthenticated,
   subscriptionController.updateSubscriptionPlan
 );
 
-// Cancel subscription (requires authentication, non-refundable)
 router.post(
   "/cancel",
   isAuthenticated,
   subscriptionController.cancelSubscription
 );
 
-// Plan upgrade routes (requires authentication)
 router.post(
   "/upgrade/create-order",
   isAuthenticated,
@@ -42,7 +37,6 @@ router.post(
   upgradeController.captureUpgradeOrder
 );
 
-// Protected routes that require active subscription
 router.use("/", requireActiveSubscription);
 
 export default router;

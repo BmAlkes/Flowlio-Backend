@@ -13,6 +13,13 @@ export const createUserMemberSchema = z.object({
   companyname: z.string().min(2, "Company name must be at least 2 characters"),
 });
 
+export const setOrganizationManagerSchema = z.object({
+  setAsManager: z.boolean({
+    required_error: "setAsManager is required",
+    invalid_type_error: "setAsManager must be a boolean",
+  }),
+});
+
 // Sub Admin validation schemas
 export const createSubAdminSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -65,36 +72,57 @@ const projectBaseSchema = z.object({
   name: z.string().min(2, {
     message: "Project Name must be at least 2 characters.",
   }),
-  projectNumber: z.string().optional(),
-  clientId: z.string().optional(),
+  projectNumber: z
+    .string()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val)),
+  clientId: z
+    .string()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val)),
   startDate: z
     .string()
-    .optional()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val))
     .refine((date) => !date || !isNaN(Date.parse(date)), {
       message: "Start Date must be a valid date format.",
     }),
   endDate: z
     .string()
-    .optional()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val))
     .refine((date) => !date || !isNaN(Date.parse(date)), {
       message: "End Date must be a valid date format.",
     }),
-  assignedTo: z.string().optional(),
-  description: z.string().optional(),
-  address: z.string().optional(),
+  assignedTo: z
+    .string()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val)),
+  description: z
+    .string()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val)),
+  address: z
+    .string()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val)),
   organizationId: z.string().min(1, {
     message: "Organization ID is required.",
   }),
-  contractfile: z.string().optional(),
+  contractfile: z
+    .string()
+    .nullish()
+    .transform((val) => (val === null || val === "" ? undefined : val)),
   projectFiles: z
     .array(
       z.object({
         file: z.string(),
         type: z.string(),
         name: z.string(),
-      })
+      }),
     )
     .optional(),
+  customFields: z.record(z.any()).optional(),
   status: z.enum(["pending", "ongoing", "completed", "delayed"]).optional(),
   progress: z.number().min(0).max(100).optional(),
 });
@@ -109,7 +137,7 @@ export const createProjectSchema = projectBaseSchema.refine(
   {
     message: "End Date must be after or equal to Start Date.",
     path: ["endDate"],
-  }
+  },
 );
 
 export const updateProjectSchema = projectBaseSchema
@@ -133,7 +161,7 @@ export const updateProjectSchema = projectBaseSchema
     {
       message: "End Date must be after or equal to Start Date.",
       path: ["endDate"],
-    }
+    },
   );
 
 export const createProjectCommentSchema = z.object({
@@ -224,6 +252,29 @@ export const createInvoiceSchema = z.object({
 });
 
 export const updateInvoiceSchema = createInvoiceSchema.partial();
+
+// ==================== CLIENT VALIDATION SCHEMAS ====================
+export const clientBaseSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().optional(),
+  cpfcnpj: z.string().optional(),
+  businessIndustry: z.string().optional(),
+  address: z.string().optional(),
+  socialMediaLinks: z
+    .array(
+      z.object({
+        type: z.string(),
+        url: z.string(),
+      }),
+    )
+    .optional(),
+  status: z.string().optional(),
+  customFields: z.record(z.any()).optional(),
+});
+
+export const createClientSchema = clientBaseSchema;
+export const updateClientSchema = clientBaseSchema.partial();
 
 export const deleteInvoiceSchema = z.object({
   id: z.string().min(1, "Invoice ID is required"),

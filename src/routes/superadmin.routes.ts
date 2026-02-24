@@ -38,63 +38,62 @@ import { deleteUser } from "../controllers/super admin/users/deleteuser.controll
 
 const router = Router();
 
-// PUBLIC ROUTES (No Authentication Required)
 router.get("/plans/public/getallplans", getPublicPlans as any);
 
-// ORGANIZATION MANAGEMENT ROUTES - require super admin or sub admin role
 router.get(
   "/organizations/:organizationId/details",
   isAuthenticated,
   requireSuperOrSubAdmin,
-  getCompanyDetails as any
+  getCompanyDetails as any,
 );
 router.get(
   "/organizations/:organizationId/subscription-history",
   isAuthenticated,
   requireSuperOrSubAdmin,
-  getSubscriptionHistory as any
+  getSubscriptionHistory as any,
 );
+
 router.get(
   "/subscriptions/audit",
   isAuthenticated,
   requireSuperAdmin,
-  auditSubscriptions as any
+  auditSubscriptions as any,
 );
 router.put(
   "/subscriptions/:subscriptionId/reactivate",
   isAuthenticated,
   requireSuperAdmin,
-  reactivateSubscription as any
+  reactivateSubscription as any,
 );
 router.put(
   "/subscriptions/:subscriptionId/deactivate",
   isAuthenticated,
   requireSuperAdmin,
-  deactivateSubscription as any
+  deactivateSubscription as any,
 );
 router.get(
   "/all-data",
   isAuthenticated,
   requireSuperOrSubAdmin,
-  getAllData as any
+  getAllData as any,
 );
 router.get(
   "/total-invoices",
   isAuthenticated,
   requireSuperAdmin,
-  getTotalInvoices as any
+  getTotalInvoices as any,
 );
 router.get(
   "/overview",
   isAuthenticated,
   requireSuperOrSubAdmin,
-  getSuperadminOverview
+  getSuperadminOverview,
 );
 router.delete(
   "/organizations/:organizationId",
   isAuthenticated,
   requireSuperAdmin,
-  deleteOrganization as any
+  deleteOrganization as any,
 );
 
 // DEMO ACCOUNT ROUTES - require super admin role
@@ -102,25 +101,25 @@ router.post(
   "/demo-accounts",
   isAuthenticated,
   requireSuperAdmin,
-  createDemoAccount
+  createDemoAccount,
 );
 router.get(
   "/demo-accounts",
   isAuthenticated,
   requireSuperAdmin,
-  listDemoAccounts
+  listDemoAccounts,
 );
 router.post(
   "/demo-accounts/:organizationId/deactivate",
   isAuthenticated,
   requireSuperAdmin,
-  deactivateDemoAccount
+  deactivateDemoAccount,
 );
 router.put(
   "/demo-accounts/:organizationId",
   isAuthenticated,
   requireSuperAdmin,
-  updateDemoAccount
+  updateDemoAccount,
 );
 
 // SUB ADMIN ROUTES - require sub admin role
@@ -130,58 +129,53 @@ router.put("/update-subadmin/:id", isAuthenticated, updateSubAdmin as any);
 router.put(
   "/update-subadmin-permission/:id",
   isAuthenticated,
-  updateSubAdminPermission as any
+  updateSubAdminPermission as any,
 );
 router.delete("/delete-subadmin/:id", isAuthenticated, deleteSubAdmin);
 
-// SUBSCRIPTION PLANS ROUTES - require super admin role
 router.use("/plans", isAuthenticated, plansRoutes);
 
-// SuperAdmin Settings ROUTES - require super admin role
 router.put(
   "/updatesuperadmin-password",
   isAuthenticated,
   requireSuperAdmin as any,
-  updateSuperAdminPassword as any
+  updateSuperAdminPassword as any,
 );
 
-// NEWSLETTER MANAGEMENT ROUTES - require super admin role
 router.get(
   "/newsletter/subscribers",
   isAuthenticated,
   requireSuperAdmin,
-  getNewsletterSubscribers as any
+  getNewsletterSubscribers as any,
 );
 router.get(
   "/newsletter/stats",
   isAuthenticated,
   requireSuperAdmin,
-  getNewsletterStats as any
+  getNewsletterStats as any,
 );
 router.delete(
   "/newsletter/subscribers/:id",
   isAuthenticated,
   requireSuperAdmin,
-  deleteNewsletterSubscriber as any
+  deleteNewsletterSubscriber as any,
 );
 router.post(
   "/newsletter/send",
   isAuthenticated,
   requireSuperAdmin,
-  sendNewsletter
+  sendNewsletter,
 );
 
-// USERS MANAGEMENT ROUTES - require super admin role
 router.get("/users", isAuthenticated, requireSuperAdmin, getAllUsers);
 router.delete("/users/:userId", isAuthenticated, requireSuperAdmin, deleteUser);
 
-// PAYPAL CONFIGURATION ROUTES - require super admin role
 import { checkPayPalConfig } from "../controllers/super admin/paypal/checkpaypalconfig.controller";
 router.get(
   "/paypal/config",
   isAuthenticated,
   requireSuperAdmin,
-  checkPayPalConfig
+  checkPayPalConfig,
 );
 
 export default router;

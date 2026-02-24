@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
+import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
 import {
   createOrganizationWithPlan,
   getUserOrganizations,
@@ -16,6 +17,7 @@ import {
   deactivateUserMember,
   reactivateUserMember,
 } from "../controllers/organization/user-management/deleteusermember.controller";
+import { setOrganizationManager } from "../controllers/organization/user-management/setorganizationmanager.controller";
 import { testUserMembers } from "../controllers/organization/user-management/test-usermembers.controller";
 import { getOrganizationTotalClients } from "../controllers/organization/stats/gettotalclients.controller";
 import { getOrganizationActiveProjects } from "../controllers/organization/stats/getactiveprojects.controller";
@@ -32,35 +34,40 @@ import {
 
 const router = Router();
 
-// ==================== ORGANIZATION ROUTES ====================
+const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
+
 router.post("/create-with-plan", createOrganizationWithPlan as any);
 router.get("/user-organizations", isAuthenticated, getUserOrganizations as any);
 router.get("/user-subscriptions", isAuthenticated, getUserSubscriptions as any);
 router.get("/all-organizations", isAuthenticated, getAllOrganizations as any);
 
-// ==================== USER MANAGEMENT ROUTES ====================
-// Temporarily simplified to isolate middleware issue
-router.post("/create-user-member", isAuthenticated, createUserMember as any);
-router.get("/user-members", isAuthenticated, getAllUserMembers as any);
+// User Management - requires org owner access (superadmin | subadmin | user + isOrganizationOwner)
+router.post("/create-user-member", ...orgOwner, createUserMember as any);
+router.get("/user-members", ...orgOwner, getAllUserMembers as any);
 router.get(
   "/current-org-user-members",
-  isAuthenticated,
+  ...orgOwner,
   getCurrentOrgUserMembers as any
 );
-router.delete("/user-members/:id", isAuthenticated, deleteUserMember as any);
+router.delete("/user-members/:id", ...orgOwner, deleteUserMember as any);
 router.patch(
   "/user-members/:id/deactivate",
-  isAuthenticated,
+  ...orgOwner,
   deactivateUserMember as any
 );
 router.patch(
   "/user-members/:id/reactivate",
-  isAuthenticated,
+  ...orgOwner,
   reactivateUserMember as any
+);
+router.patch(
+  "/user-members/:memberId/organization-manager",
+  ...orgOwner,
+  setOrganizationManager as any
 );
 
 // Test endpoint for debugging user members
-router.get("/test-user-members", isAuthenticated, testUserMembers as any);
+router.get("/test-user-members", ...orgOwner, testUserMembers as any);
 
 // ==================== ORGANIZATION STATS ROUTES ====================
 router.get(
@@ -89,11 +96,9 @@ router.get(
   getOrganizationWeeklyHoursTracked
 );
 
-// ==================== ORGANIZATION ACTIVITIES ROUTE ====================
 router.get("/activities", isAuthenticated, getOrganizationActivities);
 router.delete("/activities/:id", isAuthenticated, deleteActivity);
 
-// ==================== PLAN ACCESS ROUTES ====================
 router.get("/plan-access/can-create-user", isAuthenticated, checkCanCreateUser);
 router.get(
   "/plan-access/can-create-project",

@@ -1,4 +1,7 @@
-import "module-alias/register";
+// Only register module-alias when running compiled code (npm start); in dev ts-node-dev uses tsconfig-paths for @/
+if (__dirname.includes("dist")) {
+  require("module-alias/register");
+}
 import { assignSocketToReqIO } from "@/middlewares/socket.middleware";
 import { connAuthBridge } from "@/middlewares/socket.middleware";
 import { prepareMigration } from "./utils/preparemigration.util";
@@ -37,6 +40,7 @@ import googleCalendarRoutes from "./routes/googleCalendar.routes";
 import aiRoutes from "./routes/ai.routes";
 import notificationRoutes from "./routes/notifications.routes";
 import newsletterRoutes from "./routes/newsletter.routes";
+import customFieldsRoutes from "./routes/custom-fields.routes";
 import { backgroundSyncService } from "./services/backgroundSync.service";
 import { autoRenewalService } from "./services/autoRenewal.service";
 
@@ -120,7 +124,40 @@ if (!isProduction && !isRailway) {
   });
 }
 
-// Database health check endpoint
+// Comprehensive health check endpoint
+app.get("/api/health", async (_, res) => {
+  const health = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      unit: "MB",
+    },
+    database: "checking",
+  };
+
+  try {
+    const { connection } = await import("@/configs/connection.config");
+    const client = await connection.connect();
+    await client.query("SELECT NOW()");
+    client.release();
+
+    health.database = "connected";
+    res.json(health);
+  } catch (error) {
+    logger.error("Database health check failed:", error);
+    health.status = "unhealthy";
+    health.database = "disconnected";
+    res.status(503).json({
+      ...health,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
+// Legacy database health check endpoint (for backward compatibility)
 app.get("/api/health/db", async (_, res) => {
   try {
     const { connection } = await import("@/configs/connection.config");
@@ -156,8 +193,9 @@ app.all("/api/auth/*splat", (req, res) => {
 
 // enable after database connection
 app.use(throttle("default"));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+// Reduced body size limit for security (50mb was too high and vulnerable to DoS)
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 app.use("/api/superadmin", superAdminRoutes);
 app.use("/api/user", userProfileRoutes);
@@ -176,7 +214,42 @@ app.use("/api/google-calendar", googleCalendarRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/newsletter", newsletterRoutes);
+app.use("/api/custom-fields", customFieldsRoutes);
 app.use(unknownRoutes);
+
+// Global error handler middleware (must be last)
+app.use(
+  (
+    err: Error,
+    req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction
+  ) => {
+    logger.error("Unhandled error:", {
+      error: err.message,
+      stack: err.stack,
+      path: req.path,
+      method: req.method,
+      ip: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+
+    // Don't leak error details in production
+    const isProduction = process.env.NODE_ENV === "production";
+    const isRailway =
+      process.env.RAILWAY_ENVIRONMENT === "production" ||
+      !!process.env.RAILWAY_PROJECT_ID;
+
+    res.status(500).json({
+      success: false,
+      message:
+        isProduction || isRailway ? "Internal server error" : err.message,
+      ...(isProduction || isRailway
+        ? {}
+        : { stack: err.stack, path: req.path }),
+    });
+  }
+);
 
 httpServer.listen(port as number, () => {
   logger.info(`Server is running on port ${port}`);

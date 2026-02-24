@@ -1,18 +1,23 @@
 import { Request, Response } from "express";
 import { database } from "../../../configs/connection.config";
-import { clients, organizations } from "../../../schema/schema";
+import { users, clients, organizations, account } from "../../../schema/schema";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logActivity } from "@/utils/activity.util";
 import { requireOrganizationId } from "@/utils/organization.util";
 import { logger } from "@/utils/logger.util";
 
-export const createClient = async (req: Request, res: Response) => {
+export const createClient = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
   try {
+    const userReq = req as any;
     // Check if user is authenticated
-    if (!req.user) {
-      return res.status(401).json({ error: "Unauthorized" });
+    if (!userReq.user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
     }
 
     // Get organization ID from authenticated user
@@ -31,21 +36,23 @@ export const createClient = async (req: Request, res: Response) => {
     if (organization.length === 0) {
       logger.error("Organization not found in database", {
         organizationId,
-        userId: req.user?.id,
+        userId: userReq.user?.id,
       });
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         error: "Organization not found",
         message:
           "The organization associated with your account does not exist. Please contact support.",
         code: "ORGANIZATION_NOT_FOUND",
       });
+      return;
     }
 
     // Extract client data from request body
     const {
       name,
       email,
+      password, // New field for authentication
       phone,
       cpfcnpj,
       businessIndustry,
@@ -53,31 +60,29 @@ export const createClient = async (req: Request, res: Response) => {
       socialMediaLinks,
       status = "New Lead",
       image,
+      customFields,
     } = req.body;
 
     // Validate required fields
-    if (!name || !email) {
-      return res.status(400).json({
-        error: "Name and email are required fields",
+    if (!name || !email || !password) {
+      res.status(400).json({
+        error: "Name, email, and password are required fields",
       });
+      return;
     }
 
-    // Check if client with same email already exists in this organization
-    const existingClient = await database
+    // Check if client with same email already exists in users table (auth identity)
+    const existingUser = await database
       .select()
-      .from(clients)
-      .where(
-        and(
-          eq(clients.email, email),
-          eq(clients.organizationId, organizationId)
-        )
-      )
+      .from(users)
+      .where(eq(users.email, email))
       .limit(1);
 
-    if (existingClient.length > 0) {
-      return res.status(409).json({
-        error: "Client with this email already exists in your organization",
+    if (existingUser.length > 0) {
+      res.status(409).json({
+        error: "A user with this email already exists",
       });
+      return;
     }
 
     let imageUrl = null;
@@ -86,103 +91,124 @@ export const createClient = async (req: Request, res: Response) => {
     // Handle image upload if provided
     if (image && typeof image === "string" && image.startsWith("data:image")) {
       try {
-        // For base64 data, we can upload directly
         const uploadResult = await uploadToCloudinary(image, "clients");
         imageUrl = uploadResult.secure_url;
         imagePublicId = uploadResult.public_id;
       } catch (uploadError) {
-        return res.status(500).json({
+        res.status(500).json({
           error: "Failed to upload client image",
         });
+        return;
       }
     }
 
-    // Parse social media links if provided
-    let parsedSocialMediaLinks = null;
-    if (socialMediaLinks) {
-      try {
-        parsedSocialMediaLinks =
-          typeof socialMediaLinks === "string"
-            ? JSON.parse(socialMediaLinks)
-            : socialMediaLinks;
-      } catch (error) {
-        console.error("Error parsing social media links:", error);
-        parsedSocialMediaLinks = null;
-      }
-    }
+    // Parse social media links and custom fields
+    const parsedSocialMediaLinks =
+      typeof socialMediaLinks === "string"
+        ? JSON.parse(socialMediaLinks)
+        : socialMediaLinks || null;
+    const parsedCustomFields =
+      typeof customFields === "string"
+        ? JSON.parse(customFields)
+        : customFields || null;
 
-    // Create client
-    const newClient = await database
-      .insert(clients)
-      .values({
-        id: randomUUID(),
-        organizationId,
-        name,
-        email,
-        image: imageUrl,
-        imagePublicId,
-        phone,
-        cpfcnpj,
-        businessIndustry,
-        address,
-        socialMediaLinks: parsedSocialMediaLinks,
-        status,
-        createdBy: req.user.id,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .returning();
+    // Use Better Auth's password hashing
+    const { auth } = await import("@/lib/auth");
+    const authContext = await auth.$context;
+    const hashedPassword = await authContext.password.hash(password);
+
+    // Transactional creation flow
+    const result = await database.transaction(async (tx) => {
+      const userId = randomUUID().replace(/-/g, "");
+      const clientId = randomUUID();
+      const now = new Date();
+
+      // Step 1: Create user record
+      const [newUser] = await tx
+        .insert(users)
+        .values({
+          id: userId,
+          name,
+          email,
+          role: "client",
+          status: "active",
+          image: imageUrl,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      // Step 2: Create account record
+      await tx.insert(account).values({
+        id: randomUUID().replace(/-/g, ""),
+        accountId: userId,
+        providerId: "credential",
+        userId: userId,
+        password: hashedPassword,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // Step 3: Create client record
+      const [newClient] = await tx
+        .insert(clients)
+        .values({
+          id: clientId,
+          userId,
+          organizationId,
+          name,
+          email,
+          image: imageUrl,
+          imagePublicId,
+          phone,
+          cpfcnpj,
+          businessIndustry,
+          address,
+          socialMediaLinks: parsedSocialMediaLinks,
+          customFields: parsedCustomFields,
+          status,
+          createdBy: userReq.user!.id,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning();
+
+      return { newUser, newClient, clientId };
+    });
 
     // Log activity
-    const userId = req.user?.id;
-    if (organizationId && userId) {
-      await logActivity({
-        organizationId,
-        actorId: userId,
-        type: "client",
-        action: "create",
-        resource: "client",
-        resourceId: newClient[0].id,
-        message: `Created client: ${name}`,
-        metadata: { email, status },
-      });
-    }
+    await logActivity({
+      organizationId,
+      actorId: userReq.user.id,
+      type: "client",
+      action: "create",
+      resource: "client",
+      resourceId: result.clientId,
+      message: `Created client: ${result.newClient.name}`,
+      metadata: { email, status },
+    });
 
     // Return success response
     res.status(201).json({
       success: true,
-      message: "Client created successfully",
+      message: "Client created successfully with authentication access",
       data: {
-        id: newClient[0].id,
-        name: newClient[0].name,
-        email: newClient[0].email,
-        image: newClient[0].image,
-        phone: newClient[0].phone,
-        cpfcnpj: newClient[0].cpfcnpj,
-        businessIndustry: newClient[0].businessIndustry,
-        address: newClient[0].address,
-        status: newClient[0].status,
-        createdAt: newClient[0].createdAt,
+        id: result.newClient.id,
+        userId: result.newClient.userId,
+        name: result.newClient.name,
+        email: result.newClient.email,
+        image: result.newClient.image,
+        status: result.newClient.status,
+        createdAt: result.newClient.createdAt,
       },
     });
   } catch (error) {
     logger.error("Error creating client:", error);
-    
-    // Check if it's a foreign key constraint violation
-    if (error instanceof Error && error.message.includes("foreign key constraint")) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid organization",
-        message:
-          "The organization associated with your account is invalid. Please contact support or try logging out and logging back in.",
-        code: "ORGANIZATION_INVALID",
-      });
-    }
-
     res.status(500).json({
       success: false,
       error: "Internal server error while creating client",
-      message: error instanceof Error ? error.message : "Unknown error occurred",
+      message:
+        error instanceof Error ? error.message : "Unknown error occurred",
     });
   }
 };

@@ -72,6 +72,9 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
         estimatedHours: tasks.estimatedHours,
         actualHours: tasks.actualHours,
         attachments: tasks.attachments,
+        parentId: tasks.parentId,
+        startAfter: tasks.startAfter,
+        finishBefore: tasks.finishBefore,
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
         // Project data
@@ -146,6 +149,9 @@ export const getTaskById = async (
         endDate: tasks.endDate,
         startDate: tasks.startDate,
         attachments: tasks.attachments,
+        parentId: tasks.parentId,
+        startAfter: tasks.startAfter,
+        finishBefore: tasks.finishBefore,
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
         // Project data
@@ -194,6 +200,103 @@ export const getTaskById = async (
     });
   } catch (error) {
     logger.error("Error fetching task:", error);
+    res.status(status.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: "Internal server error",
+      errors: [error],
+    });
+    return;
+  }
+};
+
+export const getSubtasksByTaskId = async (
+  req: GetTasksRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+      return;
+    }
+
+    const { id: parentTaskId } = req.params;
+    const { organizationId } = req.user;
+
+    // Verify parent task exists and belongs to organization
+    const parentTask = await database
+      .select({ id: tasks.id })
+      .from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .where(
+        and(
+          eq(tasks.id, parentTaskId),
+          eq(projects.organizationId, organizationId as string)
+        )
+      )
+      .limit(1);
+
+    if (!parentTask.length) {
+      res.status(404).json({
+        success: false,
+        message: "Task not found",
+      });
+      return;
+    }
+
+    // Fetch subtasks (tasks where parentId = parent task id)
+    const subtasksData = await database
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        description: tasks.description,
+        status: tasks.status,
+        endDate: tasks.endDate,
+        startDate: tasks.startDate,
+        estimatedHours: tasks.estimatedHours,
+        actualHours: tasks.actualHours,
+        attachments: tasks.attachments,
+        parentId: tasks.parentId,
+        startAfter: tasks.startAfter,
+        finishBefore: tasks.finishBefore,
+        createdAt: tasks.createdAt,
+        updatedAt: tasks.updatedAt,
+        projectId: projects.id,
+        projectName: projects.name,
+        projectNumber: projects.projectNumber,
+        assigneeId: users.id,
+        assigneeName: users.name,
+        assigneeEmail: users.email,
+        assigneeImage: users.image,
+        creatorId: users.id,
+        creatorName: users.name,
+        creatorEmail: users.email,
+        clientId: clients.id,
+        clientName: clients.name,
+        clientEmail: clients.email,
+        clientImage: clients.image,
+      })
+      .from(tasks)
+      .leftJoin(projects, eq(tasks.projectId, projects.id))
+      .leftJoin(users, eq(tasks.assignedTo, users.id))
+      .leftJoin(clients, eq(projects.clientId, clients.id))
+      .where(
+        and(
+          eq(tasks.parentId, parentTaskId),
+          eq(projects.organizationId, organizationId as string)
+        )
+      )
+      .orderBy(desc(tasks.createdAt));
+
+    res.status(200).json({
+      success: true,
+      message: "Subtasks retrieved successfully",
+      data: subtasksData,
+    });
+  } catch (error) {
+    logger.error("Error fetching subtasks:", error);
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,
       message: "Internal server error",

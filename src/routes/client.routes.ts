@@ -4,17 +4,19 @@ import { getClients } from "../controllers/organization/client management/getcli
 import { deleteClient } from "../controllers/organization/client management/deleteclient.controller";
 import { updateClient } from "../controllers/organization/client management/updateclient.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
+import { requireOrgOwnerAccess } from "@/middlewares/role.middleware";
 
 const router = express.Router();
+
+const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 
 // Increase body size limit for client routes (for image uploads)
 router.use(express.json({ limit: "50mb" }));
 router.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Client management routes
-router.post("/create", isAuthenticated, createClient as any);
-router.get("/", isAuthenticated, getClients as any);
-router.delete("/:id", isAuthenticated, deleteClient as any);
-router.put("/:id", isAuthenticated, updateClient as any);
+router.post("/create", ...orgOwner, createClient);
+router.get("/", ...orgOwner, getClients);
+router.delete("/:id", ...orgOwner, deleteClient);
+router.put("/:id", ...orgOwner, updateClient);
 
 export default router;

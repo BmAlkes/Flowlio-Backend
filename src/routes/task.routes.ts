@@ -4,6 +4,7 @@ import { createTask } from "../controllers/organization/tasks/createtask.control
 import {
   getTasks,
   getTaskById,
+  getSubtasksByTaskId,
 } from "../controllers/organization/tasks/gettasks.controller";
 import {
   updateTask,
@@ -20,17 +21,15 @@ import { deleteTimeEntry } from "../controllers/organization/tasks/deletetimeent
 
 const router = Router();
 
-// ==================== TIME TRACKING ROUTES (must come BEFORE /:id routes) ====================
 router.get("/active-time", isAuthenticated, getActiveTimeEntries);
 router.get("/time-entries", isAuthenticated, getAllTimeEntries);
 router.delete("/time-entries/:id", isAuthenticated, deleteTimeEntry);
 
-// ==================== TASK ROUTES ====================
 router.post("/create", isAuthenticated, createTask);
 router.get("/all", isAuthenticated, getTasks);
 router.get("/ongoing", isAuthenticated, getOngoingTasks);
 
-// ==================== TASK ROUTES WITH ID (must come AFTER specific routes) ====================
+router.get("/:id/subtasks", isAuthenticated, getSubtasksByTaskId);
 router.get("/:id", isAuthenticated, getTaskById);
 router.put("/update/:id", isAuthenticated, updateTask);
 router.patch("/status/:id", isAuthenticated, updateTaskStatus);
