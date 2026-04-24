@@ -20,7 +20,7 @@ interface CreatePaymentLinkRequest {
 
 export const createPaymentLink = async (
   req: CreatePaymentLinkRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     // Validate request body
@@ -51,7 +51,7 @@ export const createPaymentLink = async (
       where: (clients, { eq, and }) =>
         and(
           eq(clients.id, validatedData.clientId),
-          eq(clients.organizationId, organizationId)
+          eq(clients.organizationId, organizationId),
         ),
     });
 
@@ -67,7 +67,7 @@ export const createPaymentLink = async (
       where: (projects, { eq, and }) =>
         and(
           eq(projects.id, validatedData.projectId),
-          eq(projects.organizationId, organizationId)
+          eq(projects.organizationId, organizationId),
         ),
     });
 

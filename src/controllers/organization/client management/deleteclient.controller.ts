@@ -58,26 +58,43 @@ export const deleteClient = async (
       });
     }
 
-    // Delete user (this will cascade to clients, account, etc.)
+    // Determine how to delete the client
     const clientUserId = existingClient[0].userId;
 
-    if (!clientUserId) {
-      res.status(400).json({
-        error: "Client record is missing an associated user ID",
-      });
-      return;
-    }
+    if (clientUserId) {
+      // Delete user (this will cascade to clients, account, etc. because of foreign key constraints)
+      const deletedUser = await database
+        .delete(users)
+        .where(eq(users.id, clientUserId))
+        .returning();
 
-    const deletedUser = await database
-      .delete(users)
-      .where(eq(users.id, clientUserId))
-      .returning();
+      if (deletedUser.length === 0) {
+        // Fallback: If user record is missing but client exists, delete client directly
+        const deletedClient = await database
+          .delete(clients)
+          .where(eq(clients.id, clientId))
+          .returning();
 
-    if (deletedUser.length === 0) {
-      res.status(500).json({
-        error: "Failed to delete client user record",
-      });
-      return;
+        if (deletedClient.length === 0) {
+          res.status(500).json({
+            error: "Failed to delete client record",
+          });
+          return;
+        }
+      }
+    } else {
+      // If no user assigned, delete client directly
+      const deletedClient = await database
+        .delete(clients)
+        .where(eq(clients.id, clientId))
+        .returning();
+
+      if (deletedClient.length === 0) {
+        res.status(500).json({
+          error: "Failed to delete client record",
+        });
+        return;
+      }
     }
 
     res.status(200).json({

@@ -7,7 +7,7 @@ import status from "http-status";
 
 export const getViewerProjectById = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     logger.info("📊 getViewerProjectById called");
@@ -53,8 +53,10 @@ export const getViewerProjectById = async (
         endDate: projects.endDate,
         assignedTo: projects.assignedTo,
         address: projects.address,
+        budget: projects.budget,
         contractfile: projects.contractfile,
         projectFiles: projects.projectFiles,
+        visibility: projects.visibility,
         createdAt: projects.createdAt,
         updatedAt: projects.updatedAt,
         // Client information
@@ -69,10 +71,10 @@ export const getViewerProjectById = async (
         assignedUserEmail: users.email,
       })
       .from(projects)
-      .innerJoin(clients, eq(projects.clientId, clients.id))
-      .innerJoin(users, eq(projects.assignedTo, users.id))
+      .leftJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(users, eq(projects.assignedTo, users.id))
       .where(
-        sql`${projects.id} = ${projectId} AND ${projects.assignedTo} = ${userId} AND ${projects.organizationId} = ${organizationId}`
+        sql`${projects.id} = ${projectId} AND ${projects.organizationId} = ${organizationId} AND (${projects.assignedTo} = ${userId} OR ${projects.visibility} = 'public')`,
       )
       .limit(1);
 

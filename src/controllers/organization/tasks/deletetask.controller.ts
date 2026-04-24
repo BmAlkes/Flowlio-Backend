@@ -5,6 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
+import { automationService } from "@/services/automation/automation.service";
 
 interface DeleteTaskRequest extends Request {
   user?: {
@@ -24,7 +25,7 @@ interface DeleteTaskRequest extends Request {
 
 export const deleteTask = async (
   req: DeleteTaskRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { id } = req.params;
@@ -36,14 +37,15 @@ export const deleteTask = async (
         id: tasks.id,
         title: tasks.title,
         assignedTo: tasks.assignedTo,
+        projectId: tasks.projectId,
       })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .where(
         and(
           eq(tasks.id, id),
-          eq(projects.organizationId, organizationId as string)
-        )
+          eq(projects.organizationId, organizationId as string),
+        ),
       )
       .limit(1);
 
@@ -77,6 +79,19 @@ export const deleteTask = async (
       success: true,
       message: "Task deleted successfully",
     });
+
+    // Recalculate project progress after response is sent
+    const projectId = existingTask[0].projectId;
+    if (projectId) {
+      await automationService
+        .recalculateProjectProgress(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate progress for project ${projectId}:`,
+            err,
+          );
+        });
+    }
   } catch (error) {
     logger.error("Error deleting task:", error);
     res.status(status.INTERNAL_SERVER_ERROR).json({

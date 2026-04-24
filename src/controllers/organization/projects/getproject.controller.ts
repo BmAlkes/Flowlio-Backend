@@ -2,13 +2,13 @@ import { database } from "@/configs/connection.config";
 import { projects, clients, users, userOrganizations } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { eq, desc, and, ne } from "drizzle-orm";
+import { eq, desc, and, ne, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import status from "http-status";
 
 export const getAllProjects = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     logger.info("🔍 getAllProjects called with user:", req.user);
@@ -24,15 +24,46 @@ export const getAllProjects = async (
 
     const organizationId = req.user?.organizationId as string;
     logger.info("🏢 Organization ID:", organizationId);
-    
+
     // Create aliases for users table to avoid conflicts
     const assignedUsers = alias(users, "assigned_users");
     const createdByUsers = alias(users, "created_by_users");
 
     logger.info("🔍 About to execute database query with joins...");
 
+    const whereConditions = [eq(projects.organizationId, organizationId)];
+
+    // SECURITY: If user is a client, strictly enforce their own projects
+    if (req.user?.role === "client") {
+      const clientRecord = await database.query.clients.findFirst({
+        where: (clients, { eq }) => eq(clients.userId, req.user!.id),
+      });
+
+      if (clientRecord) {
+        whereConditions.push(eq(projects.clientId, clientRecord.id));
+      } else {
+        // If client record not found, return empty set for security
+        res.status(200).json({
+          success: true,
+          message: "Projects fetched successfully",
+          data: [],
+        });
+        return;
+      }
+    } else {
+      // For non-clients (admins/users), apply original visibility/assignment filters
+      whereConditions.push(
+        or(
+          eq(projects.createdBy, req.user?.id as string),
+          eq(projects.assignedTo, req.user?.id as string),
+          eq(projects.visibility, "public"),
+        ) as any,
+      );
+    }
+
     const projectsData = await database
       .select({
+        // ... (all fields)
         id: projects.id,
         projectNumber: projects.projectNumber,
         name: projects.name,
@@ -43,6 +74,7 @@ export const getAllProjects = async (
         status: projects.status,
         progress: projects.progress,
         address: projects.address,
+        budget: projects.budget,
         contractfile: projects.contractfile,
         projectFiles: projects.projectFiles,
         createdBy: projects.createdBy,
@@ -50,27 +82,25 @@ export const getAllProjects = async (
         createdAt: projects.createdAt,
         updatedAt: projects.updatedAt,
         clientId: projects.clientId,
-        // Client information
         clientName: clients.name,
         clientEmail: clients.email,
-        // Assigned user information
         assignedUserName: assignedUsers.name,
         assignedUserEmail: assignedUsers.email,
-        // Created by user information
         createdByName: createdByUsers.name,
         createdByEmail: createdByUsers.email,
+        visibility: projects.visibility,
         customFields: projects.customFields,
       })
       .from(projects)
       .leftJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(assignedUsers, eq(projects.assignedTo, assignedUsers.id))
       .leftJoin(createdByUsers, eq(projects.createdBy, createdByUsers.id))
-      .where(eq(projects.organizationId, organizationId))
+      .where(and(...whereConditions))
       .orderBy(desc(projects.createdAt));
 
     logger.info(
       "✅ Simple database query executed successfully. Found projects:",
-      projectsData.length
+      projectsData.length,
     );
 
     // Transform the data to match frontend expectations
@@ -84,12 +114,14 @@ export const getAllProjects = async (
       endDate: project.endDate ? new Date(project.endDate) : null,
       assignedProject: project.assignedUserName || "Unassigned",
       address: project.address || "",
+      budget: project.budget,
       status: project.status || "pending",
       progress: project.progress || 0,
       createdBy: project.createdByName || "Unknown",
       organizationId: project.organizationId,
       createdAt: new Date(project.createdAt),
       updatedAt: new Date(project.updatedAt),
+      visibility: project.visibility,
       // Additional fields for frontend
       clientId: project.clientId,
       assignedTo: project.assignedTo,
@@ -99,7 +131,7 @@ export const getAllProjects = async (
     }));
 
     logger.info(
-      `Fetched ${transformedProjects.length} projects for organization ${organizationId}`
+      `Fetched ${transformedProjects.length} projects for organization ${organizationId}`,
     );
 
     res.status(200).json({
@@ -112,14 +144,14 @@ export const getAllProjects = async (
     console.error("Full error:", error);
     res.status(500).json({
       success: false,
-      message: (error as Error)?.message ?? "Internal server error"
+      message: (error as Error)?.message ?? "Internal server error",
     });
   }
 };
 
 export const getProjectById = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { id } = req.params;
@@ -140,9 +172,41 @@ export const getProjectById = async (
       return;
     }
 
+    const organizationId = req.user.organizationId as string;
+    const userRole = req.user.role;
+
+    // Security check for clients: They can only see their own projects
+    let clientCondition = undefined;
+    if (userRole === "client") {
+      // Find the client record associated with this user ID
+      const clientRecord = await database.query.clients.findFirst({
+        where: (clients, { eq }) => eq(clients.userId, req.user!.id),
+      });
+
+      if (!clientRecord) {
+        res.status(403).json({
+          success: false,
+          message: "Client profile not found for this user",
+        });
+        return;
+      }
+
+      clientCondition = eq(projects.clientId, clientRecord.id);
+    }
+
     // Create aliases for users table to avoid conflicts
     const assignedUsers = alias(users, "assigned_users");
     const createdByUsers = alias(users, "created_by_users");
+
+    const visibilityConditions = [
+      eq(projects.createdBy, req.user!.id),
+      eq(projects.assignedTo, req.user!.id),
+      eq(projects.visibility, "public"),
+    ];
+
+    if (clientCondition) {
+      visibilityConditions.push(clientCondition);
+    }
 
     const project = await database
       .select({
@@ -156,6 +220,7 @@ export const getProjectById = async (
         status: projects.status,
         progress: projects.progress,
         address: projects.address,
+        budget: projects.budget,
         contractfile: projects.contractfile,
         projectFiles: projects.projectFiles,
         createdBy: projects.createdBy,
@@ -173,6 +238,7 @@ export const getProjectById = async (
         // Created by user information
         createdByName: createdByUsers.name,
         createdByEmail: createdByUsers.email,
+        visibility: projects.visibility,
         customFields: projects.customFields,
       })
       .from(projects)
@@ -182,8 +248,9 @@ export const getProjectById = async (
       .where(
         and(
           eq(projects.id, id),
-          eq(projects.organizationId, req.user?.organizationId as string)
-        )
+          eq(projects.organizationId, organizationId),
+          or(...visibilityConditions),
+        ),
       )
       .limit(1);
 
@@ -208,12 +275,14 @@ export const getProjectById = async (
       endDate: projectData.endDate ? new Date(projectData.endDate) : null,
       assignedProject: projectData.assignedUserName || "Unassigned",
       address: projectData.address || "",
+      budget: projectData.budget,
       status: projectData.status || "pending",
       progress: projectData.progress || 0,
       createdBy: projectData.createdByName || "Unknown",
       organizationId: projectData.organizationId,
       createdAt: new Date(projectData.createdAt),
       updatedAt: new Date(projectData.updatedAt),
+      visibility: projectData.visibility,
       // Additional fields
       clientId: projectData.clientId,
       assignedTo: projectData.assignedTo,
@@ -223,7 +292,7 @@ export const getProjectById = async (
     };
 
     logger.info(
-      `Fetched project ${id} for organization ${req.user.organizationId}`
+      `Fetched project ${id} for organization ${req.user.organizationId}`,
     );
 
     res.status(200).json({
@@ -236,14 +305,14 @@ export const getProjectById = async (
     console.error("Full error:", error);
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,
-      message: (error as Error)?.message ?? "Internal server error"
+      message: (error as Error)?.message ?? "Internal server error",
     });
   }
 };
 
 export const getOrganizationClients = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     if (!req.user?.organizationId) {
@@ -272,7 +341,7 @@ export const getOrganizationClients = async (
       .orderBy(desc(clients.createdAt));
 
     logger.info(
-      `Fetched ${clientsData.length} clients for organization ${organizationId}`
+      `Fetched ${clientsData.length} clients for organization ${organizationId}`,
     );
 
     res.status(200).json({
@@ -291,7 +360,7 @@ export const getOrganizationClients = async (
 
 export const getOrganizationUsers = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     if (!req.user?.organizationId) {
@@ -320,13 +389,13 @@ export const getOrganizationUsers = async (
         and(
           eq(userOrganizations.organizationId, organizationId),
           // Exclude the currently logged-in user
-          ne(users.id, req.user?.id as string)
-        )
+          ne(users.id, req.user?.id as string),
+        ),
       )
       .orderBy(desc(users.createdAt));
 
     logger.info(
-      `Fetched ${usersData.length} users for organization ${organizationId}`
+      `Fetched ${usersData.length} users for organization ${organizationId}`,
     );
 
     res.status(200).json({

@@ -44,7 +44,7 @@ export const deleteCalendarEvent = async (
       return;
     }
 
-    const { organizationId } = req.user;
+    const { organizationId, id: userId } = req.user;
     const { id } = req.params;
 
     if (!id) {
@@ -55,14 +55,16 @@ export const deleteCalendarEvent = async (
       return;
     }
 
-    // Check if event exists and belongs to user's organization
     const existingEvent = await database
       .select()
       .from(calendarEvents)
       .where(
         and(
           eq(calendarEvents.id, id),
-          eq(calendarEvents.organizationId, organizationId as string)
+          eq(calendarEvents.userId, userId),
+          ...(organizationId
+            ? [eq(calendarEvents.organizationId, organizationId as string)]
+            : [])
         )
       )
       .limit(1);
@@ -78,8 +80,7 @@ export const deleteCalendarEvent = async (
     const eventToDelete = existingEvent[0];
 
     // Log activity before deletion
-    const userId = req.user?.id;
-    if (organizationId && userId && eventToDelete) {
+    if (organizationId && eventToDelete) {
       await logActivity({
         organizationId,
         actorId: userId,
@@ -120,7 +121,10 @@ export const deleteCalendarEvent = async (
       .where(
         and(
           eq(calendarEvents.id, id),
-          eq(calendarEvents.organizationId, organizationId as string)
+          eq(calendarEvents.userId, userId),
+          ...(organizationId
+            ? [eq(calendarEvents.organizationId, organizationId as string)]
+            : [])
         )
       );
 

@@ -16,12 +16,19 @@ export const uploadToCloudinary = async (
     });
   }
 
-  // Handle formidable File
-  const lastDotIndex = file.originalFilename?.lastIndexOf(".");
-  const fileName = file.originalFilename?.substring(0, lastDotIndex);
+  // Handle file object (Formidable or Multer)
+  const filePath = (file as any).filepath || (file as any).path;
+  const originalName = (file as any).originalFilename || (file as any).originalname || "file";
+  
+  if (!filePath) {
+    throw new Error("File path is missing from upload object");
+  }
+
+  const lastDotIndex = originalName.lastIndexOf(".");
+  const fileName = lastDotIndex !== -1 ? originalName.substring(0, lastDotIndex) : originalName;
   const cleanPublicId = publicId?.replace(`${folder}/`, "") ?? fileName;
 
-  return await cloudinary.uploader.upload(file.filepath, {
+  return await cloudinary.uploader.upload(filePath, {
     public_id: cleanPublicId,
     resource_type: "auto",
     folder,

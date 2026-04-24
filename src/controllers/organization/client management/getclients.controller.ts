@@ -26,8 +26,8 @@ export const getClients = async (
       search = "",
       status = "",
       industry = "",
-      sortBy = "createdAt",
-      sortOrder = "desc",
+      sortBy = "position",
+      sortOrder = "asc",
     } = req.query;
 
     // Build where conditions
@@ -46,23 +46,26 @@ export const getClients = async (
     }
 
     // Build order by
-    let orderByClause;
-    switch (sortBy) {
+    let orderByClause: any;
+    const sOrder = sortOrder as string;
+    const sBy = sortBy as string;
+
+    switch (sBy) {
       case "name":
-        orderByClause = sortOrder === "asc" ? clients.name : desc(clients.name);
+        orderByClause = sOrder === "asc" ? clients.name : desc(clients.name);
         break;
       case "email":
-        orderByClause =
-          sortOrder === "asc" ? clients.email : desc(clients.email);
+        orderByClause = sOrder === "asc" ? clients.email : desc(clients.email);
         break;
       case "status":
-        orderByClause =
-          sortOrder === "asc" ? clients.status : desc(clients.status);
+        orderByClause = sOrder === "asc" ? clients.status : desc(clients.status);
+        break;
+      case "position":
+        orderByClause = sOrder === "asc" ? clients.position : desc(clients.position);
         break;
       case "createdAt":
       default:
-        orderByClause =
-          sortOrder === "asc" ? clients.createdAt : desc(clients.createdAt);
+        orderByClause = sOrder === "asc" ? clients.createdAt : desc(clients.createdAt);
         break;
     }
 
@@ -82,6 +85,7 @@ export const getClients = async (
         customFields: clients.customFields,
         createdAt: clients.createdAt,
         updatedAt: clients.updatedAt,
+        position: clients.position,
       })
       .from(clients)
       .where(and(...whereConditions))

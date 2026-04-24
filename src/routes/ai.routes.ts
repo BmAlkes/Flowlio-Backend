@@ -8,6 +8,7 @@ import {
   generateImage,
   testOpenAI,
   generateTaskFromNaturalLanguage,
+  generateProposal,
   upload,
   getProjectInsights,
 } from "../controllers/ai/aiAssistant.controller";
@@ -86,6 +87,13 @@ router.get(
   isAuthenticated,
   requirePlanFeature("aiAssist"),
   testOpenAI
+);
+
+router.post(
+  "/generate-proposal",
+  isAuthenticated,
+  requirePlanFeature("aiAssist"),
+  generateProposal
 );
 
 export default router;

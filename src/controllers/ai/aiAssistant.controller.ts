@@ -1274,5 +1274,143 @@ export const generateTaskFromNaturalLanguage = async (
   }
 };
 
+/**
+ * Generate a professional proposal document using AI
+ * This endpoint is used by the AI Assist page to auto-generate PDF-ready proposals
+ */
+export const generateProposal = async (
+  req: any,
+  res: Response
+): Promise<void> => {
+  try {
+    debugLog("📄📄📄 AI PROPOSAL GENERATION CONTROLLER CALLED 📄📄📄");
+
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+      return;
+    }
+
+    const {
+      clientName,
+      projectTitle,
+      projectDescription,
+      budget,
+      timeline,
+      companyName,
+      additionalRequirements,
+    } = req.body;
+
+    if (!projectTitle || !projectDescription) {
+      res.status(400).json({
+        success: false,
+        message: "Project title and description are required",
+      });
+      return;
+    }
+
+    // Lazy load OpenAI service
+    const { openaiService } = await import("@/services/openai.service");
+    const service = openaiService.instance;
+    if (!service) {
+      res.status(500).json({
+        success: false,
+        message: "AI service is not available",
+      });
+      return;
+    }
+
+    // Build a detailed prompt for proposal generation
+    const proposalPrompt = `You are a professional business proposal writer. Generate a comprehensive, professional project proposal document based on the following details:
+
+Project Title: ${projectTitle}
+Client Name: ${clientName || "Valued Client"}
+Our Company: ${companyName || "Our Company"}
+Project Description: ${projectDescription}
+${budget ? `Budget: ${budget}` : ""}
+${timeline ? `Timeline: ${timeline}` : ""}
+${additionalRequirements ? `Additional Requirements: ${additionalRequirements}` : ""}
+
+Generate a complete professional proposal with the following sections. Return ONLY a valid JSON object with this exact structure (no markdown, no extra text):
+{
+  "executiveSummary": "A compelling 2-3 paragraph executive summary of the proposal",
+  "projectOverview": "Detailed overview of the project scope and objectives",
+  "scopeOfWork": ["List of specific deliverables and work items, each as a string"],
+  "approach": "Our methodology and approach to completing this project",
+  "timeline": {
+    "totalDuration": "Total estimated project duration",
+    "phases": [
+      { "phase": "Phase name", "duration": "Duration", "description": "What happens in this phase" }
+    ]
+  },
+  "investment": {
+    "totalBudget": "${budget || "To be discussed"}",
+    "breakdown": [
+      { "item": "Cost item name", "amount": "Amount or percentage", "description": "Brief description" }
+    ]
+  },
+  "whyUs": ["Array of 4-5 key reasons why client should choose us, each as a string"],
+  "terms": ["Array of 4-5 standard terms and conditions, each as a string"],
+  "nextSteps": ["Array of 3-4 clear next steps to move forward, each as a string"]
+}`;
+
+    // Use the existing generateAdvancedResponse method
+    const aiResponse = await service.generateAdvancedResponse(proposalPrompt, {
+      conversationHistory: [],
+      files: [],
+    });
+
+    // Parse the AI response as JSON
+    let proposalData;
+    try {
+      // Extract JSON from the response
+      const jsonMatch = aiResponse.response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        proposalData = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error("No JSON found in AI response");
+      }
+    } catch (parseError) {
+      debugError("Failed to parse proposal JSON:", parseError);
+      // Fallback: return the raw text for the frontend to handle
+      res.status(200).json({
+        success: true,
+        message: "Proposal generated successfully",
+        data: {
+          rawContent: aiResponse.response,
+          clientName: clientName || "Valued Client",
+          projectTitle,
+          companyName: companyName || "Our Company",
+          generatedAt: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Proposal generated successfully",
+      data: {
+        ...proposalData,
+        clientName: clientName || "Valued Client",
+        projectTitle,
+        companyName: companyName || "Our Company",
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    debugError("💥 AI PROPOSAL GENERATION CONTROLLER ERROR 💥");
+    logger.error("Error generating proposal:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while generating proposal",
+      error: process.env.NODE_ENV === "development" ? error : undefined,
+    });
+  }
+};
+
 // Export multer middleware for file uploads
 export { upload };

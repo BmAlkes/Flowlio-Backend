@@ -8,6 +8,9 @@ import {
 import { updateSupportTicket } from "../controllers/support ticket/update-supportticket.controller";
 import { deleteSupportTicket } from "../controllers/support ticket/delete-supportticket.controller";
 import { getAssignmentOptions } from "../controllers/support ticket/get-assignment-options.controller";
+import { getSupportTicketMessages } from "../controllers/support ticket/get-ticketmessages.controller";
+import { createTicketMessage } from "../controllers/support ticket/create-ticketmessage.controller";
+import { clearTicketMessages } from "../controllers/support ticket/clear-ticketmessages.controller";
 
 const router = Router();
 
@@ -22,5 +25,8 @@ router.get("/assignment-options", isAuthenticated, getAssignmentOptions);
 router.get("/:id", isAuthenticated, getSupportTicketById);
 router.put("/:id", isAuthenticated, updateSupportTicket);
 router.delete("/:id", isAuthenticated, deleteSupportTicket);
+router.get("/:id/messages", isAuthenticated, getSupportTicketMessages);
+router.post("/:id/messages", isAuthenticated, createTicketMessage);
+router.delete("/:id/messages", isAuthenticated, clearTicketMessages);
 
 export default router;

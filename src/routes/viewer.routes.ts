@@ -29,6 +29,9 @@ import {
   createViewerSupportTicket,
   getViewerSupportTickets,
 } from "../controllers/support ticket/create-viewer-supportticket.controller";
+import { getSupportTicketMessages } from "../controllers/support ticket/get-ticketmessages.controller";
+import { createTicketMessage } from "../controllers/support ticket/create-ticketmessage.controller";
+import { updateViewerSupportTicket } from "../controllers/support ticket/update-viewer-ticket.controller";
 
 const router = Router();
 
@@ -118,5 +121,8 @@ router.delete("/calendar-events/:id", isAuthenticated, deleteCalendarEvent);
 // ==================== VIEWER SUPPORT TICKETS ROUTES ====================
 router.post("/support-tickets", isAuthenticated, createViewerSupportTicket);
 router.get("/support-tickets", isAuthenticated, getViewerSupportTickets);
+router.get("/support-tickets/:id/messages", isAuthenticated, getSupportTicketMessages);
+router.post("/support-tickets/:id/messages", isAuthenticated, createTicketMessage);
+router.put("/support-tickets/:id", isAuthenticated, updateViewerSupportTicket);
 
 export default router;

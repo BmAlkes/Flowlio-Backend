@@ -5,6 +5,8 @@ import { tasks, projects } from "../../../schema/schema";
 import { eq, and } from "drizzle-orm";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { logActivity } from "@/utils/activity.util";
+import { logger } from "@/utils/logger.util";
+import { automationService } from "@/services/automation/automation.service";
 
 interface CreateTaskRequest extends Request {
   user?: {
@@ -40,12 +42,13 @@ interface CreateTaskRequest extends Request {
     parentId?: string;
     startAfter?: string;
     finishBefore?: string;
+    visibility?: "public" | "private";
   };
 }
 
 export const createTask = async (
   req: CreateTaskRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     if (!req.user) {
@@ -71,6 +74,7 @@ export const createTask = async (
       parentId,
       startAfter,
       finishBefore,
+      visibility,
     } = req.body;
 
     // Validate required fields
@@ -96,8 +100,8 @@ export const createTask = async (
         .where(
           and(
             eq(tasks.id, normalizedParentId),
-            eq(projects.organizationId, organizationId as string)
-          )
+            eq(projects.organizationId, organizationId as string),
+          ),
         )
         .limit(1);
 
@@ -130,7 +134,7 @@ export const createTask = async (
             // Upload file to Cloudinary
             const uploadResult = await uploadToCloudinary(
               attachment.file,
-              "tasks"
+              "tasks",
             );
 
             uploadedAttachments.push({
@@ -169,6 +173,7 @@ export const createTask = async (
       parentId: normalizedParentId,
       startAfter: startAfter || null,
       finishBefore: finishBefore || null,
+      visibility: visibility || "private",
     };
 
     const newTask = await database.insert(tasks).values(taskData).returning();
@@ -186,6 +191,23 @@ export const createTask = async (
         message: `Created task: ${title}`,
         metadata: { projectId, assignedTo },
       });
+
+      // Recalculate project progress
+      await automationService
+        .recalculateProjectProgress(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate progress for project ${projectId}:`,
+            err,
+          );
+        });
+
+      // Handle Auto Assign Task if enabled
+      await automationService
+        .handleAutoAssignTask(projectId, newTask[0].id)
+        .catch((err) => {
+          logger.error(`Failed to auto-assign task ${newTask[0].id}:`, err);
+        });
     }
 
     res.status(201).json({

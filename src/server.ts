@@ -41,8 +41,13 @@ import aiRoutes from "./routes/ai.routes";
 import notificationRoutes from "./routes/notifications.routes";
 import newsletterRoutes from "./routes/newsletter.routes";
 import customFieldsRoutes from "./routes/custom-fields.routes";
+import fileRoutes from "./routes/file.routes";
+import leadsRoutes from "./routes/leads.routes";
+import reportsRoutes from "./routes/reports.routes";
+import proposalsRoutes from "./routes/proposals.routes";
 import { backgroundSyncService } from "./services/backgroundSync.service";
 import { autoRenewalService } from "./services/autoRenewal.service";
+import { initCronJobs } from "./services/automation/cron.service";
 
 config();
 const app = express();
@@ -204,6 +209,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/leads", leadsRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api", calendarEventsRoutes);
 app.use("/api/payment-links", paymentLinksRoutes);
@@ -215,6 +221,9 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/custom-fields", customFieldsRoutes);
+app.use("/api/reports", reportsRoutes);
+app.use("/api/proposals", proposalsRoutes);
+app.use("/api", fileRoutes);
 app.use(unknownRoutes);
 
 // Global error handler middleware (must be last)
@@ -223,7 +232,7 @@ app.use(
     err: Error,
     req: express.Request,
     res: express.Response,
-    _next: express.NextFunction
+    _next: express.NextFunction,
   ) => {
     logger.error("Unhandled error:", {
       error: err.message,
@@ -248,7 +257,7 @@ app.use(
         ? {}
         : { stack: err.stack, path: req.path }),
     });
-  }
+  },
 );
 
 httpServer.listen(port as number, () => {
@@ -276,5 +285,10 @@ httpServer.listen(port as number, () => {
       autoRenewalService.startPeriodicRenewal(24); // Check every 24 hours (once per day)
       logger.info("Auto-renewal service started (24h interval)");
     }, 10000); // Start 10 seconds after server starts
+  });
+
+  // Start Backend Automations (Cron Jobs)
+  setImmediate(() => {
+    initCronJobs();
   });
 });

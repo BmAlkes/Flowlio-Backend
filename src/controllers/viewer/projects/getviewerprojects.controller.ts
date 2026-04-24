@@ -7,7 +7,7 @@ import status from "http-status";
 
 export const getViewerProjects = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     logger.info("📊 getViewerProjects called");
@@ -43,6 +43,8 @@ export const getViewerProjects = async (
         startDate: projects.startDate,
         endDate: projects.endDate,
         assignedTo: projects.assignedTo,
+        budget: projects.budget,
+        visibility: projects.visibility,
         createdAt: projects.createdAt,
         updatedAt: projects.updatedAt,
         // Client information
@@ -54,10 +56,10 @@ export const getViewerProjects = async (
         completedTasks: sql<number>`COUNT(DISTINCT CASE WHEN ${tasks.status} = 'completed' THEN ${tasks.id} END)`,
       })
       .from(projects)
-      .innerJoin(clients, eq(projects.clientId, clients.id))
+      .leftJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(tasks, eq(projects.id, tasks.projectId))
       .where(
-        sql`${projects.assignedTo} = ${userId} AND ${projects.organizationId} = ${organizationId}`
+        sql`${projects.organizationId} = ${organizationId} AND (${projects.assignedTo} = ${userId} OR ${projects.visibility} = 'public')`,
       )
       .groupBy(
         projects.id,
@@ -69,16 +71,18 @@ export const getViewerProjects = async (
         projects.startDate,
         projects.endDate,
         projects.assignedTo,
+        projects.budget,
+        projects.visibility,
         projects.createdAt,
         projects.updatedAt,
         clients.id,
         clients.name,
-        clients.image
+        clients.image,
       )
       .orderBy(projects.createdAt);
 
     logger.info(
-      `✅ Found ${viewerProjects.length} projects assigned to viewer ${userId}`
+      `✅ Found ${viewerProjects.length} projects assigned to viewer ${userId}`,
     );
 
     res.status(200).json({

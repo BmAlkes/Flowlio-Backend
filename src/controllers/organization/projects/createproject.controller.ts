@@ -1,7 +1,7 @@
 import { Response } from "express";
 import { database } from "../../../configs/connection.config";
 import { createProjectSchema } from "../../../schema/validation";
-import { projects } from "../../../schema/schema";
+import { projects, tasks, projectTemplateTasks } from "../../../schema/schema";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { eq, and } from "drizzle-orm";
@@ -27,7 +27,7 @@ interface CreateProjectRequest {
 
 export const createProject = async (
   req: CreateProjectRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     // Validate request body
@@ -59,7 +59,7 @@ export const createProject = async (
     const planCheck = await canCreateProject(organizationId);
     if (!planCheck.hasAccess) {
       logger.warn(
-        `⚠️ Project creation blocked for organization ${organizationId}: ${planCheck.reason}`
+        `⚠️ Project creation blocked for organization ${organizationId}: ${planCheck.reason}`,
       );
       res.status(403).json({
         success: false,
@@ -79,8 +79,8 @@ export const createProject = async (
       .where(
         and(
           eq(projects.name, validatedData.name),
-          eq(projects.organizationId, organizationId)
-        )
+          eq(projects.organizationId, organizationId),
+        ),
       )
       .limit(1);
 
@@ -95,7 +95,7 @@ export const createProject = async (
     // Validate that the client belongs to the organization (only if clientId is provided)
     if (validatedData.clientId) {
       logger.info(
-        `Validating client ${validatedData.clientId} for organization ${organizationId}`
+        `Validating client ${validatedData.clientId} for organization ${organizationId}`,
       );
 
       const clientExists = await database
@@ -104,13 +104,13 @@ export const createProject = async (
         .where(
           and(
             eq(clients.id, validatedData.clientId),
-            eq(clients.organizationId, organizationId)
-          )
+            eq(clients.organizationId, organizationId),
+          ),
         )
         .limit(1);
 
       logger.info(
-        `Client validation result: ${clientExists.length} clients found`
+        `Client validation result: ${clientExists.length} clients found`,
       );
 
       if (clientExists.length === 0) {
@@ -125,7 +125,7 @@ export const createProject = async (
     // Validate that the assigned user belongs to the organization (only if assignedTo is provided)
     if (validatedData.assignedTo) {
       logger.info(
-        `Validating user ${validatedData.assignedTo} for organization ${organizationId}`
+        `Validating user ${validatedData.assignedTo} for organization ${organizationId}`,
       );
 
       const assignedUserExists = await database
@@ -135,13 +135,13 @@ export const createProject = async (
         .where(
           and(
             eq(users.id, validatedData.assignedTo),
-            eq(userOrganizations.organizationId, organizationId)
-          )
+            eq(userOrganizations.organizationId, organizationId),
+          ),
         )
         .limit(1);
 
       logger.info(
-        `User validation result: ${assignedUserExists.length} users found`
+        `User validation result: ${assignedUserExists.length} users found`,
       );
 
       if (assignedUserExists.length === 0) {
@@ -180,7 +180,7 @@ export const createProject = async (
 
       const storageCheck = await canUploadFile(
         organizationId,
-        totalFileSizeBytes
+        totalFileSizeBytes,
       );
       if (!storageCheck.hasAccess) {
         res.status(status.FORBIDDEN).json({
@@ -197,7 +197,7 @@ export const createProject = async (
       try {
         const uploadResult = await uploadToCloudinary(
           validatedData.contractfile,
-          "projects"
+          "projects",
         );
         contractfileUrl = uploadResult.secure_url;
         contractfilePublicId = uploadResult.public_id;
@@ -247,7 +247,7 @@ export const createProject = async (
         // Check storage limit for all project files
         const storageCheck = await canUploadFile(
           organizationId,
-          totalFileSizeBytes + projectFilesSizeBytes
+          totalFileSizeBytes + projectFilesSizeBytes,
         );
         if (!storageCheck.hasAccess) {
           res.status(status.FORBIDDEN).json({
@@ -266,7 +266,7 @@ export const createProject = async (
           if (fileData.file && fileData.type && fileData.name) {
             const uploadResult = await uploadToCloudinary(
               fileData.file,
-              "projects"
+              "projects",
             );
 
             // Only handle projectPdf type
@@ -318,8 +318,11 @@ export const createProject = async (
           : null,
         endDate: validatedData.endDate ? new Date(validatedData.endDate) : null,
         status: "pending",
+        visibility: validatedData.visibility ?? "private",
         progress: 0,
         address: validatedData.address ?? null,
+        budget:
+          validatedData.budget != null ? String(validatedData.budget) : null,
         contractfile: contractfileUrl ?? null,
         contractfilePublicId: contractfilePublicId ?? null,
         projectFiles: projectFiles
@@ -350,6 +353,41 @@ export const createProject = async (
     }
 
     const createdProject = newProject[0];
+
+    // Handle template-based task creation
+    if (validatedData.templateId) {
+      try {
+        const templateTasks = await database
+          .select()
+          .from(projectTemplateTasks)
+          .where(eq(projectTemplateTasks.templateId, validatedData.templateId));
+
+        if (templateTasks.length > 0) {
+          const projectDeadline = createdProject.endDate;
+          const taskValues = templateTasks.map((tTask) => ({
+            id: randomUUID(),
+            title: tTask.title,
+            description: tTask.description,
+            projectId: createdProject.id,
+            createdBy: req.user?.id as string,
+            assignedTo: createdProject.assignedTo,
+            status: "todo" as any,
+            endDate: projectDeadline,
+            estimatedHours: tTask.estimatedHours,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }));
+
+          await database.insert(tasks).values(taskValues);
+          logger.info(
+            `✅ Created ${templateTasks.length} tasks from template ${validatedData.templateId} for project ${createdProject.id}`,
+          );
+        }
+      } catch (templateError) {
+        logger.error("Failed to create tasks from template:", templateError);
+        // Non-blocking error, project was still created
+      }
+    }
 
     // Log activity
     const userId = req.user?.id;
@@ -387,9 +425,11 @@ export const createProject = async (
         status: createdProject.status,
         progress: createdProject.progress,
         address: createdProject.address,
+        budget: createdProject.budget,
         contractfile: createdProject.contractfile,
         contractfilePublicId: createdProject.contractfilePublicId,
         organizationId: createdProject.organizationId,
+        visibility: createdProject.visibility,
         createdBy: createdProject.createdBy,
         createdAt: createdProject.createdAt,
         updatedAt: createdProject.updatedAt,

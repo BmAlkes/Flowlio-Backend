@@ -3,15 +3,23 @@ import { customFieldDefinitions } from "../../schema/schema";
 import { eq, and } from "drizzle-orm";
 import status from "http-status";
 import { database } from "@/configs/connection.config";
+import { createCustomFieldDefinitionSchema, updateCustomFieldDefinitionSchema } from "../../schema/validation";
+
+const DEFAULT_COLOR = "#3b82f6"; // Blue
 
 export const createCustomFieldDefinition = async (req: Request, res: Response): Promise<void> => {
   try {
     const organizationId = (req as any).user.organizationId;
-    const { name, type, options, entityType = "project" } = req.body;
+    const validatedData = createCustomFieldDefinitionSchema.parse(req.body);
+    const { name, type, options, entityType = "project" } = validatedData;
 
-    if (!name || !type) {
-      res.status(status.BAD_REQUEST).json({ success: false, message: "Name and type are required" });
-      return;
+    // Ensure options have colors if type is select
+    let processedOptions = options;
+    if (type === "select" && options) {
+      processedOptions = options.map((opt: any) => ({
+        label: opt.label,
+        color: opt.color || DEFAULT_COLOR,
+      }));
     }
 
     const [newField] = await database
@@ -21,7 +29,7 @@ export const createCustomFieldDefinition = async (req: Request, res: Response): 
         entityType,
         name,
         type,
-        options,
+        options: processedOptions,
       })
       .returning();
 
@@ -62,13 +70,28 @@ export const updateCustomFieldDefinition = async (req: Request, res: Response): 
   try {
     const organizationId = (req as any).user.organizationId;
     const { id } = req.params;
-    const { name, options } = req.body;
+    const validatedData = updateCustomFieldDefinitionSchema.parse(req.body);
+    const { name, options } = validatedData;
+
+    // Get current field to check type
+    const [currentField] = await database
+      .select()
+      .from(customFieldDefinitions)
+      .where(eq(customFieldDefinitions.id, id));
+
+    let processedOptions = options;
+    if (currentField && currentField.type === "select" && options) {
+      processedOptions = options.map((opt: any) => ({
+        label: opt.label,
+        color: opt.color || DEFAULT_COLOR,
+      }));
+    }
 
     const [updatedField] = await database
       .update(customFieldDefinitions)
       .set({
         name,
-        options,
+        options: processedOptions,
         updatedAt: new Date(),
       })
       .where(

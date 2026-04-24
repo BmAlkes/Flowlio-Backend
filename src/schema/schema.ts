@@ -312,10 +312,14 @@ export const projects = pgTable(
       onDelete: "set null",
     }),
     status: text("status").$defaultFn(() => "active"),
+    visibility: text("visibility")
+      .$type<"public" | "private">()
+      .default("private"),
     startDate: timestamp("start_date"),
     endDate: timestamp("end_date"),
     progress: integer("progress").$defaultFn(() => 0),
     address: text("address"),
+    budget: decimal("budget", { precision: 10, scale: 2 }),
     contractfile: text("contractfile"),
     contractfilePublicId: text("contractfile_public_id"), // For Cloudinary
     projectFiles: json("project_files").$type<{
@@ -342,6 +346,7 @@ export const projects = pgTable(
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
+    position: integer("position").default(0).notNull(),
   },
   (table) => ({
     orgIdx: index("projects_organization_idx").on(table.organizationId),
@@ -354,6 +359,7 @@ export const projects = pgTable(
     ),
     // Composite index for getProjectById query optimization
     orgIdIdx: index("projects_org_id_idx").on(table.organizationId, table.id),
+    positionIdx: index("projects_position_idx").on(table.position),
   }),
 );
 
@@ -413,6 +419,9 @@ export const tasks = pgTable(
         "todo" | "in_progress" | "completed" | "updated" | "delay" | "changes"
       >()
       .$defaultFn(() => "todo"),
+    visibility: text("visibility")
+      .$type<"public" | "private">()
+      .default("private"),
     endDate: timestamp("end_date"),
     startAfter: text("start_after"),
     finishBefore: text("finish_before"),
@@ -528,6 +537,50 @@ export const invoices = pgTable(
   }),
 );
 
+export const recurringInvoices = pgTable(
+  "recurring_invoices",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    templateName: text("template_name").notNull(),
+    clientname: text("client_name").notNull(),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    description: text("description"),
+    frequency: text("frequency")
+      .$type<"daily" | "weekly" | "monthly" | "yearly">()
+      .notNull(),
+    startDate: timestamp("start_date").notNull(),
+    endDate: timestamp("end_date"),
+    lastRunDate: timestamp("last_run_date"),
+    nextRunDate: timestamp("next_run_date").notNull(),
+    status: text("status")
+      .$defaultFn(() => "active")
+      .notNull(), // active, paused, completed
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("recurring_invoices_organization_idx").on(table.organizationId),
+    clientIdx: index("recurring_invoices_client_idx").on(table.clientId),
+    statusIdx: index("recurring_invoices_status_idx").on(table.status),
+    nextRunIdx: index("recurring_invoices_next_run_idx").on(table.nextRunDate),
+  }),
+);
+
 // ==================== AUTH TABLES (Better Auth) ====================
 
 export const session = pgTable("session", {
@@ -636,6 +689,105 @@ export const userManagement = pgTable(
   }),
 );
 
+// ==================== PROJECT EXPENSES ====================
+
+export const projectExpenses = pgTable(
+  "project_expenses",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    category: text("category").notNull(),
+    description: text("description").notNull(),
+    date: timestamp("date").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    projectIdx: index("project_expenses_project_idx").on(table.projectId),
+    categoryIdx: index("project_expenses_category_idx").on(table.category),
+    dateIdx: index("project_expenses_date_idx").on(table.date),
+  }),
+);
+
+// ==================== FILES & VERSIONS ====================
+
+export const files = pgTable(
+  "files",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text("name").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    taskId: text("task_id").references(() => tasks.id, {
+      onDelete: "cascade",
+    }),
+    clientId: text("client_id").references(() => clients.id, {
+      onDelete: "cascade",
+    }),
+    uploadedBy: text("uploaded_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("files_organization_idx").on(table.organizationId),
+    projectIdx: index("files_project_idx").on(table.projectId),
+    taskIdx: index("files_task_idx").on(table.taskId),
+    clientIdx: index("files_client_idx").on(table.clientId),
+  }),
+);
+
+export const fileVersions = pgTable(
+  "file_versions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    fileId: text("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    name: text("name").notNull(),
+    size: integer("size").notNull(),
+    type: text("type").notNull(),
+    versionNumber: integer("version_number").notNull(),
+    uploadedBy: text("uploaded_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    fileIdx: index("file_versions_file_idx").on(table.fileId),
+    versionIdx: index("file_versions_version_idx").on(table.versionNumber),
+  }),
+);
+
+
 // ==================== CLIENT MANAGEMENT ====================
 
 export const clients = pgTable(
@@ -671,6 +823,10 @@ export const clients = pgTable(
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
+    position: integer("position").default(0).notNull(),
+    leadValue: decimal("lead_value", { precision: 10, scale: 2 }),
+    leadProbability: integer("lead_probability").default(0), // 0-100
+    lastInteractionAt: timestamp("last_interaction_at"),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
@@ -681,6 +837,7 @@ export const clients = pgTable(
       table.email,
       table.organizationId,
     ),
+    positionIdx: index("clients_position_idx").on(table.position),
   }),
 );
 
@@ -746,6 +903,39 @@ export const notifications = pgTable(
     userIdx: index("notifications_user_idx").on(table.userId),
     readIdx: index("notifications_read_idx").on(table.read),
     typeIdx: index("notifications_type_idx").on(table.type),
+  }),
+);
+
+// ==================== CLIENT INTERACTIONS (CRM Timeline) ====================
+
+export const clientInteractions = pgTable(
+  "client_interactions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    type: text("type")
+      .$type<"note" | "call" | "email" | "meeting" | "status_change">()
+      .notNull(),
+    content: text("content").notNull(),
+    metadata: json("metadata"), // e.g. { fromStatus: "New Lead", toStatus: "Contacted" }
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    clientIdx: index("client_interactions_client_idx").on(table.clientId),
+    typeIdx: index("client_interactions_type_idx").on(table.type),
+    createdAtIdx: index("client_interactions_created_at_idx").on(table.createdAt),
   }),
 );
 
@@ -837,7 +1027,7 @@ export const customFieldDefinitions = pgTable(
       .$defaultFn(() => "project"),
     name: text("name").notNull(),
     type: text("type").notNull(),
-    options: json("options").$type<string[]>(),
+    options: json("options").$type<{ label: string; color: string }[]>(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -883,6 +1073,33 @@ export const supportTickets = pgTable(
     statusIdx: index("status_idx").on(table.status),
     priorityIdx: index("priority_idx").on(table.priority),
     submittedByIdx: index("submitted_by_idx").on(table.submittedby),
+  }),
+);
+
+// ==================== SUPPORT TICKET MESSAGES ====================
+
+export const supportTicketMessages = pgTable(
+  "support_ticket_messages",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    senderId: text("sender_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    senderRole: text("sender_role").notNull(),
+    senderName: text("sender_name").notNull(),
+    message: text("message").notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    ticketIdIdx: index("support_ticket_messages_ticket_id_idx").on(table.ticketId),
+    senderIdIdx: index("support_ticket_messages_sender_id_idx").on(table.senderId),
   }),
 );
 // ==================== PAYMENT LINKS ====================
@@ -985,6 +1202,8 @@ export const usersRelations = relations(users, ({ many }) => ({
   calendarEvents: many(calendarEvents),
   createdPaymentLinks: many(paymentLinks),
   createdInvoices: many(invoices),
+  createdRecurringInvoices: many(recurringInvoices),
+  supportTicketMessages: many(supportTicketMessages),
 }));
 
 export const organizationsRelations = relations(
@@ -1003,6 +1222,7 @@ export const organizationsRelations = relations(
     auditLogs: many(auditLogs),
     userManagement: many(userManagement),
     calendarEvents: many(calendarEvents),
+    recurringInvoices: many(recurringInvoices),
   }),
 );
 
@@ -1042,6 +1262,7 @@ export const projectsRelations = relations(projects, ({ one, many }) => ({
   tasks: many(tasks),
   timeEntries: many(timeEntries),
   comments: many(projectComments),
+  expenses: many(projectExpenses),
 }));
 
 export const tasksRelations = relations(tasks, ({ one, many }) => ({
@@ -1092,7 +1313,26 @@ export const clientsRelations = relations(clients, ({ one, many }) => ({
     relationName: "clientCreator",
   }),
   timeEntries: many(timeEntries),
+  recurringInvoices: many(recurringInvoices),
 }));
+
+export const recurringInvoicesRelations = relations(
+  recurringInvoices,
+  ({ one }) => ({
+    organization: one(organizations, {
+      fields: [recurringInvoices.organizationId],
+      references: [organizations.id],
+    }),
+    client: one(clients, {
+      fields: [recurringInvoices.clientId],
+      references: [clients.id],
+    }),
+    creator: one(users, {
+      fields: [recurringInvoices.createdBy],
+      references: [users.id],
+    }),
+  }),
+);
 
 export const timeEntriesRelations = relations(timeEntries, ({ one }) => ({
   user: one(users, {
@@ -1147,13 +1387,31 @@ export const invitationsRelations = relations(invitations, ({ one }) => ({
   }),
 }));
 
-export const supportTicketsRelations = relations(supportTickets, ({ one }) => ({
-  submittedBy: one(users, {
-    fields: [supportTickets.submittedby],
-    references: [users.id],
-    relationName: "ticketSubmitter",
+export const supportTicketsRelations = relations(
+  supportTickets,
+  ({ one, many }) => ({
+    submittedBy: one(users, {
+      fields: [supportTickets.submittedby],
+      references: [users.id],
+      relationName: "ticketSubmitter",
+    }),
+    messages: many(supportTicketMessages),
   }),
-}));
+);
+
+export const supportTicketMessagesRelations = relations(
+  supportTicketMessages,
+  ({ one }) => ({
+    ticket: one(supportTickets, {
+      fields: [supportTicketMessages.ticketId],
+      references: [supportTickets.id],
+    }),
+    sender: one(users, {
+      fields: [supportTicketMessages.senderId],
+      references: [users.id],
+    }),
+  }),
+);
 
 export const userOrganizationsRelations = relations(
   userOrganizations,
@@ -1312,6 +1570,20 @@ export const projectCommentsRelations = relations(
   }),
 );
 
+export const projectExpensesRelations = relations(
+  projectExpenses,
+  ({ one }) => ({
+    project: one(projects, {
+      fields: [projectExpenses.projectId],
+      references: [projects.id],
+    }),
+    creator: one(users, {
+      fields: [projectExpenses.createdBy],
+      references: [users.id],
+    }),
+  }),
+);
+
 // ==================== NEWSLETTER SUBSCRIBERS ====================
 
 export const newsletterSubscribers = pgTable(
@@ -1369,3 +1641,194 @@ export const recentActivitiesRelations = relations(
     }),
   }),
 );
+
+export const filesRelations = relations(files, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [files.organizationId],
+    references: [organizations.id],
+  }),
+  project: one(projects, {
+    fields: [files.projectId],
+    references: [projects.id],
+  }),
+  task: one(tasks, {
+    fields: [files.taskId],
+    references: [tasks.id],
+  }),
+  client: one(clients, {
+    fields: [files.clientId],
+    references: [clients.id],
+  }),
+  uploader: one(users, {
+    fields: [files.uploadedBy],
+    references: [users.id],
+  }),
+  versions: many(fileVersions),
+}));
+
+export const fileVersionsRelations = relations(fileVersions, ({ one }) => ({
+  file: one(files, {
+    fields: [fileVersions.fileId],
+    references: [files.id],
+  }),
+  uploader: one(users, {
+    fields: [fileVersions.uploadedBy],
+    references: [users.id],
+  }),
+}));
+
+// ==================== AI PROPOSALS ====================
+
+export const proposals = pgTable(
+  "proposals",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    projectTitle: text("project_title").notNull(),
+    clientName: text("client_name").notNull(),
+    companyName: text("company_name"),
+    // Store the full AI-generated proposal data as JSON
+    proposalData: json("proposal_data").$type<Record<string, any>>(),
+    // Status: pending | approved | rejected
+    status: text("status").$defaultFn(() => "pending").notNull(),
+    approvedAt: timestamp("approved_at"),
+    rejectedAt: timestamp("rejected_at"),
+    rejectionReason: text("rejection_reason"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("proposals_organization_idx").on(table.organizationId),
+    clientIdx: index("proposals_client_idx").on(table.clientId),
+    statusIdx: index("proposals_status_idx").on(table.status),
+    createdByIdx: index("proposals_created_by_idx").on(table.createdBy),
+  }),
+);
+
+export const proposalsRelations = relations(proposals, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [proposals.organizationId],
+    references: [organizations.id],
+  }),
+  client: one(clients, {
+    fields: [proposals.clientId],
+    references: [clients.id],
+  }),
+  createdByUser: one(users, {
+    fields: [proposals.createdBy],
+    references: [users.id],
+  }),
+}));
+
+// ==================== PROJECT & TASK TEMPLATES ====================
+
+export const projectTemplates = pgTable(
+  "project_templates",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text("name").notNull(),
+    description: text("description"),
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    createdBy: text("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    isGlobal: boolean("is_global").$defaultFn(() => false).notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("project_templates_organization_idx").on(table.organizationId),
+    globalIdx: index("project_templates_global_idx").on(table.isGlobal),
+  }),
+);
+
+export const projectTemplateTasks = pgTable(
+  "project_template_tasks",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    templateId: text("template_id")
+      .notNull()
+      .references(() => projectTemplates.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    estimatedHours: decimal("estimated_hours", { precision: 10, scale: 2 }),
+    order: integer("order").$defaultFn(() => 0).notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    templateIdx: index("project_template_tasks_template_idx").on(table.templateId),
+  }),
+);
+
+export const projectTemplateRelations = relations(
+  projectTemplates,
+  ({ many, one }) => ({
+    organization: one(organizations, {
+      fields: [projectTemplates.organizationId],
+      references: [organizations.id],
+    }),
+    creator: one(users, {
+      fields: [projectTemplates.createdBy],
+      references: [users.id],
+    }),
+    tasks: many(projectTemplateTasks),
+  }),
+);
+
+export const projectTemplateTaskRelations = relations(
+  projectTemplateTasks,
+  ({ one }) => ({
+    template: one(projectTemplates, {
+      fields: [projectTemplateTasks.templateId],
+      references: [projectTemplates.id],
+    }),
+  }),
+);
+
+export const clientInteractionsRelations = relations(
+  clientInteractions,
+  ({ one }) => ({
+    client: one(clients, {
+      fields: [clientInteractions.clientId],
+      references: [clients.id],
+    }),
+    user: one(users, {
+      fields: [clientInteractions.userId],
+      references: [users.id],
+    }),
+    organization: one(organizations, {
+      fields: [clientInteractions.organizationId],
+      references: [organizations.id],
+    }),
+  }),
+);
+

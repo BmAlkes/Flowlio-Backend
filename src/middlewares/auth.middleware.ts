@@ -189,8 +189,45 @@ export const isAuthenticated = async (
             },
           );
 
-          if (isDevelopment) {
-            logger.debug("🔍 User organizations found:", userOrgs.length);
+          // If no organization found in userOrganizations, check if user is a client
+          if (userOrgs.length === 0 && freshUser.role === "client") {
+            if (isDevelopment) {
+              logger.debug(
+                "🔍 User is a client, checking clients table for organization:",
+                freshUser.id,
+              );
+            }
+
+            const clientRecord = await getCachedOrFetch(
+              `clientOrg:${freshUser.id}`,
+              async () => {
+                return await database.query.clients.findFirst({
+                  where: (clients, { eq }) => eq(clients.userId, freshUser.id),
+                  with: {
+                    organization: true,
+                  },
+                });
+              },
+            );
+
+            if (clientRecord && clientRecord.organization) {
+              if (isDevelopment) {
+                logger.debug(
+                  "✅ Client organization found:",
+                  clientRecord.organizationId,
+                );
+              }
+
+              const userWithOrg = {
+                ...freshUser,
+                organizationId: clientRecord.organizationId,
+                organization: clientRecord.organization,
+                clientRecord: clientRecord, // Attach client record for controller use
+              };
+
+              req.user = userWithOrg as any;
+              return next();
+            }
           }
 
           // Find the active organization (prioritize 'active' status)

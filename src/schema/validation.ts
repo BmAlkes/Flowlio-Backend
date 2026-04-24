@@ -106,6 +106,11 @@ const projectBaseSchema = z.object({
     .string()
     .nullish()
     .transform((val) => (val === null || val === "" ? undefined : val)),
+  budget: z
+    .number()
+    .min(0, { message: "Budget must be a positive number." })
+    .nullish()
+    .transform((val) => (val === null ? undefined : val)),
   organizationId: z.string().min(1, {
     message: "Organization ID is required.",
   }),
@@ -125,6 +130,8 @@ const projectBaseSchema = z.object({
   customFields: z.record(z.any()).optional(),
   status: z.enum(["pending", "ongoing", "completed", "delayed"]).optional(),
   progress: z.number().min(0).max(100).optional(),
+  visibility: z.enum(["public", "private"]).optional().default("private"),
+  templateId: z.string().optional(),
 });
 
 export const createProjectSchema = projectBaseSchema.refine(
@@ -276,6 +283,95 @@ export const clientBaseSchema = z.object({
 export const createClientSchema = clientBaseSchema;
 export const updateClientSchema = clientBaseSchema.partial();
 
+export const createCustomFieldDefinitionSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  type: z.enum(["text", "number", "date", "boolean", "select"]),
+  entityType: z.enum(["project", "client"]).default("project"),
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1, "Option label is required"),
+        color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Invalid color format"),
+      })
+    )
+    .optional(),
+});
+
+export const updateCustomFieldDefinitionSchema = z.object({
+  name: z.string().min(1, "Name is required").optional(),
+  options: z
+    .array(
+      z.object({
+        label: z.string().min(1, "Option label is required"),
+        color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Invalid color format"),
+      })
+    )
+    .optional(),
+});
+
 export const deleteInvoiceSchema = z.object({
   id: z.string().min(1, "Invoice ID is required"),
+});
+
+// ==================== REORDER VALIDATION SCHEMAS ====================
+export const reorderClientsSchema = z.object({
+  updates: z.array(
+    z.object({
+      clientId: z.string().min(1, "Client ID is required"),
+      position: z.number().min(0, "Position must be a non-negative integer"),
+    })
+  ).min(1, "At least one update is required"),
+});
+
+export const reorderProjectsSchema = z.object({
+  updates: z.array(
+    z.object({
+      projectId: z.string().min(1, "Project ID is required"),
+      position: z.number().min(0, "Position must be a non-negative integer"),
+    })
+  ).min(1, "At least one update is required"),
+});
+
+export const reorderLeadsSchema = z.object({
+  updates: z.array(
+    z.object({
+      leadId: z.string().min(1, "Lead ID is required"),
+      position: z.number().min(0, "Position must be a non-negative integer"),
+    })
+  ).min(1, "At least one update is required"),
+});
+
+// ==================== RECURRING INVOICE VALIDATION SCHEMAS ====================
+
+export const createRecurringInvoiceSchema = z.object({
+  templateName: z.string().min(1, "Template name is required"),
+  clientId: z.string().min(1, "Client is required"),
+  amount: z.number().min(0.01, "Amount must be greater than 0"),
+  description: z.string().optional(),
+  frequency: z.enum(["daily", "weekly", "monthly", "yearly"]),
+  startDate: z.string().min(1, "Start date is required"),
+  endDate: z.string().optional(),
+});
+
+export const updateRecurringInvoiceSchema = createRecurringInvoiceSchema.partial().extend({
+  status: z.enum(["active", "paused", "completed"]).optional(),
+});
+
+// ==================== PROJECT TEMPLATE VALIDATION SCHEMAS ====================
+
+export const createProjectTemplateSchema = z.object({
+  name: z.string().min(1, "Template name is required"),
+  description: z.string().optional(),
+  tasks: z.array(z.object({
+    title: z.string().min(1, "Task title is required"),
+    description: z.string().optional(),
+    estimatedHours: z.number().nullish(),
+    order: z.number().optional(),
+  })).optional(),
+});
+
+export const saveProjectAsTemplateSchema = z.object({
+  projectId: z.string().min(1, "Project ID is required"),
+  templateName: z.string().min(1, "Template name is required"),
+  description: z.string().optional(),
 });

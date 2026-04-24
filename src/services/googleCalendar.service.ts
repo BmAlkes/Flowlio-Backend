@@ -59,14 +59,14 @@ export class GoogleCalendarService {
           GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET ? "SET" : "NOT SET",
           GOOGLE_REDIRECT_URI: env.GOOGLE_REDIRECT_URI ? "SET" : "NOT SET",
           actualRedirectURI: env.GOOGLE_REDIRECT_URI,
-        }
+        },
       );
     }
 
     this.oauth2Client = new google.auth.OAuth2(
       env.GOOGLE_CLIENT_ID,
       env.GOOGLE_CLIENT_SECRET,
-      env.GOOGLE_REDIRECT_URI
+      env.GOOGLE_REDIRECT_URI,
     );
 
     this.calendar = google.calendar({ version: "v3", auth: this.oauth2Client });
@@ -205,7 +205,7 @@ export class GoogleCalendarService {
       const userAccount = await database.query.account.findFirst({
         where: and(
           eq(account.userId, userId),
-          eq(account.providerId, "google")
+          eq(account.providerId, "google"),
         ),
       });
 
@@ -240,7 +240,7 @@ export class GoogleCalendarService {
 
       return true;
     } catch (error) {
-      logger.error("Error setting credentials:", error);
+      logger.error("Error settings credentials:", error);
       return false;
     }
   }
@@ -272,7 +272,7 @@ export class GoogleCalendarService {
           updatedAt: new Date(),
         })
         .where(
-          and(eq(account.userId, userId), eq(account.providerId, "google"))
+          and(eq(account.userId, userId), eq(account.providerId, "google")),
         );
 
       // Set new credentials
@@ -289,7 +289,7 @@ export class GoogleCalendarService {
    * Get user's calendars
    */
   async getUserCalendars(
-    userId: string
+    userId: string,
   ): Promise<calendar_v3.Schema$CalendarListEntry[]> {
     try {
       const hasCredentials = await this.setCredentials(userId);
@@ -311,7 +311,7 @@ export class GoogleCalendarService {
   async createEvent(
     userId: string,
     calendarId: string = "primary",
-    event: GoogleCalendarEvent
+    event: GoogleCalendarEvent,
   ): Promise<calendar_v3.Schema$Event> {
     try {
       const hasCredentials = await this.setCredentials(userId);
@@ -344,7 +344,7 @@ export class GoogleCalendarService {
     userId: string,
     calendarId: string,
     eventId: string,
-    event: GoogleCalendarEvent
+    event: GoogleCalendarEvent,
   ): Promise<calendar_v3.Schema$Event> {
     try {
       const hasCredentials = await this.setCredentials(userId);
@@ -377,7 +377,7 @@ export class GoogleCalendarService {
   async deleteEvent(
     userId: string,
     calendarId: string,
-    eventId: string
+    eventId: string,
   ): Promise<void> {
     try {
       const hasCredentials = await this.setCredentials(userId);
@@ -409,7 +409,7 @@ export class GoogleCalendarService {
     calendarId: string = "primary",
     timeMin?: string,
     timeMax?: string,
-    maxResults: number = 100
+    maxResults: number = 100,
   ): Promise<calendar_v3.Schema$Event[]> {
     try {
       const hasCredentials = await this.setCredentials(userId);
@@ -439,7 +439,7 @@ export class GoogleCalendarService {
   async syncAppEventToGoogle(
     userId: string,
     appEvent: any,
-    calendarId: string = "primary"
+    calendarId: string = "primary",
   ): Promise<calendar_v3.Schema$Event | null> {
     try {
       // Get user's timezone from database
@@ -500,7 +500,7 @@ export class GoogleCalendarService {
       const createdEvent = await this.createEvent(
         userId,
         calendarId,
-        googleEvent
+        googleEvent,
       );
 
       // Update app event with Google event ID
@@ -544,7 +544,7 @@ export class GoogleCalendarService {
   async syncGoogleEventToApp(
     userId: string,
     googleEvent: calendar_v3.Schema$Event,
-    organizationId: string
+    organizationId: string,
   ): Promise<any> {
     try {
       const startDateTime =
@@ -590,7 +590,7 @@ export class GoogleCalendarService {
       // Create date at midnight UTC for the date in user's timezone
       // This represents the date (not time) in the user's timezone
       const eventDate = new Date(
-        Date.UTC(startYear, startMonth, startDay, 0, 0, 0, 0)
+        Date.UTC(startYear, startMonth, startDay, 0, 0, 0, 0),
       );
 
       const appEvent = {

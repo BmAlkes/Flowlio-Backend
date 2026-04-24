@@ -31,6 +31,7 @@ import {
   checkCanCreateProject,
   checkFeatureAccess,
 } from "../controllers/organization/plan-access/checkplanaccess.controller";
+import { getTeamProductivity } from "../controllers/organization/stats/getteamproductivity.controller";
 
 const router = Router();
 
@@ -94,6 +95,11 @@ router.get(
   "/stats/weekly-hours-tracked",
   isAuthenticated,
   getOrganizationWeeklyHoursTracked
+);
+router.get(
+  "/stats/team-productivity",
+  ...orgOwner,
+  getTeamProductivity
 );
 
 router.get("/activities", isAuthenticated, getOrganizationActivities);

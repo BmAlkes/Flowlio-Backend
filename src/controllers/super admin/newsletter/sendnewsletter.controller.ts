@@ -37,7 +37,7 @@ function newsletterTemplate({
         <h2 style="margin: 0; color: #1a202c;">${subject}</h2>
       </div>
       <div style="font-size: 16px; color: #333; line-height: 1.6;">
-        ${content.replace(/\n/g, "<br>")}
+        ${content}
       </div>
       ${
         unsubscribeUrl
@@ -63,7 +63,7 @@ function newsletterTemplate({
 
 export const sendNewsletter = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { subject, content } = req.body;
@@ -99,10 +99,15 @@ export const sendNewsletter = async (
       .from(newsletterSubscribers)
       .where(eq(newsletterSubscribers.subscribed, true));
 
-    if (subscribedUsers.length === 0) {
+    // Filter for unique emails to prevent sending duplicates which Gmail often blocks
+    const uniqueSubscribers = Array.from(
+      new Map(subscribedUsers.map((s) => [s.email.toLowerCase().trim(), s])).values(),
+    );
+
+    if (uniqueSubscribers.length === 0) {
       res.status(404).json({
         success: false,
-        message: "No subscribed users found",
+        message: "No unique subscribed users found",
       });
       return;
     }
@@ -121,18 +126,25 @@ export const sendNewsletter = async (
     const frontendUrl = env.FRONTEND_DOMAIN || "http://localhost:4000";
     const unsubscribeBaseUrl = `${frontendUrl}/unsubscribe`;
 
-    // Send emails to all subscribed users
-    const emailPromises = subscribedUsers.map(async (subscriber) => {
+    // Send emails to all unique subscribed users
+    const emailPromises = uniqueSubscribers.map(async (subscriber) => {
       try {
         const unsubscribeUrl = `${unsubscribeBaseUrl}?email=${encodeURIComponent(
-          subscriber.email
+          subscriber.email,
         )}`;
+
+        const newsletterId = Date.now().toString(36);
+        const uniqueSubject = `${subject.trim()} [#${newsletterId}]`;
 
         const emailContent = newsletterTemplate({
           subject: subject.trim(),
-          content: content.trim(),
+          content: `${content}<div style="display:none !important; font-size:1px; opacity: 0;">ID: ${newsletterId}</div>`, // Hidden ID to prevent Gmail deduplication
           unsubscribeUrl,
         });
+
+        // Generate a plain text version (improves delivery rates)
+        // Strip HTML tags for the text version
+        const plainTextContent = content.replace(/<[^>]*>/g, '').trim() + `\n\nRef: ${newsletterId}`;
 
         const emailPayload = {
           to: [
@@ -140,12 +152,13 @@ export const sendNewsletter = async (
               email: subscriber.email,
               name: subscriber.email.substring(
                 0,
-                subscriber.email.lastIndexOf("@")
+                subscriber.email.lastIndexOf("@"),
               ),
             },
           ],
-          subject: subject.trim(),
+          subject: uniqueSubject,
           htmlContent: emailContent,
+          textContent: plainTextContent, // Added plain text version
           sender: {
             name: "Flowlio",
             email: env.BREVO_SENDER,
@@ -153,32 +166,33 @@ export const sendNewsletter = async (
         };
 
         logger.info(
-          `Attempting to send newsletter to ${subscriber.email} with sender ${env.BREVO_SENDER}`
+          `Attempting to send newsletter to ${subscriber.email} with sender ${env.BREVO_SENDER}`,
         );
 
-        const brevoResponse = await brevoTransactionApi.sendTransacEmail(
-          emailPayload
-        );
+        console.log(`[Newsletter Debug] Sending to: ${subscriber.email}`);
+        console.log(`[Newsletter Debug] Using Sender: ${env.BREVO_SENDER}`);
+        
+        const brevoResponse = await brevoTransactionApi.sendTransacEmail(emailPayload);
 
-        // // Log full response for debugging
-        // console.log(
-        //   `[Newsletter] Full Brevo API response for ${subscriber.email}:`,
-        //   JSON.stringify(brevoResponse, null, 2)
-        // );
+        // Advanced logging to catch exact SDK behavior
+        console.log(`[Newsletter Debug] Raw Brevo response type:`, typeof brevoResponse);
+        console.log(`[Newsletter Debug] Request succeeded for: ${subscriber.email}`);
 
-        const statusCode = brevoResponse?.response?.statusCode || brevoResponse;
-        const messageId = brevoResponse?.body?.messageId || brevoResponse;
-        const responseBody = brevoResponse?.body || brevoResponse;
+        // Handle both older and newer Brevo SDK formats
+        // Some versions put the body in .body, others return the body directly
+        const body = (brevoResponse as any)?.body || brevoResponse;
+        const response = (brevoResponse as any)?.response;
+        
+        // On free plans, we MUST see 201/200 AND a messageId
+        const statusCode = response?.statusCode || (response as any) || 201; // Default to 201 if SDK returns body directly
+        const messageId = body?.messageId || (body as any)?.messageId;
 
-        console.log(
-          `[Newsletter] Brevo API response summary for ${subscriber.email}:`,
-          {
-            statusCode,
-            messageId,
-            body: responseBody,
-            hasMessageId: !!messageId,
-          }
-        );
+        console.log(`[Newsletter Debug] Parsed Data:`, {
+          statusCode,
+          messageId,
+          hasBody: !!body,
+          hasResponse: !!response
+        });
 
         // Check if email was actually accepted by Brevo
         // Brevo typically returns 201 for successful sends with a messageId
@@ -186,7 +200,7 @@ export const sendNewsletter = async (
           const errorMsg = `Brevo API returned status ${statusCode} instead of 201/200`;
           console.error(`[Newsletter] ${errorMsg} for ${subscriber.email}`);
           logger.error(
-            `Newsletter send failed for ${subscriber.email}: ${errorMsg}`
+            `Newsletter send failed for ${subscriber.email}: ${errorMsg}`,
           );
           return {
             email: subscriber.email,
@@ -202,13 +216,13 @@ export const sendNewsletter = async (
             "No messageId in Brevo response - email may not have been sent";
           console.error(`[Newsletter] ${errorMsg} for ${subscriber.email}`);
           logger.error(
-            `Newsletter send failed for ${subscriber.email}: ${errorMsg}`
+            `Newsletter send failed for ${subscriber.email}: ${errorMsg}`,
           );
           return {
             email: subscriber.email,
             success: false,
             error: errorMsg,
-            responseBody,
+            body,
           };
         }
 
@@ -227,17 +241,17 @@ export const sendNewsletter = async (
         // Use console.error as well to ensure we see the error
         console.error(
           `[Newsletter Error] Raw error for ${subscriber.email}:`,
-          error
+          error,
         );
         console.error(
           `[Newsletter Error] Error type:`,
-          error?.constructor?.name
+          error?.constructor?.name,
         );
         console.error(`[Newsletter Error] Error message:`, error?.message);
         console.error(`[Newsletter Error] Error code:`, error?.code);
         console.error(
           `[Newsletter Error] Error statusCode:`,
-          error?.statusCode
+          error?.statusCode,
         );
         console.error(`[Newsletter Error] Error response:`, error?.response);
         console.error(`[Newsletter Error] Error body:`, error?.body);
@@ -255,14 +269,14 @@ export const sendNewsletter = async (
             keys: Object.keys(error || {}),
             stringified: JSON.stringify(
               error,
-              Object.getOwnPropertyNames(error)
+              Object.getOwnPropertyNames(error),
             ),
           });
         } catch (logError) {
           console.error(`[Newsletter Error] Failed to log error:`, logError);
           logger.error(
             `Error logging failed for ${subscriber.email}, error:`,
-            String(error)
+            String(error),
           );
         }
 
@@ -339,7 +353,7 @@ export const sendNewsletter = async (
 
         logger.error(
           `Failed to send newsletter to ${subscriber.email}:`,
-          errorDetails
+          errorDetails,
         );
 
         return {
@@ -354,12 +368,12 @@ export const sendNewsletter = async (
     const results = await Promise.allSettled(emailPromises);
 
     const successful = results.filter(
-      (r) => r.status === "fulfilled" && r.value.success
+      (r) => r.status === "fulfilled" && r.value.success,
     ).length;
     const failed = results.length - successful;
 
     logger.info(
-      `Newsletter sent: ${successful} successful, ${failed} failed out of ${subscribedUsers.length} subscribers`
+      `Newsletter sent: ${successful} successful, ${failed} failed out of ${subscribedUsers.length} subscribers`,
     );
 
     res.status(200).json({
@@ -374,7 +388,7 @@ export const sendNewsletter = async (
         results: results.map((r) =>
           r.status === "fulfilled"
             ? r.value
-            : { success: false, error: "Promise rejected" }
+            : { success: false, error: "Promise rejected" },
         ),
       },
     });

@@ -7,7 +7,7 @@ import status from "http-status";
 
 export const getOrganizationPendingTasks = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     logger.info("📊 getOrganizationPendingTasks called");
@@ -31,13 +31,13 @@ export const getOrganizationPendingTasks = async (
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
       .where(
-        sql`${projects.organizationId} = ${organizationId} AND ${tasks.status} != 'completed'`
+        sql`${projects.organizationId} = ${organizationId} AND ${tasks.status} != 'completed'`,
       );
 
     const pendingTasks = result[0]?.pendingTasks || 0;
 
     logger.info(
-      `✅ Pending tasks for organization ${organizationId}: ${pendingTasks}`
+      `✅ Pending tasks for organization ${organizationId}: ${pendingTasks}`,
     );
 
     res.status(200).json({

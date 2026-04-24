@@ -5,6 +5,7 @@ import { eq, and, ne } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
+import { automationService } from "@/services/automation/automation.service";
 
 interface UpdateTaskRequest extends Request {
   user?: {
@@ -46,12 +47,13 @@ interface UpdateTaskRequest extends Request {
     parentId?: string;
     startAfter?: string;
     finishBefore?: string;
+    visibility?: "public" | "private";
   };
 }
 
 export const updateTask = async (
   req: UpdateTaskRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { id } = req.params;
@@ -66,8 +68,8 @@ export const updateTask = async (
       .where(
         and(
           eq(tasks.id, id),
-          eq(projects.organizationId, organizationId as string)
-        )
+          eq(projects.organizationId, organizationId as string),
+        ),
       )
       .limit(1);
 
@@ -105,8 +107,8 @@ export const updateTask = async (
           .where(
             and(
               eq(tasks.id, normalizedParentId),
-              eq(projects.organizationId, organizationId as string)
-            )
+              eq(projects.organizationId, organizationId as string),
+            ),
           )
           .limit(1);
 
@@ -165,6 +167,8 @@ export const updateTask = async (
       updateFields.startAfter = updateData.startAfter ?? null;
     if (updateData.finishBefore !== undefined)
       updateFields.finishBefore = updateData.finishBefore ?? null;
+    if (updateData.visibility !== undefined)
+      updateFields.visibility = updateData.visibility;
 
     // Get task details before update for activity log
     const taskBeforeUpdate = await database
@@ -194,6 +198,32 @@ export const updateTask = async (
         message: `Updated task: ${taskBeforeUpdate[0].title}`,
         metadata: { updatedFields: Object.keys(updateFields) },
       });
+
+      // Recalculate project progress
+      const projectId = updateFields.projectId || existingTask[0].projectId;
+      await automationService
+        .recalculateProjectProgress(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate progress for project ${projectId}:`,
+            err,
+          );
+        });
+
+      // If project was changed, also recalculate for the old project
+      if (
+        updateFields.projectId &&
+        updateFields.projectId !== existingTask[0].projectId
+      ) {
+        await automationService
+          .recalculateProjectProgress(existingTask[0].projectId)
+          .catch((err) => {
+            logger.error(
+              `Failed to recalculate progress for old project ${existingTask[0].projectId}:`,
+              err,
+            );
+          });
+      }
     }
 
     res.status(200).json({
@@ -213,7 +243,7 @@ export const updateTask = async (
 
 export const updateTaskStatus = async (
   req: UpdateTaskRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const { id } = req.params;
@@ -235,14 +265,15 @@ export const updateTaskStatus = async (
         title: tasks.title,
         startAfter: tasks.startAfter,
         status: tasks.status,
+        projectId: tasks.projectId,
       })
       .from(tasks)
       .leftJoin(projects, eq(tasks.projectId, projects.id))
       .where(
         and(
           eq(tasks.id, id),
-          eq(projects.organizationId, organizationId as string)
-        )
+          eq(projects.organizationId, organizationId as string),
+        ),
       )
       .limit(1);
 
@@ -259,7 +290,10 @@ export const updateTaskStatus = async (
     // Only enforce dependency validation when marking as completed
     if (status === "completed") {
       // 3) Validate startAfter: prerequisite task must be completed first
-      if (currentTask.startAfter != null && currentTask.startAfter.trim() !== "") {
+      if (
+        currentTask.startAfter != null &&
+        currentTask.startAfter.trim() !== ""
+      ) {
         const startAfterRows = await database
           .select({ id: tasks.id, title: tasks.title, status: tasks.status })
           .from(tasks)
@@ -267,8 +301,8 @@ export const updateTaskStatus = async (
           .where(
             and(
               eq(tasks.id, currentTask.startAfter),
-              eq(projects.organizationId, organizationId as string)
-            )
+              eq(projects.organizationId, organizationId as string),
+            ),
           )
           .limit(1);
 
@@ -295,8 +329,8 @@ export const updateTaskStatus = async (
           and(
             eq(tasks.finishBefore, id),
             ne(tasks.status, "completed"),
-            eq(projects.organizationId, organizationId as string)
-          )
+            eq(projects.organizationId, organizationId as string),
+          ),
         )
         .limit(1);
 
@@ -341,6 +375,25 @@ export const updateTaskStatus = async (
         message: `Updated task status to ${status}: ${taskBeforeUpdate[0].title}`,
         metadata: { status },
       });
+
+      // Recalculate project progress
+      const projectId =
+        (currentTask.projectId as string) ??
+        (
+          await database
+            .select({ projectId: tasks.projectId })
+            .from(tasks)
+            .where(eq(tasks.id, id))
+            .limit(1)
+        )[0].projectId;
+      await automationService
+        .recalculateProjectProgress(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate progress for project ${projectId}:`,
+            err,
+          );
+        });
     }
 
     res.status(200).json({

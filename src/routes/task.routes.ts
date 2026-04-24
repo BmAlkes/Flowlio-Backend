@@ -18,6 +18,7 @@ import { endTask } from "../controllers/organization/tasks/endtask.controller";
 import { getActiveTimeEntries } from "../controllers/organization/tasks/getactivetimeentries.controller";
 import { getAllTimeEntries } from "../controllers/organization/tasks/getalltimeentries.controller";
 import { deleteTimeEntry } from "../controllers/organization/tasks/deletetimeentry.controller";
+import { getTasksByClient } from "../controllers/organization/tasks/gettasksbyclient.controller";
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.delete("/time-entries/:id", isAuthenticated, deleteTimeEntry);
 router.post("/create", isAuthenticated, createTask);
 router.get("/all", isAuthenticated, getTasks);
 router.get("/ongoing", isAuthenticated, getOngoingTasks);
+router.post("/client/:clientId", isAuthenticated, getTasksByClient);
 
 router.get("/:id/subtasks", isAuthenticated, getSubtasksByTaskId);
 router.get("/:id", isAuthenticated, getTaskById);

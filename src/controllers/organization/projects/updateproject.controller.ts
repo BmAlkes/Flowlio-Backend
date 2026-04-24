@@ -3,8 +3,13 @@ import { database } from "../../../configs/connection.config";
 import { updateProjectSchema } from "../../../schema/validation";
 import { projects } from "../../../schema/schema";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
-import { clients, users, userOrganizations } from "../../../schema/schema";
+import { eq, and, ne } from "drizzle-orm";
+import {
+  clients,
+  users,
+  userOrganizations,
+  tasks,
+} from "../../../schema/schema";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
@@ -30,7 +35,7 @@ interface UpdateProjectRequest {
 
 export const updateProject = async (
   req: UpdateProjectRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     const projectId = req.params.id;
@@ -68,8 +73,8 @@ export const updateProject = async (
       .where(
         and(
           eq(projects.id, projectId),
-          eq(projects.organizationId, organizationId)
-        )
+          eq(projects.organizationId, organizationId),
+        ),
       )
       .limit(1);
 
@@ -91,8 +96,8 @@ export const updateProject = async (
         .where(
           and(
             eq(projects.name, validatedData.name),
-            eq(projects.organizationId, organizationId)
-          )
+            eq(projects.organizationId, organizationId),
+          ),
         )
         .limit(1);
 
@@ -109,7 +114,7 @@ export const updateProject = async (
     // Validate that the client belongs to the organization (only if updating clientId)
     if (validatedData.clientId) {
       logger.info(
-        `Validating client ${validatedData.clientId} for organization ${organizationId}`
+        `Validating client ${validatedData.clientId} for organization ${organizationId}`,
       );
 
       const clientExists = await database
@@ -118,8 +123,8 @@ export const updateProject = async (
         .where(
           and(
             eq(clients.id, validatedData.clientId),
-            eq(clients.organizationId, organizationId)
-          )
+            eq(clients.organizationId, organizationId),
+          ),
         )
         .limit(1);
 
@@ -135,7 +140,7 @@ export const updateProject = async (
     // Validate that the assigned user belongs to the organization (only if updating assignedTo)
     if (validatedData.assignedTo) {
       logger.info(
-        `Validating user ${validatedData.assignedTo} for organization ${organizationId}`
+        `Validating user ${validatedData.assignedTo} for organization ${organizationId}`,
       );
 
       const assignedUserExists = await database
@@ -145,8 +150,8 @@ export const updateProject = async (
         .where(
           and(
             eq(users.id, validatedData.assignedTo),
-            eq(userOrganizations.organizationId, organizationId)
-          )
+            eq(userOrganizations.organizationId, organizationId),
+          ),
         )
         .limit(1);
 
@@ -172,7 +177,7 @@ export const updateProject = async (
       try {
         const uploadResult = await uploadToCloudinary(
           validatedData.contractfile,
-          "projects"
+          "projects",
         );
         contractfileUrl = uploadResult.secure_url;
         contractfilePublicId = uploadResult.public_id;
@@ -198,7 +203,7 @@ export const updateProject = async (
           if (fileData.file && fileData.type && fileData.name) {
             const uploadResult = await uploadToCloudinary(
               fileData.file,
-              "projects"
+              "projects",
             );
 
             // Only handle projectPdf type
@@ -255,6 +260,32 @@ export const updateProject = async (
       updateData.progress = validatedData.progress;
     if (validatedData.customFields !== undefined)
       updateData.customFields = validatedData.customFields;
+    if (validatedData.visibility !== undefined)
+      updateData.visibility = validatedData.visibility;
+    if (validatedData.budget !== undefined)
+      updateData.budget =
+        validatedData.budget != null ? String(validatedData.budget) : null;
+
+    // If project is marked as completed, verify all tasks are completed and set progress to 100%
+    if (validatedData.status === "completed") {
+      const incompleteTasks = await database
+        .select()
+        .from(tasks)
+        .where(
+          and(eq(tasks.projectId, projectId), ne(tasks.status, "completed")),
+        )
+        .limit(1);
+
+      if (incompleteTasks.length > 0) {
+        res.status(400).json({
+          success: false,
+          message: "please complete all tasks first related to this project.",
+        });
+        return;
+      }
+
+      updateData.progress = 100;
+    }
 
     // Always update file-related fields if they were processed
     updateData.contractfile = contractfileUrl;
@@ -358,9 +389,11 @@ export const updateProject = async (
         status: project.status,
         progress: project.progress,
         address: project.address,
+        budget: project.budget,
         contractfile: project.contractfile,
         contractfilePublicId: project.contractfilePublicId,
         organizationId: project.organizationId,
+        visibility: project.visibility,
         createdBy: project.createdBy,
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,

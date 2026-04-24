@@ -34,13 +34,17 @@ export const getCalendarEvents = async (
       return;
     }
 
-    const { organizationId } = req.user;
+    const { organizationId, id: userId } = req.user;
     const { startDate, endDate, calendarType } = req.query;
 
-    // Build query conditions
-    let conditions = [
-      eq(calendarEvents.organizationId, organizationId as string),
-    ];
+    // Each user only sees their own calendar events (not the whole organization)
+    const conditions = [eq(calendarEvents.userId, userId)];
+
+    if (organizationId) {
+      conditions.push(
+        eq(calendarEvents.organizationId, organizationId as string)
+      );
+    }
 
     // Add date range filter if provided
     if (startDate && endDate) {

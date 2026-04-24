@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { tasks, projects, users, clients } from "../../../schema/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, or } from "drizzle-orm";
 import { database } from "../../../configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
@@ -51,8 +51,8 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
             | "completed"
             | "updated"
             | "delay"
-            | "changes"
-        )
+            | "changes",
+        ),
       );
     }
 
@@ -103,8 +103,13 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
       .where(
         and(
           ...conditions,
-          eq(projects.organizationId, organizationId as string)
-        )
+          eq(projects.organizationId, organizationId as string),
+          or(
+            eq(tasks.createdBy, req.user.id),
+            eq(tasks.assignedTo, req.user.id),
+            eq(tasks.visibility, "public"),
+          ),
+        ),
       )
       .orderBy(desc(tasks.createdAt));
 
@@ -126,7 +131,7 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
 
 export const getTaskById = async (
   req: GetTasksRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     if (!req.user) {
@@ -180,8 +185,13 @@ export const getTaskById = async (
       .where(
         and(
           eq(tasks.id, id),
-          eq(projects.organizationId, organizationId as string)
-        )
+          eq(projects.organizationId, organizationId as string),
+          or(
+            eq(tasks.createdBy, req.user.id),
+            eq(tasks.assignedTo, req.user.id),
+            eq(tasks.visibility, "public"),
+          ),
+        ),
       )
       .limit(1);
 
@@ -211,7 +221,7 @@ export const getTaskById = async (
 
 export const getSubtasksByTaskId = async (
   req: GetTasksRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     if (!req.user) {
@@ -233,8 +243,8 @@ export const getSubtasksByTaskId = async (
       .where(
         and(
           eq(tasks.id, parentTaskId),
-          eq(projects.organizationId, organizationId as string)
-        )
+          eq(projects.organizationId, organizationId as string),
+        ),
       )
       .limit(1);
 
@@ -285,8 +295,13 @@ export const getSubtasksByTaskId = async (
       .where(
         and(
           eq(tasks.parentId, parentTaskId),
-          eq(projects.organizationId, organizationId as string)
-        )
+          eq(projects.organizationId, organizationId as string),
+          or(
+            eq(tasks.createdBy, req.user.id),
+            eq(tasks.assignedTo, req.user.id),
+            eq(tasks.visibility, "public"),
+          ),
+        ),
       )
       .orderBy(desc(tasks.createdAt));
 

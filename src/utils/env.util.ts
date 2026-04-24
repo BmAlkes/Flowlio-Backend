@@ -35,7 +35,6 @@ if (!envSchema.success) {
     null,
     4
   )}`;
-
   logger.error(message);
   throw new Error(message);
 }

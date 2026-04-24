@@ -3,6 +3,7 @@ import { createClient } from "../controllers/organization/client management/crea
 import { getClients } from "../controllers/organization/client management/getclients.controller";
 import { deleteClient } from "../controllers/organization/client management/deleteclient.controller";
 import { updateClient } from "../controllers/organization/client management/updateclient.controller";
+import { reorderClients } from "../controllers/organization/client management/reorderclients.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { requireOrgOwnerAccess } from "@/middlewares/role.middleware";
 
@@ -18,5 +19,6 @@ router.post("/create", ...orgOwner, createClient);
 router.get("/", ...orgOwner, getClients);
 router.delete("/:id", ...orgOwner, deleteClient);
 router.put("/:id", ...orgOwner, updateClient);
+router.patch("/reorder", ...orgOwner, reorderClients as any);
 
 export default router;

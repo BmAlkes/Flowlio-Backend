@@ -41,7 +41,7 @@ export const updateCalendarEvent = async (
       return;
     }
 
-    const { organizationId } = req.user;
+    const { organizationId, id: userId } = req.user;
     const { id } = req.params;
     const updateData = req.body;
 
@@ -53,14 +53,17 @@ export const updateCalendarEvent = async (
       return;
     }
 
-    // Check if event exists and belongs to user's organization
+    // Event must belong to this user (private calendar)
     const existingEvent = await database
       .select()
       .from(calendarEvents)
       .where(
         and(
           eq(calendarEvents.id, id),
-          eq(calendarEvents.organizationId, organizationId as string)
+          eq(calendarEvents.userId, userId),
+          ...(organizationId
+            ? [eq(calendarEvents.organizationId, organizationId as string)]
+            : [])
         )
       )
       .limit(1);
@@ -133,7 +136,10 @@ export const updateCalendarEvent = async (
       .where(
         and(
           eq(calendarEvents.id, id),
-          eq(calendarEvents.organizationId, organizationId as string)
+          eq(calendarEvents.userId, userId),
+          ...(organizationId
+            ? [eq(calendarEvents.organizationId, organizationId as string)]
+            : [])
         )
       )
       .returning();
@@ -277,8 +283,7 @@ export const updateCalendarEvent = async (
       });
     }
 
-    const userId = req.user?.id;
-    if (organizationId && userId && existingEvent.length > 0) {
+    if (organizationId && existingEvent.length > 0) {
       await logActivity({
         organizationId,
         actorId: userId,
