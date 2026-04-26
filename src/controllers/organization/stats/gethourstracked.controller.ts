@@ -7,7 +7,7 @@ import status from "http-status";
 
 export const getOrganizationHoursTracked = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     logger.info("📊 getOrganizationHoursTracked called");
@@ -34,7 +34,7 @@ export const getOrganizationHoursTracked = async (
     const totalHours = result[0]?.totalHours || 0;
 
     logger.info(
-      `✅ Total hours tracked for organization ${organizationId}: ${totalHours}`
+      `✅ Total hours tracked for organization ${organizationId}: ${totalHours}`,
     );
 
     res.status(200).json({

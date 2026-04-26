@@ -7,7 +7,7 @@ import status from "http-status";
 
 export const getOrganizationWeeklyHoursTracked = async (
   req: Request,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     logger.info("📊 getOrganizationWeeklyHoursTracked called");
@@ -33,7 +33,7 @@ export const getOrganizationWeeklyHoursTracked = async (
     endOfWeek.setHours(23, 59, 59, 999);
 
     logger.info(
-      `📊 Week range: ${startOfWeek.toISOString()} to ${endOfWeek.toISOString()}`
+      `📊 Week range: ${startOfWeek.toISOString()} to ${endOfWeek.toISOString()}`,
     );
 
     // Get total hours tracked for this organization's projects this week
@@ -46,13 +46,13 @@ export const getOrganizationWeeklyHoursTracked = async (
       .where(
         sql`${projects.organizationId} = ${organizationId} 
             AND ${timeEntries.createdAt} >= ${startOfWeek.toISOString()} 
-            AND ${timeEntries.createdAt} <= ${endOfWeek.toISOString()}`
+            AND ${timeEntries.createdAt} <= ${endOfWeek.toISOString()}`,
       );
 
     const weeklyHours = result[0]?.weeklyHours || 0;
 
     logger.info(
-      `✅ Weekly hours tracked for organization ${organizationId}: ${weeklyHours}`
+      `✅ Weekly hours tracked for organization ${organizationId}: ${weeklyHours}`,
     );
 
     res.status(200).json({

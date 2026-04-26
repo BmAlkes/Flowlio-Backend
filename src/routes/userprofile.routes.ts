@@ -5,10 +5,14 @@ import { patchUserProfile } from "@/controllers/user/patchuserprofile.controller
 import { updateUserTimezone } from "@/controllers/user/updateUserTimezone.controller";
 import { testEmailService } from "@/controllers/auth/test-email.controller";
 import { markPasswordChanged } from "@/controllers/user/markpasswordchanged.controller";
+import { pingPortalActivity } from "@/controllers/user/pingactivity.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { Router } from "express";
 
 const router = Router();
+
+// ACTIVITY TRACKING
+router.post("/ping-activity", isAuthenticated, pingPortalActivity);
 
 // USER PROFILE ROUTES
 router.get("/profile", isAuthenticated, getCurrentUserProfile);
