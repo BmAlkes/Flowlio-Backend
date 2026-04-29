@@ -1,4 +1,5 @@
 import { Response } from "express";
+import { eq, sql } from "drizzle-orm";
 import { invoices } from "@/schema/schema";
 import { database } from "../../../configs/connection.config";
 import { createInvoiceSchema } from "@/schema/validation";
@@ -22,7 +23,7 @@ interface CreateInvoiceRequest {
 
 export const createInvoice = async (
   req: CreateInvoiceRequest,
-  res: Response
+  res: Response,
 ): Promise<void> => {
   try {
     // Validate request body
@@ -47,7 +48,7 @@ export const createInvoice = async (
       where: (clients, { eq, and }) =>
         and(
           eq(clients.id, validatedData.clientId),
-          eq(clients.organizationId, organizationId)
+          eq(clients.organizationId, organizationId),
         ),
     });
 
@@ -59,12 +60,13 @@ export const createInvoice = async (
       return;
     }
 
-    // Generate simple sequential invoice number
-    const invoiceCount = await database.query.invoices.findMany({
-      where: (invoices, { eq }) => eq(invoices.organizationId, organizationId),
-    });
+    // Generate sequential invoice number for this organization
+    const [{ count }] = await database
+      .select({ count: sql<number>`count(*)` })
+      .from(invoices)
+      .where(eq(invoices.organizationId, organizationId));
 
-    const nextNumber = (invoiceCount.length + 1).toString().padStart(5, "0");
+    const nextNumber = (Number(count) + 1).toString().padStart(5, "0");
     const invoiceNumber = `S1-${nextNumber}`;
 
     // Handle PDF upload if provided
@@ -72,7 +74,6 @@ export const createInvoice = async (
     let pdfFileName = null;
     let pdfFileSize = null;
 
-    // Handle PDF upload if provided
     if (
       validatedData.pdfFile &&
       validatedData.pdfFileName &&
@@ -82,21 +83,14 @@ export const createInvoice = async (
       try {
         const uploadResult = await uploadToCloudinary(
           validatedData.pdfFile,
-          "invoices"
+          "invoices",
         );
         pdfUrl = uploadResult.secure_url;
         pdfFileName = validatedData.pdfFileName;
         pdfFileSize = uploadResult.bytes;
       } catch (uploadError) {
         logger.error("PDF upload failed:", uploadError);
-        pdfUrl = null;
-        pdfFileName = null;
-        pdfFileSize = null;
       }
-    } else {
-      logger.info(
-        "No PDF file provided or invalid format, creating invoice without PDF"
-      );
     }
 
     // Create invoice
@@ -106,7 +100,7 @@ export const createInvoice = async (
       clientId: validatedData.clientId,
       createdBy: req.user.id,
       invoiceNumber: invoiceNumber,
-      clientname: client.name,
+      clientname: client.name.trim(),
       amount: validatedData.amount.toString(),
       status: "draft",
       description: validatedData.description || null,
@@ -130,7 +124,7 @@ export const createInvoice = async (
         action: "create",
         resource: "invoice",
         resourceId: newInvoice.id,
-        message: `Created invoice: ${invoiceNumber} for ${client.name}`,
+        message: `Created invoice: ${invoiceNumber} for ${client.name.trim()}`,
         metadata: {
           amount: validatedData.amount,
           clientId: validatedData.clientId,

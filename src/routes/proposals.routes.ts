@@ -6,12 +6,17 @@ import {
   getClientProposals,
   approveProposal,
   rejectProposal,
+  uploadManualProposal,
 } from "../controllers/proposals/proposals.controller";
+import { upload } from "../controllers/ai/aiAssistant.controller";
 
 const router = Router();
 
 // Org owner / admin: create a proposal (called from AI Assist after generating)
 router.post("/", isAuthenticated, createProposal);
+
+// Org owner / admin: upload a manual proposal
+router.post("/upload", isAuthenticated, upload.single("file"), uploadManualProposal);
 
 // Org owner / admin: view all proposals sent by the organization
 router.get("/organization", isAuthenticated, getOrganizationProposals);

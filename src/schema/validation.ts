@@ -8,6 +8,7 @@ export const createUserMemberSchema = z.object({
     .string()
     .regex(/^\+?[1-9]\d{1,14}$/, "Must be a valid international phone number"),
   userrole: z.string().min(2, "Must be a proper role"),
+  position: z.string().optional(),
   setpermission: z.string().min(2, "Must be a proper permission"),
   password: z.string().min(8, "Password must be at least 8 characters"),
   companyname: z.string().min(2, "Company name must be at least 2 characters"),
@@ -291,8 +292,10 @@ export const createCustomFieldDefinitionSchema = z.object({
     .array(
       z.object({
         label: z.string().min(1, "Option label is required"),
-        color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Invalid color format"),
-      })
+        color: z
+          .string()
+          .regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Invalid color format"),
+      }),
     )
     .optional(),
 });
@@ -303,8 +306,10 @@ export const updateCustomFieldDefinitionSchema = z.object({
     .array(
       z.object({
         label: z.string().min(1, "Option label is required"),
-        color: z.string().regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Invalid color format"),
-      })
+        color: z
+          .string()
+          .regex(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/, "Invalid color format"),
+      }),
     )
     .optional(),
 });
@@ -315,30 +320,36 @@ export const deleteInvoiceSchema = z.object({
 
 // ==================== REORDER VALIDATION SCHEMAS ====================
 export const reorderClientsSchema = z.object({
-  updates: z.array(
-    z.object({
-      clientId: z.string().min(1, "Client ID is required"),
-      position: z.number().min(0, "Position must be a non-negative integer"),
-    })
-  ).min(1, "At least one update is required"),
+  updates: z
+    .array(
+      z.object({
+        clientId: z.string().min(1, "Client ID is required"),
+        position: z.number().min(0, "Position must be a non-negative integer"),
+      }),
+    )
+    .min(1, "At least one update is required"),
 });
 
 export const reorderProjectsSchema = z.object({
-  updates: z.array(
-    z.object({
-      projectId: z.string().min(1, "Project ID is required"),
-      position: z.number().min(0, "Position must be a non-negative integer"),
-    })
-  ).min(1, "At least one update is required"),
+  updates: z
+    .array(
+      z.object({
+        projectId: z.string().min(1, "Project ID is required"),
+        position: z.number().min(0, "Position must be a non-negative integer"),
+      }),
+    )
+    .min(1, "At least one update is required"),
 });
 
 export const reorderLeadsSchema = z.object({
-  updates: z.array(
-    z.object({
-      leadId: z.string().min(1, "Lead ID is required"),
-      position: z.number().min(0, "Position must be a non-negative integer"),
-    })
-  ).min(1, "At least one update is required"),
+  updates: z
+    .array(
+      z.object({
+        leadId: z.string().min(1, "Lead ID is required"),
+        position: z.number().min(0, "Position must be a non-negative integer"),
+      }),
+    )
+    .min(1, "At least one update is required"),
 });
 
 // ==================== RECURRING INVOICE VALIDATION SCHEMAS ====================
@@ -353,21 +364,27 @@ export const createRecurringInvoiceSchema = z.object({
   endDate: z.string().optional(),
 });
 
-export const updateRecurringInvoiceSchema = createRecurringInvoiceSchema.partial().extend({
-  status: z.enum(["active", "paused", "completed"]).optional(),
-});
+export const updateRecurringInvoiceSchema = createRecurringInvoiceSchema
+  .partial()
+  .extend({
+    status: z.enum(["active", "paused", "completed"]).optional(),
+  });
 
 // ==================== PROJECT TEMPLATE VALIDATION SCHEMAS ====================
 
 export const createProjectTemplateSchema = z.object({
   name: z.string().min(1, "Template name is required"),
   description: z.string().optional(),
-  tasks: z.array(z.object({
-    title: z.string().min(1, "Task title is required"),
-    description: z.string().optional(),
-    estimatedHours: z.number().nullish(),
-    order: z.number().optional(),
-  })).optional(),
+  tasks: z
+    .array(
+      z.object({
+        title: z.string().min(1, "Task title is required"),
+        description: z.string().optional(),
+        estimatedHours: z.number().nullish(),
+        order: z.number().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const saveProjectAsTemplateSchema = z.object({

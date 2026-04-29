@@ -118,12 +118,23 @@ export const getFinancialOverview = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       data: {
-        totalRevenue: revenueResult[0]?.total || 0,
-        totalExpenses: expensesResult[0]?.total || 0,
-        netProfit: (revenueResult[0]?.total || 0) - (expensesResult[0]?.total || 0),
-        timeline,
-        categoryBreakdown,
-        projectPerformance,
+        totalRevenue: Number(revenueResult[0]?.total) || 0,
+        totalExpenses: Number(expensesResult[0]?.total) || 0,
+        netProfit: (Number(revenueResult[0]?.total) || 0) - (Number(expensesResult[0]?.total) || 0),
+        timeline: timeline.map(t => ({
+          ...t,
+          revenue: Number(t.revenue) || 0,
+          expenses: Number(t.expenses) || 0,
+        })),
+        categoryBreakdown: categoryBreakdown.map(c => ({
+          ...c,
+          amount: Number(c.amount) || 0,
+        })),
+        projectPerformance: projectPerformance.map(p => ({
+          ...p,
+          budget: Number(p.budget) || 0,
+          spent: Number(p.spent) || 0,
+        })),
       },
     });
   } catch (error) {

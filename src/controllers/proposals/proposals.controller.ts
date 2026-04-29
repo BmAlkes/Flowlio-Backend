@@ -4,6 +4,8 @@ import { logger } from "@/utils/logger.util";
 import { eq, desc, and } from "drizzle-orm";
 import { proposals, notifications, clients } from "@/schema/schema";
 import crypto from "crypto";
+import { uploadToCloudinary } from "@/utils/cloudinary.util";
+import fs from "fs";
 
 /**
  * Save a generated proposal to the database and notify the client
@@ -93,6 +95,119 @@ export const createProposal = async (
     res.status(500).json({
       success: false,
       message: "Failed to save proposal",
+      error: process.env.NODE_ENV === "development" ? error : undefined,
+    });
+  }
+};
+
+/**
+ * Upload a manual proposal file and notify the client
+ */
+export const uploadManualProposal = async (
+  req: any,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    const organizationId = (req.user as any)?.organizationId;
+    if (!organizationId) {
+      res.status(400).json({ success: false, message: "Organization not found" });
+      return;
+    }
+
+    const { clientId, projectTitle, clientName, companyName } = req.body;
+    const file = req.file;
+
+    if (!clientId || !projectTitle || !file) {
+      res.status(400).json({
+        success: false,
+        message: "clientId, projectTitle, and file are required",
+      });
+      return;
+    }
+
+    // Verify client belongs to this organization
+    const [client] = await database
+      .select()
+      .from(clients)
+      .where(and(eq(clients.id, clientId), eq(clients.organizationId, organizationId)))
+      .limit(1);
+
+    if (!client) {
+      res.status(404).json({ success: false, message: "Client not found" });
+      return;
+    }
+
+    // Upload file to Cloudinary
+    let uploadResult;
+    try {
+      uploadResult = await uploadToCloudinary(file.path, `proposals/${organizationId}`);
+      
+      // Clean up the local file after upload
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+    } catch (uploadError) {
+      logger.error("Cloudinary upload error:", uploadError);
+      res.status(500).json({ success: false, message: "Failed to upload file to storage" });
+      return;
+    }
+
+    // Insert proposal
+    const [newProposal] = await database
+      .insert(proposals)
+      .values({
+        id: crypto.randomUUID(),
+        organizationId,
+        clientId,
+        createdBy: req.user.id,
+        projectTitle,
+        clientName: clientName || client.name,
+        companyName: companyName || "",
+        proposalData: {
+          isManual: true,
+          fileUrl: uploadResult.secure_url,
+          fileName: file.originalname,
+          fileSize: file.size,
+          mimeType: file.mimetype,
+        },
+        status: "pending",
+      })
+      .returning();
+
+    // Send a notification to the client (if they have a userId linked)
+    if (client.userId) {
+      try {
+        await database.insert(notifications).values({
+          id: crypto.randomUUID(),
+          userId: client.userId,
+          organizationId,
+          type: "proposal",
+          title: "New Proposal Received",
+          message: `You have received a new proposal: "${projectTitle}". Please review and approve or reject it in your portal.`,
+          data: { proposalId: newProposal.id, projectTitle },
+          read: false,
+          createdAt: new Date(),
+        });
+      } catch (notifError) {
+        logger.warn("Failed to send client notification:", notifError);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "Proposal uploaded and client notified successfully",
+      data: newProposal,
+    });
+  } catch (error) {
+    logger.error("Error uploading manual proposal:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to upload proposal",
       error: process.env.NODE_ENV === "development" ? error : undefined,
     });
   }

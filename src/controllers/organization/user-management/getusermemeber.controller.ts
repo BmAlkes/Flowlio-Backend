@@ -85,6 +85,7 @@ export const getAllUserMembers = async (req: Request, res: Response) => {
         lastLoginAt: userManagement.lastLoginAt,
         loginAttempts: userManagement.loginAttempts,
         lockedUntil: userManagement.lockedUntil,
+        position: userManagement.position,
       })
       .from(userManagement)
       .where(and(...whereConditions))
@@ -290,6 +291,7 @@ export const getCurrentOrgUserMembers = async (req: Request, res: Response) => {
         lastLoginAt: userManagement.lastLoginAt,
         loginAttempts: userManagement.loginAttempts,
         lockedUntil: userManagement.lockedUntil,
+        position: userManagement.position,
       })
       .from(userManagement)
       .where(eq(userManagement.organizationId, organizationId))

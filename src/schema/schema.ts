@@ -75,6 +75,7 @@ export const users = pgTable(
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
+    position: text("position"),
   },
   (table) => ({
     emailIdx: index("users_email_idx").on(table.email),
@@ -507,7 +508,7 @@ export const invoices = pgTable(
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
-    invoiceNumber: text("invoice_number").notNull().unique(),
+    invoiceNumber: text("invoice_number").notNull(),
     clientname: text("client_name").notNull(),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     status: text("status")
@@ -534,6 +535,11 @@ export const invoices = pgTable(
       table.invoiceNumber,
     ),
     createdByIdx: index("invoices_created_by_idx").on(table.createdBy),
+    // Invoice numbers should be unique per organization
+    uniqueInvoiceNumberPerOrg: unique("unique_invoice_number_per_org").on(
+      table.invoiceNumber,
+      table.organizationId,
+    ),
   }),
 );
 
@@ -682,6 +688,7 @@ export const userManagement = pgTable(
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
+    position: text("position"),
   },
   (table) => ({
     emailIdx: index("user_management_email_idx").on(table.email),

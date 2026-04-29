@@ -121,6 +121,7 @@ export const createUserMember = async (req: Request, res: Response) => {
       email,
       phonenumber,
       userrole,
+      position,
       companyname,
       setpermission,
       password,
@@ -215,6 +216,7 @@ export const createUserMember = async (req: Request, res: Response) => {
         emailVerified: false,
         status: "active", // Child users are active by default (parent org already paid)
         image: imageUrl,
+        position: position,
         createdAt: now,
         updatedAt: now,
       })
@@ -293,6 +295,7 @@ export const createUserMember = async (req: Request, res: Response) => {
         userrole: userrole,
         companyname: companyname,
         setpermission: setpermission,
+        position: position,
         password: hashedPassword, // Store Better Auth hashed password
         organizationId: organizationId,
         status: "active",
@@ -385,6 +388,7 @@ export const createUserMember = async (req: Request, res: Response) => {
           userrole: userMemberRecord.userrole,
           companyname: userMemberRecord.companyname,
           setpermission: userMemberRecord.setpermission,
+          position: userMemberRecord.position,
           status: userMemberRecord.status,
           isActive: userMemberRecord.isActive,
           organizationId: userMemberRecord.organizationId,
