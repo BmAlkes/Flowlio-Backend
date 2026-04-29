@@ -70,11 +70,9 @@ const corsOptions: CorsOptions = {
         ? frontendDomain.slice(0, -1)
         : frontendDomain,
       frontendDomain.endsWith("/") ? frontendDomain : frontendDomain + "/",
-      // Add common localhost variations for development
       "http://localhost:3000",
       "http://localhost:4000",
       "http://localhost:4001",
-      // Add production frontend URL
       "https://flowlioapp.com",
       "https://flowlioapp.com/",
     ];

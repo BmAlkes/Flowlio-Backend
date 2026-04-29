@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { eq } from "drizzle-orm";
-import { supportTickets } from "../../../drizzle/schema";
+import { supportTickets } from "@/schema/schema";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
 

@@ -5,6 +5,7 @@ import { eq, desc } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { requireOrganizationId } from "@/utils/organization.util";
+import { notifyClientInteraction } from "@/utils/client-notification.util";
 
 // Fetch interactions for a client
 export const getClientTimeline = async (req: any, res: Response): Promise<void> => {
@@ -75,6 +76,13 @@ export const addClientInteraction = async (req: any, res: Response): Promise<voi
       success: true,
       data: interaction[0]
     });
+
+    // Notify assigned manager and admins (async)
+    notifyClientInteraction({
+      interaction: interaction[0],
+      actor: req.user,
+      organizationId
+    }).catch(err => logger.error("Background notification failed:", err));
 
   } catch (error) {
     logger.error("Error adding client interaction:", error);

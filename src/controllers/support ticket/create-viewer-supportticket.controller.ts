@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { eq, and, or, desc } from "drizzle-orm";
@@ -7,7 +7,7 @@ import {
   users,
   notifications,
   userOrganizations,
-} from "../../../drizzle/schema";
+} from "@/schema/schema";
 import { z } from "zod";
 import status from "http-status";
 import crypto from "crypto";
@@ -16,7 +16,7 @@ import crypto from "crypto";
 const createViewerSupportTicketNotifications = async (
   ticket: any,
   creator: any,
-  assignedToUser?: string
+  assignedToUser?: string,
 ) => {
   try {
     const notificationPromises = [];
@@ -37,8 +37,8 @@ const createViewerSupportTicketNotifications = async (
             submittedBy: creator.name || "Unknown User",
           },
           read: false,
-          createdAt: new Date().toISOString(),
-        })
+          createdAt: new Date(),
+        }),
       );
     }
 
@@ -75,8 +75,8 @@ const createViewerSupportTicketNotifications = async (
                 submittedBy: creator.name || "Unknown User",
               },
               read: false,
-              createdAt: new Date().toISOString(),
-            })
+              createdAt: new Date(),
+            }),
           );
         }
       }
@@ -86,7 +86,7 @@ const createViewerSupportTicketNotifications = async (
     if (notificationPromises.length > 0) {
       await Promise.all(notificationPromises);
       logger.info(
-        `Created ${notificationPromises.length} notifications for viewer support ticket ${ticket.ticketNumber}`
+        `Created ${notificationPromises.length} notifications for viewer support ticket ${ticket.ticketNumber}`,
       );
     }
   } catch (error) {
@@ -105,11 +105,12 @@ const createViewerSupportTicketSchema = z.object({
     .default("medium"),
   client: z.string().optional(),
   assignedToUser: z.string().optional(), // Only specific user assignment allowed
+  destination: z.enum(["internal", "platform"]).default("internal"),
 });
 
 export const createViewerSupportTicket = async (
-  req: Request,
-  res: Response
+  req: any,
+  res: Response,
 ): Promise<void> => {
   const user = req.user;
 
@@ -136,20 +137,20 @@ export const createViewerSupportTicket = async (
 
     logger.info("User:", JSON.stringify(user, null, 2));
     logger.info(
-      `Creating viewer ticket for user ID: ${user.id}, role: ${user.role}`
+      `Creating viewer ticket for user ID: ${user.id}, role: ${user.role}`,
     );
 
     // Validate request body
     logger.info("About to validate request body...");
     const validationResult = createViewerSupportTicketSchema.safeParse(
-      req.body
+      req.body,
     );
     if (!validationResult.success) {
       logger.error("Validation failed:", validationResult.error.errors);
       logger.error("Request body:", req.body);
       logger.error(
         "Validation error details:",
-        JSON.stringify(validationResult.error, null, 2)
+        JSON.stringify(validationResult.error, null, 2),
       );
       res.status(status.BAD_REQUEST).json({
         success: false,
@@ -160,8 +161,14 @@ export const createViewerSupportTicket = async (
     }
     logger.info("Validation passed successfully");
 
-    const { subject, description, priority, client, assignedToUser } =
-      validationResult.data;
+    const {
+      subject,
+      description,
+      priority,
+      client,
+      assignedToUser,
+      destination,
+    } = validationResult.data;
 
     // Viewers can only assign to users in their organization
     if (assignedToUser) {
@@ -189,11 +196,20 @@ export const createViewerSupportTicket = async (
     const randomSixDigitNumber = Math.floor(100000 + Math.random() * 900000);
     const ticketNumber = `VWR-${randomSixDigitNumber}`; // Prefix for viewer tickets
 
+    // Determine client routing
+    let finalClient = client || user.organizationId || "General";
+    if (destination === "internal" && user.organizationId) {
+      finalClient = user.organizationId;
+    } else if (destination === "platform") {
+      finalClient = "Platform";
+    }
+
     // Debug: Log assignment values
     logger.info("Assignment debug:", {
       assignedToUser,
+      destination,
       finalAssignedTo: assignedToUser || "Unassigned",
-      finalClient: client || assignedToUser || "General",
+      finalClient,
     });
 
     // Create support ticket
@@ -203,15 +219,16 @@ export const createViewerSupportTicket = async (
         ticketNumber,
         subject,
         description,
-        priority,
-        status: "open",
+        priority: priority as "low" | "medium" | "high" | "urgent",
+        status: "open" as "open" | "in_progress" | "resolved" | "closed",
         submittedby: user.id,
         submittedbyName: user.name || "Unknown User",
         submittedbyRole: user.role,
-        client: client || assignedToUser || "General",
+        destination,
+        client: finalClient,
         assignedto: assignedToUser || "Unassigned",
-        createdon: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdon: new Date(),
+        updatedAt: new Date(),
       })
       .returning();
 
@@ -229,11 +246,11 @@ export const createViewerSupportTicket = async (
     await createViewerSupportTicketNotifications(
       newTicket,
       creator,
-      assignedToUser
+      assignedToUser,
     );
 
     logger.info(
-      `Viewer support ticket created: ${ticketNumber} by user ${user.id}`
+      `Viewer support ticket created: ${ticketNumber} by user ${user.id}`,
     );
 
     res.status(status.CREATED).json({
@@ -255,8 +272,8 @@ export const createViewerSupportTicket = async (
 
 // Get viewer support tickets (only tickets assigned to the viewer)
 export const getViewerSupportTickets = async (
-  req: Request,
-  res: Response
+  req: any,
+  res: Response,
 ): Promise<void> => {
   const user = req.user;
 
@@ -339,15 +356,15 @@ export const getViewerSupportTickets = async (
     // Apply additional filters
     if (ticketStatus) {
       finalConditions.push(
-        eq(supportTickets.status, ticketStatus as "open" | "closed")
+        eq(supportTickets.status, ticketStatus as "open" | "closed"),
       );
     }
     if (priority) {
       finalConditions.push(
         eq(
           supportTickets.priority,
-          priority as "low" | "medium" | "high" | "urgent"
-        )
+          priority as "low" | "medium" | "high" | "urgent",
+        ),
       );
     }
 
@@ -371,7 +388,7 @@ export const getViewerSupportTickets = async (
     });
 
     logger.info(
-      `Found ${tickets.length} tickets for viewer ${user.id} (directly assigned or to organization ${organizationId})`
+      `Found ${tickets.length} tickets for viewer ${user.id} (directly assigned or to organization ${organizationId})`,
     );
 
     // Log ticket details for debugging
@@ -385,11 +402,11 @@ export const getViewerSupportTickets = async (
           assignedto: t.assignedto,
           submittedby: t.submittedby,
           status: t.status,
-        }))
+        })),
       );
     } else {
       logger.info(
-        "No tickets found assigned to viewer. Checking if there are any tickets in the system..."
+        "No tickets found assigned to viewer. Checking if there are any tickets in the system...",
       );
       const allTickets = await database.query.supportTickets.findMany({
         limit: 5,
@@ -403,7 +420,7 @@ export const getViewerSupportTickets = async (
           assignedto: t.assignedto,
           submittedby: t.submittedby,
           status: t.status,
-        }))
+        })),
       );
     }
 

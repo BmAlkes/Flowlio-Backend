@@ -46,15 +46,15 @@ export const organizations = pgTable(
   (table) => [
     index("organizations_slug_idx").using(
       "btree",
-      table.slug.asc().nullsLast().op("text_ops")
+      table.slug.asc().nullsLast().op("text_ops"),
     ),
     index("organizations_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("organizations_subscription_idx").using(
       "btree",
-      table.subscriptionStatus.asc().nullsLast().op("text_ops")
+      table.subscriptionStatus.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.subscriptionPlanId],
@@ -62,7 +62,7 @@ export const organizations = pgTable(
       name: "organizations_subscription_plan_id_subscription_plans_id_fk",
     }),
     unique("organizations_slug_unique").on(table.slug),
-  ]
+  ],
 );
 
 export const throttleInsight = pgTable("throttle_insight", {
@@ -114,14 +114,14 @@ export const users = pgTable(
   (table) => [
     index("users_email_idx").using(
       "btree",
-      table.email.asc().nullsLast().op("text_ops")
+      table.email.asc().nullsLast().op("text_ops"),
     ),
     index("users_super_admin_idx").using(
       "btree",
-      table.isSuperAdmin.asc().nullsLast().op("bool_ops")
+      table.isSuperAdmin.asc().nullsLast().op("bool_ops"),
     ),
     unique("users_email_unique").on(table.email),
-  ]
+  ],
 );
 
 export const verification = pgTable("verification", {
@@ -161,7 +161,7 @@ export const account = pgTable(
       name: "account_user_id_users_id_fk",
     }).onDelete("cascade"),
     unique("user_provider_unique").on(table.userId, table.providerId),
-  ]
+  ],
 );
 
 export const session = pgTable(
@@ -183,7 +183,7 @@ export const session = pgTable(
       name: "session_user_id_users_id_fk",
     }).onDelete("cascade"),
     unique("session_token_unique").on(table.token),
-  ]
+  ],
 );
 
 export const subadmin = pgTable(
@@ -209,7 +209,7 @@ export const subadmin = pgTable(
       name: "subadmin_created_by_users_id_fk",
     }).onDelete("set null"),
     unique("subadmin_email_unique").on(table.email),
-  ]
+  ],
 );
 
 export const userOrganizations = pgTable(
@@ -230,16 +230,16 @@ export const userOrganizations = pgTable(
   (table) => [
     index("user_organizations_role_idx").using(
       "btree",
-      table.role.asc().nullsLast().op("text_ops")
+      table.role.asc().nullsLast().op("text_ops"),
     ),
     index("user_organizations_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("user_organizations_user_org_idx").using(
       "btree",
       table.userId.asc().nullsLast().op("text_ops"),
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.userId],
@@ -256,7 +256,7 @@ export const userOrganizations = pgTable(
       foreignColumns: [users.id],
       name: "user_organizations_invited_by_users_id_fk",
     }),
-  ]
+  ],
 );
 
 export const clients = pgTable(
@@ -281,15 +281,15 @@ export const clients = pgTable(
   (table) => [
     index("clients_email_idx").using(
       "btree",
-      table.email.asc().nullsLast().op("text_ops")
+      table.email.asc().nullsLast().op("text_ops"),
     ),
     index("clients_organization_idx").using(
       "btree",
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     index("clients_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.organizationId],
@@ -301,7 +301,7 @@ export const clients = pgTable(
       foreignColumns: [users.id],
       name: "clients_created_by_users_id_fk",
     }),
-  ]
+  ],
 );
 
 export const invitations = pgTable(
@@ -323,19 +323,19 @@ export const invitations = pgTable(
   (table) => [
     index("invitations_email_idx").using(
       "btree",
-      table.email.asc().nullsLast().op("text_ops")
+      table.email.asc().nullsLast().op("text_ops"),
     ),
     index("invitations_organization_idx").using(
       "btree",
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     index("invitations_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("invitations_token_idx").using(
       "btree",
-      table.token.asc().nullsLast().op("text_ops")
+      table.token.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.organizationId],
@@ -348,7 +348,7 @@ export const invitations = pgTable(
       name: "invitations_invited_by_users_id_fk",
     }),
     unique("invitations_token_unique").on(table.token),
-  ]
+  ],
 );
 
 export const invoices = pgTable(
@@ -373,15 +373,15 @@ export const invoices = pgTable(
   (table) => [
     index("invoices_organization_idx").using(
       "btree",
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     index("invoices_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("invoices_stripe_idx").using(
       "btree",
-      table.stripeInvoiceId.asc().nullsLast().op("text_ops")
+      table.stripeInvoiceId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.organizationId],
@@ -394,7 +394,7 @@ export const invoices = pgTable(
       name: "invoices_subscription_id_subscriptions_id_fk",
     }),
     unique("invoices_stripe_invoice_id_unique").on(table.stripeInvoiceId),
-  ]
+  ],
 );
 
 export const notifications = pgTable(
@@ -415,15 +415,15 @@ export const notifications = pgTable(
   (table) => [
     index("notifications_read_idx").using(
       "btree",
-      table.read.asc().nullsLast().op("bool_ops")
+      table.read.asc().nullsLast().op("bool_ops"),
     ),
     index("notifications_type_idx").using(
       "btree",
-      table.type.asc().nullsLast().op("text_ops")
+      table.type.asc().nullsLast().op("text_ops"),
     ),
     index("notifications_user_idx").using(
       "btree",
-      table.userId.asc().nullsLast().op("text_ops")
+      table.userId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.userId],
@@ -435,7 +435,7 @@ export const notifications = pgTable(
       foreignColumns: [organizations.id],
       name: "notifications_organization_id_organizations_id_fk",
     }),
-  ]
+  ],
 );
 
 export const projects = pgTable(
@@ -474,27 +474,27 @@ export const projects = pgTable(
   (table) => [
     index("projects_created_by_idx").using(
       "btree",
-      table.createdBy.asc().nullsLast().op("text_ops")
+      table.createdBy.asc().nullsLast().op("text_ops"),
     ),
     index("projects_organization_idx").using(
       "btree",
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     index("projects_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("projects_project_number_idx").using(
       "btree",
-      table.projectNumber.asc().nullsLast().op("text_ops")
+      table.projectNumber.asc().nullsLast().op("text_ops"),
     ),
     index("projects_client_id_idx").using(
       "btree",
-      table.clientId.asc().nullsLast().op("text_ops")
+      table.clientId.asc().nullsLast().op("text_ops"),
     ),
     index("projects_assigned_to_idx").using(
       "btree",
-      table.assignedTo.asc().nullsLast().op("text_ops")
+      table.assignedTo.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.organizationId],
@@ -516,7 +516,7 @@ export const projects = pgTable(
       foreignColumns: [users.id],
       name: "projects_assigned_to_users_id_fk",
     }),
-  ]
+  ],
 );
 
 export const projectComments = pgTable(
@@ -533,15 +533,15 @@ export const projectComments = pgTable(
   (table) => [
     index("project_comments_project_idx").using(
       "btree",
-      table.projectId.asc().nullsLast().op("text_ops")
+      table.projectId.asc().nullsLast().op("text_ops"),
     ),
     index("project_comments_user_idx").using(
       "btree",
-      table.userId.asc().nullsLast().op("text_ops")
+      table.userId.asc().nullsLast().op("text_ops"),
     ),
     index("project_comments_parent_idx").using(
       "btree",
-      table.parentId.asc().nullsLast().op("text_ops")
+      table.parentId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.projectId],
@@ -558,7 +558,7 @@ export const projectComments = pgTable(
       foreignColumns: [table.id],
       name: "project_comments_parent_id_project_comments_id_fk",
     }).onDelete("cascade"),
-  ]
+  ],
 );
 
 export const subscriptionPlans = pgTable(
@@ -586,14 +586,14 @@ export const subscriptionPlans = pgTable(
   (table) => [
     index("subscription_plans_active_idx").using(
       "btree",
-      table.isActive.asc().nullsLast().op("bool_ops")
+      table.isActive.asc().nullsLast().op("bool_ops"),
     ),
     index("subscription_plans_slug_idx").using(
       "btree",
-      table.slug.asc().nullsLast().op("text_ops")
+      table.slug.asc().nullsLast().op("text_ops"),
     ),
     unique("subscription_plans_slug_unique").on(table.slug),
-  ]
+  ],
 );
 
 export const auditLogs = pgTable(
@@ -615,23 +615,23 @@ export const auditLogs = pgTable(
   (table) => [
     index("audit_logs_action_idx").using(
       "btree",
-      table.action.asc().nullsLast().op("text_ops")
+      table.action.asc().nullsLast().op("text_ops"),
     ),
     index("audit_logs_created_at_idx").using(
       "btree",
-      table.createdAt.asc().nullsLast().op("timestamp_ops")
+      table.createdAt.asc().nullsLast().op("timestamp_ops"),
     ),
     index("audit_logs_organization_idx").using(
       "btree",
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     index("audit_logs_resource_idx").using(
       "btree",
-      table.resource.asc().nullsLast().op("text_ops")
+      table.resource.asc().nullsLast().op("text_ops"),
     ),
     index("audit_logs_user_idx").using(
       "btree",
-      table.userId.asc().nullsLast().op("text_ops")
+      table.userId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.organizationId],
@@ -643,7 +643,7 @@ export const auditLogs = pgTable(
       foreignColumns: [users.id],
       name: "audit_logs_user_id_users_id_fk",
     }),
-  ]
+  ],
 );
 
 export const subscriptions = pgTable(
@@ -672,15 +672,15 @@ export const subscriptions = pgTable(
   (table) => [
     index("subscriptions_organization_idx").using(
       "btree",
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     index("subscriptions_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("subscriptions_stripe_idx").using(
       "btree",
-      table.stripeSubscriptionId.asc().nullsLast().op("text_ops")
+      table.stripeSubscriptionId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.organizationId],
@@ -693,9 +693,9 @@ export const subscriptions = pgTable(
       name: "subscriptions_plan_id_subscription_plans_id_fk",
     }),
     unique("subscriptions_stripe_subscription_id_unique").on(
-      table.stripeSubscriptionId
+      table.stripeSubscriptionId,
     ),
-  ]
+  ],
 );
 
 export const tasks = pgTable(
@@ -719,19 +719,19 @@ export const tasks = pgTable(
   (table) => [
     index("tasks_assigned_to_idx").using(
       "btree",
-      table.assignedTo.asc().nullsLast().op("text_ops")
+      table.assignedTo.asc().nullsLast().op("text_ops"),
     ),
     index("tasks_end_date_idx").using(
       "btree",
-      table.endDate.asc().nullsLast().op("timestamp_ops")
+      table.endDate.asc().nullsLast().op("timestamp_ops"),
     ),
     index("tasks_project_idx").using(
       "btree",
-      table.projectId.asc().nullsLast().op("text_ops")
+      table.projectId.asc().nullsLast().op("text_ops"),
     ),
     index("tasks_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.projectId],
@@ -748,7 +748,7 @@ export const tasks = pgTable(
       foreignColumns: [users.id],
       name: "tasks_created_by_users_id_fk",
     }),
-  ]
+  ],
 );
 
 export const timeEntries = pgTable(
@@ -773,19 +773,19 @@ export const timeEntries = pgTable(
   (table) => [
     index("time_entries_project_idx").using(
       "btree",
-      table.projectId.asc().nullsLast().op("text_ops")
+      table.projectId.asc().nullsLast().op("text_ops"),
     ),
     index("time_entries_start_time_idx").using(
       "btree",
-      table.startTime.asc().nullsLast().op("timestamp_ops")
+      table.startTime.asc().nullsLast().op("timestamp_ops"),
     ),
     index("time_entries_task_idx").using(
       "btree",
-      table.taskId.asc().nullsLast().op("text_ops")
+      table.taskId.asc().nullsLast().op("text_ops"),
     ),
     index("time_entries_user_idx").using(
       "btree",
-      table.userId.asc().nullsLast().op("text_ops")
+      table.userId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.userId],
@@ -807,7 +807,7 @@ export const timeEntries = pgTable(
       foreignColumns: [clients.id],
       name: "time_entries_client_id_clients_id_fk",
     }),
-  ]
+  ],
 );
 
 export const supportTickets = pgTable(
@@ -825,6 +825,7 @@ export const supportTickets = pgTable(
     submittedby: text("submitted_by").notNull(),
     submittedbyName: text("submitted_by_name"),
     submittedbyRole: text("submitted_by_role"),
+    destination: text("destination").notNull().default("platform"),
     client: text("client").notNull(),
     assignedto: text("assigned_to").notNull(),
     createdon: timestamp("created_on", { mode: "string" }).notNull(),
@@ -833,19 +834,19 @@ export const supportTickets = pgTable(
   (table) => [
     index("support_tickets_ticket_number_idx").using(
       "btree",
-      table.ticketNumber.asc().nullsLast().op("text_ops")
+      table.ticketNumber.asc().nullsLast().op("text_ops"),
     ),
     index("support_tickets_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("support_tickets_priority_idx").using(
       "btree",
-      table.priority.asc().nullsLast().op("text_ops")
+      table.priority.asc().nullsLast().op("text_ops"),
     ),
     index("support_tickets_submitted_by_idx").using(
       "btree",
-      table.submittedby.asc().nullsLast().op("text_ops")
+      table.submittedby.asc().nullsLast().op("text_ops"),
     ),
     unique("support_tickets_ticket_number_unique").on(table.ticketNumber),
     foreignKey({
@@ -853,7 +854,7 @@ export const supportTickets = pgTable(
       foreignColumns: [users.id],
       name: "support_tickets_submitted_by_users_id_fk",
     }),
-  ]
+  ],
 );
 
 export const userManagement = pgTable(
@@ -881,19 +882,19 @@ export const userManagement = pgTable(
   (table) => [
     index("user_management_email_idx").using(
       "btree",
-      table.email.asc().nullsLast().op("text_ops")
+      table.email.asc().nullsLast().op("text_ops"),
     ),
     index("user_management_organization_idx").using(
       "btree",
-      table.organizationId.asc().nullsLast().op("text_ops")
+      table.organizationId.asc().nullsLast().op("text_ops"),
     ),
     index("user_management_status_idx").using(
       "btree",
-      table.status.asc().nullsLast().op("text_ops")
+      table.status.asc().nullsLast().op("text_ops"),
     ),
     index("user_management_role_idx").using(
       "btree",
-      table.userrole.asc().nullsLast().op("text_ops")
+      table.userrole.asc().nullsLast().op("text_ops"),
     ),
     unique("user_management_email_unique").on(table.email),
     foreignKey({
@@ -906,7 +907,7 @@ export const userManagement = pgTable(
       foreignColumns: [users.id],
       name: "user_management_created_by_users_id_fk",
     }),
-  ]
+  ],
 );
 
 export const twoFactor = pgTable(
@@ -924,7 +925,7 @@ export const twoFactor = pgTable(
       foreignColumns: [users.id],
       name: "two_factor_user_id_users_id_fk",
     }).onDelete("cascade"),
-  ]
+  ],
 );
 
 export const twoFactorBackupCodes = pgTable(
@@ -942,5 +943,5 @@ export const twoFactorBackupCodes = pgTable(
       foreignColumns: [users.id],
       name: "two_factor_backup_codes_user_id_users_id_fk",
     }).onDelete("cascade"),
-  ]
+  ],
 );

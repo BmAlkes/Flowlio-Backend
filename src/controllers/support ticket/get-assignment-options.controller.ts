@@ -1,17 +1,17 @@
-import { Request, Response } from "express";
+import { Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { eq } from "drizzle-orm";
 import {
-  organizations as orgsTable,
+  organizations,
   users,
   userManagement,
-} from "../../../drizzle/schema";
+} from "@/schema/schema";
 import status from "http-status";
 
 export const getAssignmentOptions = async (
-  req: Request,
-  res: Response
+  req: any,
+  res: Response,
 ): Promise<void> => {
   try {
     const user = req.user;
@@ -32,12 +32,12 @@ export const getAssignmentOptions = async (
       return;
     }
 
-    let organizations: any[] = [];
+    let organizationsList: any[] = [];
     let usersList: any[] = [];
 
     if (user.role === "superadmin") {
       // Superadmin can see all organizations and users
-      organizations = await database.query.organizations.findMany({
+      organizationsList = await database.query.organizations.findMany({
         columns: {
           id: true,
           name: true,
@@ -72,7 +72,7 @@ export const getAssignmentOptions = async (
           });
 
           const orgDetails = await database.query.organizations.findFirst({
-            where: eq(orgsTable.id, member.organizationId),
+            where: eq(organizations.id, member.organizationId || ""),
             columns: {
               id: true,
               name: true,
@@ -91,12 +91,12 @@ export const getAssignmentOptions = async (
                 }
               : undefined,
           };
-        })
+        }),
       );
     } else if (user.role === "subadmin") {
       // Subadmin can only see their own organization and users within it
       const userOrg = await database.query.organizations.findFirst({
-        where: eq(orgsTable.id, user.organizationId || ""),
+        where: eq(organizations.id, user.organizationId || ""),
         columns: {
           id: true,
           name: true,
@@ -104,7 +104,7 @@ export const getAssignmentOptions = async (
       });
 
       if (userOrg) {
-        organizations = [userOrg];
+        organizationsList = [userOrg];
       }
 
       // Get user members from userManagement table for subadmin's organization
@@ -144,7 +144,7 @@ export const getAssignmentOptions = async (
               name: userOrg?.name || "Unknown Organization",
             },
           };
-        })
+        }),
       );
     } else if (user.role === "user") {
       // Regular users can only see themselves
@@ -162,30 +162,21 @@ export const getAssignmentOptions = async (
         usersList = [currentUser];
       }
       // No organizations for regular users
-      organizations = [];
+      organizationsList = [];
     }
 
     logger.info(
-      `Retrieved assignment options for user ${user.id} (${user.role})`
+      `Retrieved assignment options for user ${user.id} (${user.role})`,
     );
     logger.info(
-      `Found ${organizations.length} organizations and ${usersList.length} users`
-    );
-    logger.info(
-      "Users list:",
-      usersList.map((u) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        role: u.role,
-      }))
+      `Found ${organizationsList.length} organizations and ${usersList.length} users`,
     );
 
     res.status(status.OK).json({
       success: true,
       message: "Assignment options retrieved successfully",
       data: {
-        organizations,
+        organizations: organizationsList,
         users: usersList,
       },
     });

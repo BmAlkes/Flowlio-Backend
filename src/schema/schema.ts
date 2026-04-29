@@ -574,7 +574,9 @@ export const recurringInvoices = pgTable(
       .notNull(),
   },
   (table) => ({
-    orgIdx: index("recurring_invoices_organization_idx").on(table.organizationId),
+    orgIdx: index("recurring_invoices_organization_idx").on(
+      table.organizationId,
+    ),
     clientIdx: index("recurring_invoices_client_idx").on(table.clientId),
     statusIdx: index("recurring_invoices_status_idx").on(table.status),
     nextRunIdx: index("recurring_invoices_next_run_idx").on(table.nextRunDate),
@@ -787,7 +789,6 @@ export const fileVersions = pgTable(
   }),
 );
 
-
 // ==================== CLIENT MANAGEMENT ====================
 
 export const clients = pgTable(
@@ -935,7 +936,9 @@ export const clientInteractions = pgTable(
   (table) => ({
     clientIdx: index("client_interactions_client_idx").on(table.clientId),
     typeIdx: index("client_interactions_type_idx").on(table.type),
-    createdAtIdx: index("client_interactions_created_at_idx").on(table.createdAt),
+    createdAtIdx: index("client_interactions_created_at_idx").on(
+      table.createdAt,
+    ),
   }),
 );
 
@@ -1054,8 +1057,12 @@ export const supportTickets = pgTable(
     ticketNumber: text("ticket_number").notNull().unique(),
     subject: text("subject").notNull(),
     description: text("description").notNull(),
-    priority: text("priority", { enum: ["High", "Medium", "Low"] }).notNull(),
-    status: text("status", { enum: ["open", "closed"] })
+    priority: text("priority", {
+      enum: ["low", "medium", "high", "urgent"],
+    }).notNull(),
+    status: text("status", {
+      enum: ["open", "in_progress", "resolved", "closed"],
+    })
       .notNull()
       .default("open"),
     submittedby: text("submitted_by")
@@ -1063,6 +1070,9 @@ export const supportTickets = pgTable(
       .references(() => users.id),
     submittedbyRole: text("submitted_by_role").notNull(),
     submittedbyName: text("submitted_by_name").notNull(),
+    destination: text("destination", { enum: ["internal", "platform"] })
+      .notNull()
+      .default("platform"),
     client: text("client").notNull(),
     assignedto: text("assigned_to").notNull(),
     createdon: timestamp("created_on").notNull().defaultNow(),
@@ -1098,8 +1108,12 @@ export const supportTicketMessages = pgTable(
       .notNull(),
   },
   (table) => ({
-    ticketIdIdx: index("support_ticket_messages_ticket_id_idx").on(table.ticketId),
-    senderIdIdx: index("support_ticket_messages_sender_id_idx").on(table.senderId),
+    ticketIdIdx: index("support_ticket_messages_ticket_id_idx").on(
+      table.ticketId,
+    ),
+    senderIdIdx: index("support_ticket_messages_sender_id_idx").on(
+      table.senderId,
+    ),
   }),
 );
 // ==================== PAYMENT LINKS ====================
@@ -1700,7 +1714,9 @@ export const proposals = pgTable(
     // Store the full AI-generated proposal data as JSON
     proposalData: json("proposal_data").$type<Record<string, any>>(),
     // Status: pending | approved | rejected
-    status: text("status").$defaultFn(() => "pending").notNull(),
+    status: text("status")
+      .$defaultFn(() => "pending")
+      .notNull(),
     approvedAt: timestamp("approved_at"),
     rejectedAt: timestamp("rejected_at"),
     rejectionReason: text("rejection_reason"),
@@ -1750,7 +1766,9 @@ export const projectTemplates = pgTable(
     createdBy: text("created_by").references(() => users.id, {
       onDelete: "set null",
     }),
-    isGlobal: boolean("is_global").$defaultFn(() => false).notNull(),
+    isGlobal: boolean("is_global")
+      .$defaultFn(() => false)
+      .notNull(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -1759,7 +1777,9 @@ export const projectTemplates = pgTable(
       .notNull(),
   },
   (table) => ({
-    orgIdx: index("project_templates_organization_idx").on(table.organizationId),
+    orgIdx: index("project_templates_organization_idx").on(
+      table.organizationId,
+    ),
     globalIdx: index("project_templates_global_idx").on(table.isGlobal),
   }),
 );
@@ -1776,7 +1796,9 @@ export const projectTemplateTasks = pgTable(
     title: text("title").notNull(),
     description: text("description"),
     estimatedHours: decimal("estimated_hours", { precision: 10, scale: 2 }),
-    order: integer("order").$defaultFn(() => 0).notNull(),
+    order: integer("order")
+      .$defaultFn(() => 0)
+      .notNull(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -1785,7 +1807,9 @@ export const projectTemplateTasks = pgTable(
       .notNull(),
   },
   (table) => ({
-    templateIdx: index("project_template_tasks_template_idx").on(table.templateId),
+    templateIdx: index("project_template_tasks_template_idx").on(
+      table.templateId,
+    ),
   }),
 );
 
@@ -1831,4 +1855,3 @@ export const clientInteractionsRelations = relations(
     }),
   }),
 );
-

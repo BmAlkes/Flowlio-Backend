@@ -1,13 +1,13 @@
-import { Request, Response } from "express";
+import { Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
-import { eq } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import {
   supportTickets,
   users,
   notifications,
   userOrganizations,
-} from "../../../drizzle/schema";
+} from "@/schema/schema";
 import { z } from "zod";
 import status from "http-status";
 import crypto from "crypto";
@@ -18,12 +18,85 @@ const createSupportTicketNotifications = async (
   ticket: any,
   creator: any,
   assignedToOrganization?: string,
-  assignedToUser?: string
+  assignedToUser?: string,
 ) => {
   try {
     const notificationPromises = [];
 
-    // If assigned to a specific user, notify that user
+    // If it's an internal ticket, notify organization admins/managers
+    if (ticket.destination === "internal" && creator.organizationId) {
+      const orgAdmins = await database.query.userOrganizations.findMany({
+        where: and(
+          eq(userOrganizations.organizationId, creator.organizationId),
+          or(
+            eq(userOrganizations.role, "admin"),
+            eq(userOrganizations.role, "manager"),
+            eq(userOrganizations.role, "subadmin"),
+          ),
+        ),
+        with: {
+          user: true,
+        },
+      });
+
+      for (const orgAdmin of orgAdmins) {
+        if (orgAdmin.userId !== creator.id) {
+          notificationPromises.push(
+            database.insert(notifications).values({
+              id: crypto.randomUUID(),
+              userId: orgAdmin.userId,
+              organizationId: creator.organizationId,
+              type: "internal_support_ticket",
+              title: "New Internal Support Request",
+              message: `A member of your organization submitted an internal support ticket: ${ticket.subject}`,
+              data: {
+                ticketId: ticket.id,
+                ticketNumber: ticket.ticketNumber,
+                priority: ticket.priority,
+                submittedBy: creator.name || "Unknown User",
+              },
+              read: false,
+              createdAt: new Date(),
+            }),
+          );
+        }
+      }
+    }
+
+    // If it's a platform ticket, notify super admins (if no specific assignment)
+    if (
+      ticket.destination === "platform" &&
+      !assignedToUser &&
+      !assignedToOrganization
+    ) {
+      const superAdmins = await database.query.users.findMany({
+        where: eq(users.role, "superadmin"),
+      });
+
+      for (const admin of superAdmins) {
+        if (admin.id !== creator.id) {
+          notificationPromises.push(
+            database.insert(notifications).values({
+              id: crypto.randomUUID(),
+              userId: admin.id,
+              type: "platform_support_ticket",
+              title: "New Platform Support Ticket",
+              message: `A new platform support ticket has been submitted: ${ticket.subject}`,
+              data: {
+                ticketId: ticket.id,
+                ticketNumber: ticket.ticketNumber,
+                priority: ticket.priority,
+                submittedBy: creator.name || "Unknown User",
+              },
+              read: false,
+              createdAt: new Date(),
+            }),
+          );
+        }
+      }
+    }
+
+    // Original notification logic for explicit assignments
     if (assignedToUser) {
       notificationPromises.push(
         database.insert(notifications).values({
@@ -39,8 +112,8 @@ const createSupportTicketNotifications = async (
             submittedBy: creator.name || "Unknown User",
           },
           read: false,
-          createdAt: new Date().toISOString(),
-        })
+          createdAt: new Date(),
+        }),
       );
     }
 
@@ -60,7 +133,6 @@ const createSupportTicketNotifications = async (
       });
 
       for (const orgUser of orgUsers) {
-        // Don't notify the creator
         if (orgUser.userId !== creator.id) {
           notificationPromises.push(
             database.insert(notifications).values({
@@ -77,67 +149,24 @@ const createSupportTicketNotifications = async (
                 submittedBy: creator.name || "Unknown User",
               },
               read: false,
-              createdAt: new Date().toISOString(),
-            })
+              createdAt: new Date(),
+            }),
           );
         }
       }
     }
 
-    // If no specific assignment, notify all users in the creator's organization
-    if (!assignedToUser && !assignedToOrganization && creator.organizationId) {
-      const orgUsers = await database.query.userOrganizations.findMany({
-        where: eq(userOrganizations.organizationId, creator.organizationId),
-        with: {
-          user: {
-            columns: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        },
-      });
-
-      for (const orgUser of orgUsers) {
-        // Don't notify the creator
-        if (orgUser.userId !== creator.id) {
-          notificationPromises.push(
-            database.insert(notifications).values({
-              id: crypto.randomUUID(),
-              userId: orgUser.userId,
-              organizationId: creator.organizationId,
-              type: "support_ticket_created",
-              title: "New Support Ticket Created",
-              message: `A new support ticket has been created: ${ticket.subject}`,
-              data: {
-                ticketId: ticket.id,
-                ticketNumber: ticket.ticketNumber,
-                priority: ticket.priority,
-                submittedBy: creator.name || "Unknown User",
-              },
-              read: false,
-              createdAt: new Date().toISOString(),
-            })
-          );
-        }
-      }
-    }
-
-    // Execute all notification inserts
     if (notificationPromises.length > 0) {
       await Promise.all(notificationPromises);
       logger.info(
-        `Created ${notificationPromises.length} notifications for support ticket ${ticket.ticketNumber}`
+        `Created ${notificationPromises.length} notifications for support ticket ${ticket.ticketNumber}`,
       );
     }
   } catch (error) {
     logger.error("Error creating support ticket notifications:", error);
-    // Don't throw error to avoid breaking ticket creation
   }
 };
 
-// Validation schema for creating support tickets
 const createSupportTicketSchema = z.object({
   subject: z.string().min(1, "Subject is required"),
   description: z.string().min(1, "Description is required"),
@@ -148,17 +177,16 @@ const createSupportTicketSchema = z.object({
   client: z.string().optional(),
   assignedToOrganization: z.string().optional(),
   assignedToUser: z.string().optional(),
+  destination: z.enum(["internal", "platform"]).default("platform"),
 });
 
 export const createSupportTicket = async (
-  req: Request,
-  res: Response
+  req: any,
+  res: Response,
 ): Promise<void> => {
   const user = req.user;
 
   try {
-    logger.info("=== CREATE SUPPORT TICKET DEBUG ===");
-    logger.info("Request body:", JSON.stringify(req.body, null, 2));
     if (!user) {
       res.status(status.UNAUTHORIZED).json({
         success: false,
@@ -167,19 +195,8 @@ export const createSupportTicket = async (
       return;
     }
 
-    logger.info("User:", JSON.stringify(user, null, 2));
-    logger.info(`Creating ticket for user ID: ${user.id}, role: ${user.role}`);
-
-    // Validate request body
-    logger.info("About to validate request body...");
     const validationResult = createSupportTicketSchema.safeParse(req.body);
     if (!validationResult.success) {
-      logger.error("Validation failed:", validationResult.error.errors);
-      logger.error("Request body:", req.body);
-      logger.error(
-        "Validation error details:",
-        JSON.stringify(validationResult.error, null, 2)
-      );
       res.status(status.BAD_REQUEST).json({
         success: false,
         message: "Validation failed",
@@ -187,7 +204,6 @@ export const createSupportTicket = async (
       });
       return;
     }
-    logger.info("Validation passed successfully");
 
     const {
       subject,
@@ -196,21 +212,17 @@ export const createSupportTicket = async (
       client,
       assignedToOrganization,
       assignedToUser,
+      destination,
     } = validationResult.data;
 
-    // Role-based permission validation
+    // Permissions check
     if (user.role === "user") {
-      // Regular users can create tickets for users in their organization
       if (assignedToUser) {
-        // Check if the assigned user is in the same organization as the creator
         const assignedUserOrg =
           await database.query.userOrganizations.findFirst({
             where: eq(userOrganizations.userId, assignedToUser),
-            columns: {
-              organizationId: true,
-            },
+            columns: { organizationId: true },
           });
-
         if (
           !assignedUserOrg ||
           assignedUserOrg.organizationId !== user.organizationId
@@ -223,7 +235,6 @@ export const createSupportTicket = async (
           return;
         }
       }
-
       if (assignedToOrganization) {
         res.status(status.FORBIDDEN).json({
           success: false,
@@ -231,100 +242,52 @@ export const createSupportTicket = async (
         });
         return;
       }
-    } else if (user.role === "subadmin") {
-      // Sub admins can only create tickets for users in their organization
-      if (assignedToUser) {
-        // Check if the assigned user is in the subadmin's organization
-        const assignedUserOrg =
-          await database.query.userOrganizations.findFirst({
-            where: eq(userOrganizations.userId, assignedToUser),
-            columns: {
-              organizationId: true,
-            },
-          });
-
-        if (
-          !assignedUserOrg ||
-          assignedUserOrg.organizationId !== user.organizationId
-        ) {
-          res.status(status.FORBIDDEN).json({
-            success: false,
-            message:
-              "You can only assign tickets to users in your organization",
-          });
-          return;
-        }
-      }
-
-      if (
-        assignedToOrganization &&
-        assignedToOrganization !== user.organizationId
-      ) {
-        res.status(status.FORBIDDEN).json({
-          success: false,
-          message: "You can only assign tickets to your own organization",
-        });
-        return;
-      }
     }
-    // Super admin has no restrictions - can assign to anyone
 
-    // Generate ticket number
     const randomSixDigitNumber = Math.floor(100000 + Math.random() * 900000);
     const ticketNumber = `TKT-${randomSixDigitNumber}`;
 
-    // Debug: Log assignment values
-    logger.info("Assignment debug:", {
-      assignedToUser,
-      assignedToOrganization,
-      client,
-      finalAssignedTo: assignedToUser || assignedToOrganization || "Unassigned",
-      finalClient:
-        client || assignedToOrganization || assignedToUser || "General",
-    });
+    let finalClient =
+      client || assignedToOrganization || assignedToUser || "General";
+    if (destination === "internal" && user.organizationId) {
+      finalClient = user.organizationId;
+    } else if (destination === "platform") {
+      finalClient = "Platform";
+    }
 
-    // Create support ticket
     const [newTicket] = await database
       .insert(supportTickets)
       .values({
         ticketNumber,
         subject,
         description,
-        priority,
-        status: "open",
+        priority: priority as "low" | "medium" | "high" | "urgent",
+        status: "open" as "open" | "in_progress" | "resolved" | "closed",
         submittedby: user.id,
         submittedbyName: user.name || "Unknown User",
         submittedbyRole: user.role,
-        client: client || assignedToOrganization || assignedToUser || "General",
+        destination,
+        client: finalClient,
         assignedto: assignedToUser || assignedToOrganization || "Unassigned",
-        createdon: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdon: new Date(),
+        updatedAt: new Date(),
       })
       .returning();
 
-    // Get creator details for notifications
     const creator = await database.query.users.findFirst({
       where: eq(users.id, user.id),
-      columns: {
-        id: true,
-        name: true,
-        email: true,
-      },
+      columns: { id: true, name: true, email: true },
     });
 
-    // Create notifications
     await createSupportTicketNotifications(
       newTicket,
       creator,
       assignedToOrganization,
-      assignedToUser
+      assignedToUser,
     );
 
-    // Log activity (best-effort)
     try {
-      const organizationId = (req.user as any)?.organizationId as
-        | string
-        | undefined;
+      const organizationId = (req.user as any)?.organizationId;
       if (organizationId && user.id) {
         await logActivity({
           organizationId,
@@ -339,10 +302,8 @@ export const createSupportTicket = async (
         });
       }
     } catch (e) {
-      logger.error("Failed to log activity for support ticket creation", e);
+      logger.error("Failed to log activity", e);
     }
-
-    logger.info(`Support ticket created: ${ticketNumber} by user ${user.id}`);
 
     res.status(status.CREATED).json({
       success: true,
@@ -351,8 +312,6 @@ export const createSupportTicket = async (
     });
   } catch (error) {
     logger.error("Error creating support ticket:", error);
-    logger.error("Request body:", req.body);
-    logger.error("User:", user);
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,
       message: "Failed to create support ticket",

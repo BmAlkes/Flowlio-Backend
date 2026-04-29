@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { eq } from "drizzle-orm";
-import { supportTickets, notifications } from "../../../drizzle/schema";
+import { supportTickets, notifications } from "@/schema/schema";
 import { z } from "zod";
 import status from "http-status";
 import crypto from "crypto";
@@ -96,7 +96,7 @@ export const updateSupportTicket = async (
 
     // Prepare update data
     const updatePayload: any = {
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(),
     };
 
     // Map fields to schema
@@ -136,7 +136,7 @@ export const updateSupportTicket = async (
               updatedBy: user.name || "System",
             },
             read: false,
-            createdAt: new Date().toISOString(),
+            createdAt: new Date(),
           });
         }
 
@@ -159,7 +159,7 @@ export const updateSupportTicket = async (
               updatedBy: user.name || "System",
             },
             read: false,
-            createdAt: new Date().toISOString(),
+            createdAt: new Date(),
           });
         }
       } catch (notificationError) {
@@ -190,7 +190,7 @@ export const updateSupportTicket = async (
             assignedBy: user.name || "System",
           },
           read: false,
-          createdAt: new Date().toISOString(),
+          createdAt: new Date(),
         });
       } catch (notificationError) {
         logger.error(
