@@ -32,14 +32,14 @@ export const notifyClientInteraction = async (params: {
     }
 
     // 3. Add organization admins
-    const orgAdmins = await database.query.userOrganizations.findMany({
+    const orgManagers = await database.query.userOrganizations.findMany({
       where: and(
         eq(userOrganizations.organizationId, organizationId),
-        eq(userOrganizations.role, "admin")
+        inArray(userOrganizations.role, ["admin", "owner", "manager", "subadmin"])
       ),
     });
 
-    orgAdmins.forEach(admin => usersToNotify.add(admin.userId));
+    orgManagers.forEach(manager => usersToNotify.add(manager.userId));
 
     // Remove the actor from notification list
     usersToNotify.delete(actor.id);
