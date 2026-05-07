@@ -65,7 +65,7 @@ export const patchUserProfile = async (
     // Handle different field types
     if (typeof twoFactorEnabled === "boolean") {
       updateData.twoFactorEnabled = twoFactorEnabled;
-      logger.info(`🔐 Updating 2FA status: ${twoFactorEnabled}`);
+      logger.info(`🔐 Updating 2FA status for user ${userId} to: ${twoFactorEnabled}`);
     }
 
     if (typeof phone === "string") {
@@ -125,7 +125,7 @@ export const patchUserProfile = async (
 
     // Only update if there's something to update (more than just updatedAt)
     if (Object.keys(updateData).length > 1) {
-      logger.info(`📝 Database update data:`, updateData);
+      logger.info(`📝 Database update for user ${userId}:`, updateData);
 
       const updatedUser = await database
         .update(users)
@@ -137,12 +137,12 @@ export const patchUserProfile = async (
         logger.error(`❌ No user returned after update: ${userId}`);
         res.status(404).json({
           success: false,
-          message: "User not found",
+          message: "User not found or no changes made",
         });
         return;
       }
 
-      logger.info(`✅ Profile patched successfully for user: ${userId}`);
+      logger.info(`✅ Profile patched successfully for user: ${userId}. New 2FA status: ${updatedUser[0].twoFactorEnabled}`);
       logger.info(
         `📝 Updated fields:`,
         Object.keys(updateData).filter((key) => key !== "updatedAt")

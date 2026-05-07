@@ -58,10 +58,9 @@ export const auth = betterAuth({
           .where(eq(schema.users.email, email))
           .limit(1);
 
-        // Super admins should always bypass OTP requirements
-        if (!user || user.isSuperAdmin) {
-          // Allow super admin or if user not found (will fail auth anyway)
-          // Super admins don't need OTP unless they explicitly enable 2FA
+        // Super admins should bypass OTP requirements ONLY if they haven't explicitly enabled 2FA
+        if (!user || (user.isSuperAdmin && !user.twoFactorEnabled)) {
+          // Allow super admin without 2FA or if user not found (will fail auth anyway)
           // Set a flag to skip OTP verification
           (ctx as any).skipOTP = true;
           return;
