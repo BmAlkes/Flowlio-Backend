@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { users } from "@/schema/schema";
+import { account, users } from "@/schema/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
@@ -24,6 +24,7 @@ export const patchUserProfile = async (
     const userId = req.user.id;
     const {
       twoFactorEnabled,
+      password,
       notificationPreferences,
       phone,
       address,
@@ -45,7 +46,7 @@ export const patchUserProfile = async (
     // Check if user exists
     const existingUser = await database.query.users.findFirst({
       where: eq(users.id, userId),
-      columns: { id: true },
+      columns: { id: true, twoFactorEnabled: true },
     });
 
     if (!existingUser) {
@@ -61,6 +62,51 @@ export const patchUserProfile = async (
     const updateData: any = {
       updatedAt: new Date(),
     };
+
+    // Require password verification when disabling 2FA
+    if (
+      typeof twoFactorEnabled === "boolean" &&
+      twoFactorEnabled === false &&
+      existingUser.twoFactorEnabled
+    ) {
+      if (typeof password !== "string" || password.trim().length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "Password is required to disable 2FA",
+        });
+        return;
+      }
+
+      const userAccount = await database.query.account.findFirst({
+        where: eq(account.userId, userId),
+        columns: { password: true },
+      });
+
+      if (!userAccount?.password) {
+        logger.warn(`❌ Password account not found for user: ${userId}`);
+        res.status(400).json({
+          success: false,
+          message: "Unable to verify password for this account",
+        });
+        return;
+      }
+
+      const { auth } = await import("@/lib/auth");
+      const context = await auth.$context;
+      const isPasswordValid = await context.password.verify({
+        password,
+        hash: userAccount.password,
+      });
+
+      if (!isPasswordValid) {
+        logger.warn(`❌ Invalid password while disabling 2FA for user: ${userId}`);
+        res.status(400).json({
+          success: false,
+          message: "Incorrect password",
+        });
+        return;
+      }
+    }
 
     // Handle different field types
     if (typeof twoFactorEnabled === "boolean") {
