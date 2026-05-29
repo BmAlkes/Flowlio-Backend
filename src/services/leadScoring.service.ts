@@ -56,18 +56,27 @@ export const calculateLeadInsight = async (clientId: string): Promise<LeadInsigh
   let temperature: LeadTemperature = "Cold";
   if (client.leadTemperature) {
     temperature = client.leadTemperature;
+    // Align score with manual temperature so the UI stays consistent
+    const manualScoreMap: Record<LeadTemperature, number> = {
+      Hot: 85,
+      Close: 75,
+      Warm: 55,
+      Cold: 20,
+    };
+    score = manualScoreMap[temperature];
   } else if (score > 70) {
     temperature = "Hot";
   } else if (score > 40) {
     temperature = "Warm";
   }
 
-  // 4. Recommendation
+  // 4. Recommendation — driven by temperature so it always matches
   let recommendedAction = "Reach out to start a conversation";
-  if (daysSinceLastContact > 7) recommendedAction = "Follow up - it's been a while";
-  if (client.status === "Proposal Sent" && daysSinceLastContact > 2) recommendedAction = "Follow up on the sent proposal";
-  if (temperature === "Hot" && client.status !== "Closed Won") recommendedAction = "High potential - prioritize closing";
   if (temperature === "Close") recommendedAction = "Ready to close - take action now";
+  else if (temperature === "Hot" && client.status !== "Closed Won") recommendedAction = "High potential - prioritize closing";
+  else if (temperature === "Warm" && daysSinceLastContact > 7) recommendedAction = "Follow up - it's been a while";
+  else if (temperature === "Warm" && client.status === "Proposal Sent" && daysSinceLastContact > 2) recommendedAction = "Follow up on the sent proposal";
+  else if (temperature === "Cold") recommendedAction = "Reach out to start a conversation";
 
   return {
     score,
