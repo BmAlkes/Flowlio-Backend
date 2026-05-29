@@ -3,6 +3,7 @@ import { reorderLeads } from "../controllers/organization/client management/reor
 import { updateLeadStatus } from "../controllers/organization/clients/updateleadstatus.controller";
 import { getClientTimeline, addClientInteraction } from "../controllers/organization/clients/clientinteractions.controller";
 import { getLeadInsights } from "../controllers/organization/clients/leadinsights.controller";
+import { updateLeadTemperature } from "../controllers/organization/clients/updateleadtemperature.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { requireOrgOwnerAccess } from "@/middlewares/role.middleware";
 
@@ -16,5 +17,6 @@ router.patch("/status", ...auth, updateLeadStatus as any);
 router.get("/timeline/:id", ...auth, getClientTimeline as any);
 router.post("/timeline", ...auth, addClientInteraction as any);
 router.get("/insights/:id", ...auth, getLeadInsights as any);
+router.patch("/:id/temperature", ...auth, updateLeadTemperature as any);
 
 export default router;

@@ -835,6 +835,7 @@ export const clients = pgTable(
     leadValue: decimal("lead_value", { precision: 10, scale: 2 }),
     leadProbability: integer("lead_probability").default(0), // 0-100
     lastInteractionAt: timestamp("last_interaction_at"),
+    leadTemperature: text("lead_temperature").$type<"Hot" | "Warm" | "Cold" | "Close">(),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
@@ -932,7 +933,7 @@ export const clientInteractions = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     type: text("type")
-      .$type<"note" | "call" | "email" | "meeting" | "status_change">()
+      .$type<"note" | "call" | "email" | "meeting" | "status_change" | "temperature_change">()
       .notNull(),
     content: text("content").notNull(),
     metadata: json("metadata"), // e.g. { fromStatus: "New Lead", toStatus: "Contacted" }
