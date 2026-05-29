@@ -58,8 +58,8 @@ export const calculateLeadInsight = async (clientId: string): Promise<LeadInsigh
     temperature = client.leadTemperature;
     // Align score with manual temperature so the UI stays consistent
     const manualScoreMap: Record<LeadTemperature, number> = {
-      Hot: 85,
-      Close: 75,
+      Close: 100,
+      Hot: 80,
       Warm: 55,
       Cold: 20,
     };
