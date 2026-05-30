@@ -2,7 +2,7 @@ import { clients, clientInteractions } from "../schema/schema";
 import { eq, desc } from "drizzle-orm";
 import { database } from "../configs/connection.config";
 
-export type LeadTemperature = "Hot" | "Warm" | "Cold" | "Close";
+export type LeadTemperature = "Hot" | "Warm" | "Cold" | "Lost";
 
 export interface LeadInsight {
   score: number; // 0-100
@@ -58,10 +58,10 @@ export const calculateLeadInsight = async (clientId: string): Promise<LeadInsigh
     temperature = client.leadTemperature;
     // Align score with manual temperature so the UI stays consistent
     const manualScoreMap: Record<LeadTemperature, number> = {
-      Close: 100,
       Hot: 80,
       Warm: 55,
       Cold: 20,
+      Lost: 0,
     };
     score = manualScoreMap[temperature];
   } else if (score > 70) {
@@ -72,8 +72,8 @@ export const calculateLeadInsight = async (clientId: string): Promise<LeadInsigh
 
   // 4. Recommendation — driven by temperature so it always matches
   let recommendedAction = "Reach out to start a conversation";
-  if (temperature === "Close") recommendedAction = "Ready to close - take action now";
-  else if (temperature === "Hot" && client.status !== "Closed Won") recommendedAction = "High potential - prioritize closing";
+  if (temperature === "Lost") recommendedAction = "Lead lost - consider re-engagement";
+  else if (temperature === "Hot" && client.status !== "Completed") recommendedAction = "High potential - prioritize closing";
   else if (temperature === "Warm" && daysSinceLastContact > 7) recommendedAction = "Follow up - it's been a while";
   else if (temperature === "Warm" && client.status === "Proposal Sent" && daysSinceLastContact > 2) recommendedAction = "Follow up on the sent proposal";
   else if (temperature === "Cold") recommendedAction = "Reach out to start a conversation";

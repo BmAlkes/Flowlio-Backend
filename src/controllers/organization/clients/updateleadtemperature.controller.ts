@@ -7,7 +7,7 @@ import status from "http-status";
 import { requireOrganizationId } from "@/utils/organization.util";
 import { LeadTemperature } from "../../../services/leadScoring.service";
 
-const VALID_TEMPERATURES: LeadTemperature[] = ["Hot", "Warm", "Cold", "Close"];
+const VALID_TEMPERATURES: LeadTemperature[] = ["Hot", "Warm", "Cold", "Lost"];
 
 export const updateLeadTemperature = async (req: Request, res: Response): Promise<void> => {
   try {

@@ -38,7 +38,7 @@ export const getClients = async (
     }
 
     if (status) {
-      whereConditions.push(eq(clients.status, status as string));
+      whereConditions.push(eq(clients.status, status as any));
     }
 
     if (industry) {
@@ -209,16 +209,16 @@ export const getClientStats = async (req: Request, res: Response) => {
     // Calculate statistics
     const totalClients = allClients.length;
     const activeClients = allClients.filter(
-      (client) => client.status === "active",
+      (client) => client.status === "Project In Progress" || client.status === "Contract Signed",
     ).length;
     const inactiveClients = allClients.filter(
-      (client) => client.status === "inactive",
+      (client) => client.status === "Inactive" || client.status === "Lost",
     ).length;
     const prospectClients = allClients.filter(
-      (client) => client.status === "prospect",
+      (client) => client.status === "Qualified" || client.status === "Contacted",
     ).length;
     const leadClients = allClients.filter(
-      (client) => client.status === "lead",
+      (client) => client.status === "New Lead",
     ).length;
 
     // Calculate monthly growth (last 6 months)

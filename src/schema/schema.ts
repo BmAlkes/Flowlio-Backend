@@ -821,7 +821,9 @@ export const clients = pgTable(
       }>
     >(),
     customFields: json("custom_fields").$type<Record<string, any>>(),
-    status: text("status").$defaultFn(() => "New Lead"),
+    status: text("status")
+      .$type<"New Lead" | "Contacted" | "Qualified" | "Proposal Sent" | "Contract Signed" | "Project In Progress" | "Completed" | "Inactive" | "Lost">()
+      .$defaultFn(() => "New Lead"),
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
@@ -835,7 +837,7 @@ export const clients = pgTable(
     leadValue: decimal("lead_value", { precision: 10, scale: 2 }),
     leadProbability: integer("lead_probability").default(0), // 0-100
     lastInteractionAt: timestamp("last_interaction_at"),
-    leadTemperature: text("lead_temperature").$type<"Hot" | "Warm" | "Cold" | "Close">(),
+    leadTemperature: text("lead_temperature").$type<"Hot" | "Warm" | "Cold" | "Lost">(),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
