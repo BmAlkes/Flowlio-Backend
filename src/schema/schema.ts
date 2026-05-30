@@ -838,6 +838,7 @@ export const clients = pgTable(
     leadProbability: integer("lead_probability").default(0), // 0-100
     lastInteractionAt: timestamp("last_interaction_at"),
     leadTemperature: text("lead_temperature").$type<"Hot" | "Warm" | "Cold" | "Lost">(),
+    followUpAt: timestamp("follow_up_at"),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
