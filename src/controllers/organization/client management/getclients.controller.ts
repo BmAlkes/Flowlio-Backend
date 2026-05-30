@@ -86,6 +86,9 @@ export const getClients = async (
         createdAt: clients.createdAt,
         updatedAt: clients.updatedAt,
         position: clients.position,
+        leadValue: clients.leadValue,
+        leadTemperature: clients.leadTemperature,
+        lastInteractionAt: clients.lastInteractionAt,
       })
       .from(clients)
       .where(and(...whereConditions))
