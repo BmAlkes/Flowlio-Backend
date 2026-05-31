@@ -6,7 +6,7 @@ import { deleteClientInteraction } from "../controllers/organization/clients/del
 import { getLeadInsights } from "../controllers/organization/clients/leadinsights.controller";
 import { updateLeadTemperature } from "../controllers/organization/clients/updateleadtemperature.controller";
 import { updateLeadValue } from "../controllers/organization/clients/updateleadvalue.controller";
-import { updateLeadFollowUp, getPendingFollowUps } from "../controllers/organization/clients/leadfollowup.controller";
+import { updateLeadFollowUp, getPendingFollowUps, getFollowUpsDashboard } from "../controllers/organization/clients/leadfollowup.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { requireOrgOwnerAccess } from "@/middlewares/role.middleware";
 
@@ -25,5 +25,6 @@ router.patch("/:id/temperature", ...auth, updateLeadTemperature as any);
 router.patch("/:clientId/value", ...auth, updateLeadValue as any);
 router.patch("/:clientId/followup", ...auth, updateLeadFollowUp as any);
 router.get("/followups/pending", ...auth, getPendingFollowUps as any);
+router.get("/followups/dashboard", ...auth, getFollowUpsDashboard as any);
 
 export default router;
