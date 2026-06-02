@@ -1301,6 +1301,7 @@ export const generateProposal = async (
       timeline,
       companyName,
       additionalRequirements,
+      language = "English",
     } = req.body;
 
     if (!projectTitle || !projectDescription) {
@@ -1323,7 +1324,9 @@ export const generateProposal = async (
     }
 
     // Build a detailed prompt for proposal generation
-    const proposalPrompt = `You are a professional business proposal writer. Generate a comprehensive, professional project proposal document based on the following details:
+    const proposalPrompt = `You are a professional business proposal writer. You must write the ENTIRE proposal in ${language}. All sections, titles, descriptions, and content must be written exclusively in ${language}. Do not use any other language.
+
+Generate a comprehensive, professional project proposal document based on the following details:
 
 Project Title: ${projectTitle}
 Client Name: ${clientName || "Valued Client"}
