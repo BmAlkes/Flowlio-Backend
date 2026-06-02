@@ -863,35 +863,41 @@ export class OpenAIService {
    */
   async generateImage(
     prompt: string,
-    size: "256x256" | "512x512" | "1024x1024" = "1024x1024"
+    size: "1024x1024" | "1024x1536" | "1536x1024" = "1024x1024"
   ): Promise<string | null> {
     try {
       if (!this.openai) {
         return null;
       }
 
-      logger.info("🎨 Generating image with DALL-E 3:", {
+      logger.info("🎨 Generating image with gpt-image-2:", {
         prompt: prompt.substring(0, 100) + "...",
         size,
-        model: "dall-e-3",
+        model: "gpt-image-2",
       });
 
       const response = await this.openai.images.generate({
-        model: "dall-e-3",
+        model: "gpt-image-2",
         prompt: prompt,
         n: 1,
         size: size,
-        quality: "standard",
-        response_format: "url",
+        quality: "high",
       });
 
-      logger.info("🎨 DALL-E response received:", {
+      logger.info("🎨 gpt-image-2 response received:", {
         hasData: !!response.data,
         dataLength: response.data?.length || 0,
-        firstImageUrl: response.data?.[0]?.url ? "URL received" : "No URL",
       });
 
-      return response.data?.[0]?.url || null;
+      const image = response.data?.[0];
+      if (!image) return null;
+
+      // gpt-image-2 returns base64 by default
+      if (image.b64_json) {
+        return `data:image/png;base64,${image.b64_json}`;
+      }
+
+      return image.url || null;
     } catch (error) {
       logger.error("Error generating image:", error);
       debugError("Full error in generateImage:", error);
