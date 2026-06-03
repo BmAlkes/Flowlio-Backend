@@ -7,6 +7,7 @@ import {
   approveProposal,
   rejectProposal,
   uploadManualProposal,
+  deleteProposal,
 } from "../controllers/proposals/proposals.controller";
 import { upload } from "../controllers/ai/aiAssistant.controller";
 
@@ -29,5 +30,8 @@ router.put("/:id/approve", isAuthenticated, approveProposal);
 
 // Client: reject a proposal
 router.put("/:id/reject", isAuthenticated, rejectProposal);
+
+// Org owner: delete a proposal
+router.delete("/:id", isAuthenticated, deleteProposal);
 
 export default router;

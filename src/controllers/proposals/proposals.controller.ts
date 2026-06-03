@@ -453,3 +453,41 @@ export const rejectProposal = async (
     res.status(500).json({ success: false, message: "Failed to reject proposal" });
   }
 };
+
+/**
+ * Delete a proposal (org owner only)
+ */
+export const deleteProposal = async (
+  req: any,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    const organizationId = (req.user as any)?.organizationId;
+    if (!organizationId) {
+      res.status(400).json({ success: false, message: "Organization not found" });
+      return;
+    }
+
+    const { id } = req.params;
+
+    const deleted = await database
+      .delete(proposals)
+      .where(and(eq(proposals.id, id), eq(proposals.organizationId, organizationId)))
+      .returning();
+
+    if (!deleted.length) {
+      res.status(404).json({ success: false, message: "Proposal not found" });
+      return;
+    }
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    logger.error("Error deleting proposal:", error);
+    res.status(500).json({ success: false, message: "Failed to delete proposal" });
+  }
+};
