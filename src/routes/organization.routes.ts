@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
-import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
+import { requireOrgOwnerAccess, requireSuperAdmin } from "../middlewares/role.middleware";
 import {
   createOrganizationWithPlan,
   getUserOrganizations,
@@ -40,7 +40,7 @@ const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 router.post("/create-with-plan", createOrganizationWithPlan as any);
 router.get("/user-organizations", isAuthenticated, getUserOrganizations as any);
 router.get("/user-subscriptions", isAuthenticated, getUserSubscriptions as any);
-router.get("/all-organizations", isAuthenticated, getAllOrganizations as any);
+router.get("/all-organizations", isAuthenticated, requireSuperAdmin, getAllOrganizations as any);
 
 // User Management - requires org owner access (superadmin | subadmin | user + isOrganizationOwner)
 router.post("/create-user-member", ...orgOwner, createUserMember as any);

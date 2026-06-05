@@ -9,7 +9,6 @@ import { logActivity } from "@/utils/activity.util";
 
 const updateUserProfileSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Invalid email address"),
   phone: z.string().optional(),
   address: z.string().optional(),
 });
@@ -56,24 +55,9 @@ export const updateUserProfile = async (
       return;
     }
 
-    // Check if email is already taken by another user
-    const emailCheck = await database.query.users.findFirst({
-      where: (users, { eq, and, ne }) =>
-        and(eq(users.email, validatedData.email), ne(users.id, userId)),
-    });
-
-    if (emailCheck) {
-      res.status(400).json({
-        success: false,
-        message: "Email is already taken by another user",
-      });
-      return;
-    }
-
-    // Prepare update data
+    // Prepare update data (email is intentionally excluded — cannot be changed via this endpoint)
     const updateData: any = {
       name: validatedData.name,
-      email: validatedData.email,
       updatedAt: new Date(),
     };
 

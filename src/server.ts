@@ -186,6 +186,22 @@ app.get("/api/health/db", async (_, res) => {
   }
 });
 
+// AJ-03: Normalize signup response to prevent user enumeration
+app.use("/api/auth/sign-up", (_req, res, next) => {
+  const originalJson = res.json.bind(res);
+  (res as any).json = function (body: any) {
+    if (body?.code === "USER_ALREADY_EXISTS") {
+      res.statusCode = 200;
+      return originalJson({
+        success: true,
+        message: "If this email is valid, you will receive a confirmation email shortly.",
+      });
+    }
+    return originalJson(body);
+  };
+  next();
+});
+
 // Mount better-auth handler with activity logging wrapper
 app.all("/api/auth/*splat", (req, res) => {
   // Wrap the response to intercept successful auth operations

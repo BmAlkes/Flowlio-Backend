@@ -26,6 +26,7 @@ const options: Options = {
 
 export const swaggerSpec = swaggerJSDOC(options);
 export const swagger = (app: Express) => {
+  if (process.env.NODE_ENV === "production") return;
   app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get("/api/docs-json", (_, res) => {
     res.send(swaggerSpec);

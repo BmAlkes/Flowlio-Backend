@@ -191,9 +191,9 @@ export const createUserMember = async (req: Request, res: Response) => {
     });
 
     if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        message: "User with this email already exists",
+      return res.status(200).json({
+        success: true,
+        message: "If this email is available, an invitation will be sent.",
       });
     }
 

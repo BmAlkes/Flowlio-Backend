@@ -3,8 +3,13 @@ import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 
 // GET All organizations and pending users (users who signed up but haven't paid)
-export const getAllOrganizations = async (_: Request, res: Response) => {
+export const getAllOrganizations = async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
+    if (!user || (user.role !== "superadmin" && !user.isSuperAdmin)) {
+      return res.status(403).json({ success: false, message: "Access denied" });
+    }
+
     // Get all organizations with their users
     const allOrgs = await database.query.organizations.findMany({
       with: {
