@@ -334,3 +334,41 @@ export const dismissOnboarding = async (req: any, res: Response): Promise<void> 
     res.status(500).json({ success: false, message: "Failed to dismiss onboarding" });
   }
 };
+
+export const resetOnboarding = async (req: any, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "Authentication required" });
+      return;
+    }
+
+    const userId: string = req.user.id;
+
+    const [record] = await database
+      .select({ id: userOnboarding.id })
+      .from(userOnboarding)
+      .where(eq(userOnboarding.userId, userId))
+      .limit(1);
+
+    if (!record) {
+      res.status(200).json({ success: true });
+      return;
+    }
+
+    await database
+      .update(userOnboarding)
+      .set({
+        dismissed: false,
+        dismissedAt: null,
+        completedAt: null,
+        steps: {},
+        updatedAt: new Date(),
+      })
+      .where(eq(userOnboarding.userId, userId));
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    logger.error("Error resetting onboarding:", error);
+    res.status(500).json({ success: false, message: "Failed to reset onboarding" });
+  }
+};
