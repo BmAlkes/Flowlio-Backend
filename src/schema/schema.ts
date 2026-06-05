@@ -1199,6 +1199,37 @@ export const recentActivities = pgTable(
   }),
 );
 
+export const userOnboarding = pgTable(
+  "user_onboarding",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(), // "admin" | "manager" | "viewer"
+    dismissed: boolean("dismissed").$defaultFn(() => false).notNull(),
+    dismissedAt: timestamp("dismissed_at"),
+    completedAt: timestamp("completed_at"),
+    steps: json("steps")
+      .$type<Record<string, { completedAt: string } | null>>()
+      .notNull()
+      .$defaultFn(() => ({})),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    userOnboardingUserIdx: index("user_onboarding_user_idx").on(table.userId),
+    userOnboardingRoleIdx: index("user_onboarding_role_idx").on(table.role),
+  }),
+);
+
 // ==================== RELATIONS ====================
 
 export const usersRelations = relations(users, ({ many }) => ({
