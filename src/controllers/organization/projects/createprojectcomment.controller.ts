@@ -85,6 +85,7 @@ export const createProjectComment = async (
         projectId: validatedData.projectId,
         content: validatedData.content,
         parentId: validatedData.parentId || undefined,
+        taskId: validatedData.taskId || undefined,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })
@@ -110,6 +111,7 @@ export const createProjectComment = async (
         userId: createdComment.userId,
         content: createdComment.content,
         parentId: createdComment.parentId,
+        taskId: createdComment.taskId,
         createdAt: createdComment.createdAt,
         updatedAt: createdComment.updatedAt,
       },

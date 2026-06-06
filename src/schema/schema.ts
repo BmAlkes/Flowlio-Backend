@@ -381,6 +381,7 @@ export const projectComments = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     content: text("content").notNull(),
     parentId: text("parent_id"), // Self-reference for replies - will be handled in relations
+    taskId: text("task_id").references(() => tasks.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -392,6 +393,7 @@ export const projectComments = pgTable(
     projectIdx: index("project_comments_project_idx").on(table.projectId),
     userIdx: index("project_comments_user_idx").on(table.userId),
     parentIdx: index("project_comments_parent_idx").on(table.parentId),
+    taskIdx: index("project_comments_task_idx").on(table.taskId),
     createdAtIdx: index("project_comments_created_at_idx").on(table.createdAt),
   }),
 );

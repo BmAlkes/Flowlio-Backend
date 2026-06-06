@@ -527,6 +527,7 @@ export const projectComments = pgTable(
     userId: text("user_id").notNull(),
     content: text().notNull(),
     parentId: text("parent_id"), // For nested comments/replies
+    taskId: text("task_id"),
     createdAt: timestamp("created_at", { mode: "string" }).notNull(),
     updatedAt: timestamp("updated_at", { mode: "string" }).notNull(),
   },
@@ -542,6 +543,10 @@ export const projectComments = pgTable(
     index("project_comments_parent_idx").using(
       "btree",
       table.parentId.asc().nullsLast().op("text_ops"),
+    ),
+    index("project_comments_task_idx").using(
+      "btree",
+      table.taskId.asc().nullsLast().op("text_ops"),
     ),
     foreignKey({
       columns: [table.projectId],

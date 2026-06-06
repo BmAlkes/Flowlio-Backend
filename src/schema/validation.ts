@@ -181,7 +181,8 @@ export const updateProjectSchema = projectBaseSchema
 export const createProjectCommentSchema = z.object({
   projectId: z.string().min(1, "Project ID is required"),
   content: z.string().min(1, "Comment content is required"),
-  parentId: z.string().optional(), // For nested comments/replies
+  parentId: z.string().optional(),
+  taskId: z.string().optional(),
 });
 
 export const updateProjectCommentSchema = z.object({

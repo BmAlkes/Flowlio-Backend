@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { projectComments, users } from "../../../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 
@@ -32,6 +32,7 @@ export const getProjectComments = async (
 ) => {
   try {
     const { projectId } = req.params;
+    const taskId = req.query.taskId as string | undefined;
 
     // Check if user is authenticated
     if (!req.user) {
@@ -51,11 +52,17 @@ export const getProjectComments = async (
       return;
     }
 
-    // Get all comments for the project with user information
+    // Build where clause — optionally filter by taskId
+    const whereClause = taskId
+      ? and(eq(projectComments.projectId, projectId), eq(projectComments.taskId, taskId))
+      : eq(projectComments.projectId, projectId);
+
+    // Get comments for the project (optionally scoped to a task) with user information
     const comments = await database
       .select({
         id: projectComments.id,
         projectId: projectComments.projectId,
+        taskId: projectComments.taskId,
         userId: projectComments.userId,
         userName: users.name,
         content: projectComments.content,
@@ -65,7 +72,7 @@ export const getProjectComments = async (
       })
       .from(projectComments)
       .leftJoin(users, eq(projectComments.userId, users.id))
-      .where(eq(projectComments.projectId, projectId))
+      .where(whereClause)
       .orderBy(projectComments.createdAt);
 
     if (comments.length === 0) {
