@@ -72,6 +72,8 @@ export const getViewerTasks = async (
         creatorId: users.id,
         creatorName: users.name,
         creatorEmail: users.email,
+        // Attachments stored as JSON array on the task
+        attachments: tasks.attachments,
       })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
@@ -92,7 +94,7 @@ export const getViewerTasks = async (
     res.status(200).json({
       success: true,
       message: "Viewer tasks fetched successfully",
-      data: viewerTasks,
+      data: viewerTasks.map((t) => ({ ...t, attachments: t.attachments ?? [] })),
     });
   } catch (error) {
     logger.error("Error fetching viewer tasks:", error);
