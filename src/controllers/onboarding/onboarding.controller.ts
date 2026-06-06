@@ -187,9 +187,26 @@ export const getOnboarding = async (req: any, res: Response): Promise<void> => {
         .returning();
     }
 
+    console.log("[onboarding debug]", {
+      userId,
+      role: req.user.role,
+      isOrganizationOwner: req.user.isOrganizationOwner,
+      isOrganizationManager: req.user.isOrganizationManager,
+      isSuperAdmin: req.user.isSuperAdmin,
+      resolvedRole: onboardingRole,
+      organizationId,
+      storedSteps: record?.steps,
+    });
+
     // Auto-complete applicable steps
     let steps = record.steps as Record<string, { completedAt: string } | null>;
     let changed = false;
+
+    // Heal records created before proper initialization (steps stored as {})
+    if (Object.keys(steps).length === 0) {
+      steps = buildEmptySteps(onboardingRole);
+      changed = true;
+    }
 
     if (onboardingRole !== "viewer" && organizationId) {
       const result = await autoCompleteAdminManagerSteps(organizationId, steps);
@@ -342,31 +359,52 @@ export const resetOnboarding = async (req: any, res: Response): Promise<void> =>
       return;
     }
 
-    const userId: string = req.user.id;
+    const onboardingRole = resolveOnboardingRole(req.user);
+    if (!onboardingRole) {
+      res.status(403).json({ success: false, message: "Onboarding not available for this role" });
+      return;
+    }
 
-    const [record] = await database
+    const userId: string = req.user.id;
+    const organizationId: string | null = req.user.organizationId ?? null;
+
+    const [existing] = await database
       .select({ id: userOnboarding.id })
       .from(userOnboarding)
       .where(eq(userOnboarding.userId, userId))
       .limit(1);
 
-    if (!record) {
+    if (!existing) {
       res.status(200).json({ success: true });
       return;
     }
 
-    await database
+    // Reinitialize steps for the role and auto-complete from existing org data
+    let steps = buildEmptySteps(onboardingRole);
+
+    if (onboardingRole !== "viewer" && organizationId) {
+      const result = await autoCompleteAdminManagerSteps(organizationId, steps);
+      steps = result.steps;
+    } else if (onboardingRole === "viewer") {
+      const result = await autoCompleteViewerSteps(userId, steps);
+      steps = result.steps;
+    }
+
+    const allComplete = checkAllComplete(onboardingRole, steps);
+
+    const [record] = await database
       .update(userOnboarding)
       .set({
         dismissed: false,
         dismissedAt: null,
-        completedAt: null,
-        steps: {},
+        completedAt: allComplete ? new Date() : null,
+        steps,
         updatedAt: new Date(),
       })
-      .where(eq(userOnboarding.userId, userId));
+      .where(eq(userOnboarding.userId, userId))
+      .returning();
 
-    res.status(200).json({ success: true });
+    res.status(200).json({ success: true, data: formatResponse(record) });
   } catch (error) {
     logger.error("Error resetting onboarding:", error);
     res.status(500).json({ success: false, message: "Failed to reset onboarding" });
