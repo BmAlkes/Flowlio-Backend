@@ -36,8 +36,6 @@ router.get("/all", isAuthenticated, getAllProjects);
 router.get("/schedule-data", isAuthenticated, getProjectScheduleData);
 router.get("/status-data", isAuthenticated, getProjectStatusData);
 router.post("/client/:clientId", isAuthenticated, getProjectsByClient);
-router.get("/:id", isAuthenticated, getProjectById);
-router.delete("/:id", isAuthenticated, deleteProject);
 router.patch("/reorder", isAuthenticated, reorderProjects as any);
 
 // ==================== PROJECT TEMPLATE ROUTES ====================
@@ -62,5 +60,9 @@ router.delete("/comments/:commentId", isAuthenticated, deleteProjectComment);
 router.get("/:projectId/expenses", isAuthenticated, getProjectExpenses);
 router.post("/:projectId/expenses", isAuthenticated, createProjectExpense as any);
 router.delete("/:projectId/expenses/:expenseId", isAuthenticated, deleteProjectExpense as any);
+
+// ==================== WILDCARD ROUTES (must be last) ====================
+router.get("/:id", isAuthenticated, getProjectById);
+router.delete("/:id", isAuthenticated, deleteProject);
 
 export default router;
