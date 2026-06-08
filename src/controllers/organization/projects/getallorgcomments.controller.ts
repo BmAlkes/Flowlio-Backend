@@ -14,7 +14,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
 
     const organizationId = req.user.organizationId;
     if (!organizationId) {
-      res.status(400).json({ success: false, message: "Organization not found" });
+      res.status(200).json({ success: true, message: "No organization found", data: [], total: 0, page: 1, totalPages: 0 });
       return;
     }
 
@@ -33,7 +33,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
         .limit(1);
 
       if (proj.length === 0) {
-        res.status(200).json({ success: true, data: { comments: [], total: 0, page, totalPages: 0 } });
+        res.status(200).json({ success: true, message: "No comments found", data: [], total: 0, page, totalPages: 0 });
         return;
       }
       projectIds = [projectId];
@@ -44,7 +44,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
         .where(eq(projects.organizationId, organizationId));
 
       if (orgProjects.length === 0) {
-        res.status(200).json({ success: true, data: { comments: [], total: 0, page, totalPages: 0 } });
+        res.status(200).json({ success: true, message: "No comments found", data: [], total: 0, page, totalPages: 0 });
         return;
       }
       projectIds = orgProjects.map((p) => p.id);
@@ -82,7 +82,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
       .offset(offset);
 
     if (topLevel.length === 0) {
-      res.status(200).json({ success: true, data: { comments: [], total, page, totalPages } });
+      res.status(200).json({ success: true, message: "No comments found", data: [], total, page, totalPages });
       return;
     }
 
@@ -150,7 +150,11 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
 
     res.status(200).json({
       success: true,
-      data: { comments, total, page, totalPages },
+      message: "Comments retrieved successfully",
+      data: comments,
+      total,
+      page,
+      totalPages,
     });
   } catch (error) {
     logger.error("Error retrieving org comments:", error);
