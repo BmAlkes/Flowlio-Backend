@@ -13,6 +13,8 @@ import { deleteProject } from "../controllers/organization/projects/deleteprojec
 import { getProjectComments } from "../controllers/organization/projects/getprojectcomments.controller";
 import { createProjectComment } from "../controllers/organization/projects/createprojectcomment.controller";
 import { deleteProjectComment } from "../controllers/organization/projects/deleteprojectcomment.controller";
+import { updateProjectComment } from "../controllers/organization/projects/updateprojectcomment.controller";
+import { getAllOrgComments } from "../controllers/organization/projects/getallorgcomments.controller";
 import { getProjectScheduleData } from "../controllers/organization/projects/getprojectscheduledata.controller";
 import { getProjectStatusData } from "../controllers/organization/projects/getprojectstatusdata.controller";
 import { getProjectExpenses } from "../controllers/organization/projects/expenses/getProjectExpenses.controller";
@@ -51,7 +53,9 @@ router.get("/users/organization", isAuthenticated, getOrganizationUsers);
 
 // ==================== PROJECT COMMENT ROUTES ====================
 router.post("/comments", isAuthenticated, createProjectComment);
+router.get("/comments", isAuthenticated, getAllOrgComments);
 router.get("/comments/:projectId", isAuthenticated, getProjectComments);
+router.patch("/comments/:commentId", isAuthenticated, updateProjectComment);
 router.delete("/comments/:commentId", isAuthenticated, deleteProjectComment);
 
 // ==================== PROJECT EXPENSE ROUTES ====================
