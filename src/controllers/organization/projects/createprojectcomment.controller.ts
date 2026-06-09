@@ -1,11 +1,9 @@
 import { Request, Response } from "express";
-import { database } from "@/configs/connection.config";
+import { connection } from "@/configs/connection.config";
 import { createProjectCommentSchema } from "@/schema/validation";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
-import { projectComments, projects } from "../../../../drizzle/schema";
 import { randomUUID } from "crypto";
 
 interface CreateProjectCommentRequest extends Request {
@@ -32,97 +30,89 @@ export const createProjectComment = async (
   res: Response
 ) => {
   try {
-    // Validate request body
     const validatedData = createProjectCommentSchema.parse(req.body);
 
-    // Check if user is authenticated
     if (!req.user) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
+      res.status(401).json({ success: false, message: "User not authenticated" });
       return;
     }
 
-    // Check if project exists
-    const projectExists = await database
-      .select({ id: projects.id })
-      .from(projects)
-      .where(eq(projects.id, validatedData.projectId))
-      .limit(1);
-
-    if (projectExists.length === 0) {
-      res.status(404).json({
-        success: false,
-        message: "Project not found",
-      });
+    // Check project exists
+    const projectCheck = await connection.query({
+      text: `SELECT id FROM projects WHERE id = $1 LIMIT 1`,
+      values: [validatedData.projectId],
+    });
+    if (projectCheck.rows.length === 0) {
+      res.status(404).json({ success: false, message: "Project not found" });
       return;
     }
 
-    // If this is a reply, check if parent comment exists
+    // Check parent comment exists (if reply)
     if (validatedData.parentId) {
-      const parentCommentExists = await database
-        .select({ id: projectComments.id })
-        .from(projectComments)
-        .where(eq(projectComments.id, validatedData.parentId))
-        .limit(1);
-
-      if (parentCommentExists.length === 0) {
-        res.status(404).json({
-          success: false,
-          message: "Parent comment not found",
-        });
+      const parentCheck = await connection.query({
+        text: `SELECT id FROM project_comments WHERE id = $1 LIMIT 1`,
+        values: [validatedData.parentId],
+      });
+      if (parentCheck.rows.length === 0) {
+        res.status(404).json({ success: false, message: "Parent comment not found" });
         return;
       }
     }
 
-    // Create new comment
-    const newComment = await database
-      .insert(projectComments)
-      .values({
-        id: randomUUID(),
-        userId: req.user.id,
-        projectId: validatedData.projectId,
-        content: validatedData.content,
-        parentId: validatedData.parentId || undefined,
-        taskId: validatedData.taskId || undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .returning();
+    const id = randomUUID();
+    const now = new Date().toISOString();
 
-    if (newComment.length === 0) {
-      res.status(500).json({
-        success: false,
-        message: "Failed to create comment",
-      });
+    const result = await connection.query<{
+      id: string;
+      projectId: string;
+      userId: string;
+      content: string;
+      parentId: string | null;
+      createdAt: string;
+      updatedAt: string;
+    }>({
+      text: `
+        INSERT INTO project_comments (id, project_id, user_id, content, parent_id, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING
+          id,
+          project_id  AS "projectId",
+          user_id     AS "userId",
+          content,
+          parent_id   AS "parentId",
+          created_at  AS "createdAt",
+          updated_at  AS "updatedAt"
+      `,
+      values: [
+        id,
+        validatedData.projectId,
+        req.user.id,
+        validatedData.content,
+        validatedData.parentId ?? null,
+        now,
+        now,
+      ],
+    });
+
+    if (result.rows.length === 0) {
+      res.status(500).json({ success: false, message: "Failed to create comment" });
       return;
     }
 
-    const createdComment = newComment[0];
-
-    // Return success response
     res.status(201).json({
       success: true,
       message: "Comment created successfully",
-      data: {
-        id: createdComment.id,
-        projectId: createdComment.projectId,
-        userId: createdComment.userId,
-        content: createdComment.content,
-        parentId: createdComment.parentId,
-        taskId: createdComment.taskId,
-        createdAt: createdComment.createdAt,
-        updatedAt: createdComment.updatedAt,
-      },
+      data: result.rows[0],
     });
-    return;
-  } catch (error) {
-    logger.error("Error creating project comment:", error);
+  } catch (error: any) {
+    logger.error("Error creating project comment:", {
+      message: error?.message,
+      cause: error?.cause,
+      detail: error?.detail,
+    });
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,
-      message: (error as Error)?.message ?? "Internal server error",
+      message: error?.cause?.message ?? error?.message ?? "Internal server error",
     });
-    return;
   }
 };
