@@ -89,7 +89,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
           pc.id,
           pc.project_id      AS "projectId",
           p.name             AS "projectName",
-          pc.task_id         AS "taskId",
+          pc."taskId"        AS "taskId",
           t.title            AS "taskTitle",
           pc.parent_id       AS "parentId",
           pc.user_id         AS "userId",
@@ -100,7 +100,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
         FROM project_comments pc
         LEFT JOIN projects p ON pc.project_id = p.id
         LEFT JOIN users    u ON pc.user_id    = u.id
-        LEFT JOIN tasks    t ON pc.task_id    = t.id
+        LEFT JOIN tasks    t ON pc."taskId"   = t.id
         WHERE pc.project_id IN (${inPlaceholders})
           AND pc.parent_id IS NULL
         ORDER BY pc.created_at DESC
@@ -135,7 +135,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
         SELECT
           pc.id,
           pc.project_id  AS "projectId",
-          pc.task_id     AS "taskId",
+          pc."taskId"    AS "taskId",
           pc.parent_id   AS "parentId",
           pc.user_id     AS "userId",
           u.name         AS "userName",
