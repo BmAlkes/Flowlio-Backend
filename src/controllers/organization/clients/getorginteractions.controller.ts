@@ -26,7 +26,7 @@ export const getOrgInteractions = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    // Main query — clients.name and users.name aliased explicitly in SQL
+    // Main query — includes replies via json_agg
     const result = await connection.query<{
       id: string;
       clientId: string;
@@ -36,6 +36,7 @@ export const getOrgInteractions = async (req: Request, res: Response): Promise<v
       content: string;
       type: string;
       createdAt: string;
+      replies: Array<{ id: string; content: string; createdAt: string; userId: string; userName: string | null }>;
     }>({
       text: `
         SELECT
@@ -46,11 +47,26 @@ export const getOrgInteractions = async (req: Request, res: Response): Promise<v
           u.name         AS "userName",
           ci.content,
           ci.type,
-          ci.created_at  AS "createdAt"
+          ci.created_at  AS "createdAt",
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'id',        ir.id,
+                'content',   ir.content,
+                'createdAt', ir.created_at,
+                'userId',    ir.user_id,
+                'userName',  ru.name
+              ) ORDER BY ir.created_at ASC
+            ) FILTER (WHERE ir.id IS NOT NULL),
+            '[]'::json
+          ) AS replies
         FROM client_interactions ci
-        LEFT JOIN clients c ON ci.client_id = c.id
-        LEFT JOIN users   u ON ci.user_id   = u.id
+        LEFT JOIN clients c  ON c.id  = ci.client_id
+        LEFT JOIN users   u  ON u.id  = ci.user_id
+        LEFT JOIN interaction_replies ir ON ir.interaction_id = ci.id
+        LEFT JOIN users               ru ON ru.id = ir.user_id
         WHERE ci.organization_id = $1 AND ci.type = 'note'
+        GROUP BY ci.id, c.name, u.name
         ORDER BY ci.created_at DESC
         LIMIT $2 OFFSET $3
       `,
@@ -66,6 +82,7 @@ export const getOrgInteractions = async (req: Request, res: Response): Promise<v
       content: r.content,
       type: r.type,
       createdAt: r.createdAt,
+      replies: r.replies ?? [],
     }));
 
     res.status(status.OK).json({

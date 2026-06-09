@@ -955,6 +955,30 @@ export const clientInteractions = pgTable(
   }),
 );
 
+// ==================== INTERACTION REPLIES ====================
+
+export const interactionReplies = pgTable(
+  "interaction_replies",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    interactionId: text("interaction_id")
+      .notNull()
+      .references(() => clientInteractions.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    interactionIdx: index("interaction_replies_interaction_idx").on(table.interactionId),
+  }),
+);
+
 // ==================== AUDIT LOGS ====================
 
 export const auditLogs = pgTable(
@@ -1884,7 +1908,7 @@ export const projectTemplateTaskRelations = relations(
 
 export const clientInteractionsRelations = relations(
   clientInteractions,
-  ({ one }) => ({
+  ({ one, many }) => ({
     client: one(clients, {
       fields: [clientInteractions.clientId],
       references: [clients.id],
@@ -1896,6 +1920,21 @@ export const clientInteractionsRelations = relations(
     organization: one(organizations, {
       fields: [clientInteractions.organizationId],
       references: [organizations.id],
+    }),
+    replies: many(interactionReplies),
+  }),
+);
+
+export const interactionRepliesRelations = relations(
+  interactionReplies,
+  ({ one }) => ({
+    interaction: one(clientInteractions, {
+      fields: [interactionReplies.interactionId],
+      references: [clientInteractions.id],
+    }),
+    user: one(users, {
+      fields: [interactionReplies.userId],
+      references: [users.id],
     }),
   }),
 );
