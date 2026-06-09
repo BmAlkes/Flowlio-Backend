@@ -5,6 +5,7 @@ import { z } from "zod";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 import { randomUUID } from "crypto";
+import { notifyProjectComment } from "@/utils/comment-notification.util";
 
 interface CreateProjectCommentRequest extends Request {
   body: z.infer<typeof createProjectCommentSchema>;
@@ -38,14 +39,15 @@ export const createProjectComment = async (
     }
 
     // Check project exists
-    const projectCheck = await connection.query({
-      text: `SELECT id FROM projects WHERE id = $1 LIMIT 1`,
+    const projectCheck = await connection.query<{ id: string; name: string }>({
+      text: `SELECT id, name FROM projects WHERE id = $1 LIMIT 1`,
       values: [validatedData.projectId],
     });
     if (projectCheck.rows.length === 0) {
       res.status(404).json({ success: false, message: "Project not found" });
       return;
     }
+    const projectName = projectCheck.rows[0].name;
 
     // Check parent comment exists (if reply)
     if (validatedData.parentId) {
@@ -104,6 +106,19 @@ export const createProjectComment = async (
       message: "Comment created successfully",
       data: result.rows[0],
     });
+
+    const organizationId = req.user.organizationId;
+    if (organizationId) {
+      notifyProjectComment({
+        commentId: id,
+        projectId: validatedData.projectId,
+        projectName,
+        content: validatedData.content,
+        parentId: validatedData.parentId ?? null,
+        actor: { id: req.user.id, name: req.user.name },
+        organizationId,
+      }).catch((err) => logger.error("Background comment notification failed:", err));
+    }
   } catch (error: any) {
     logger.error("Error creating project comment:", {
       message: error?.message,
