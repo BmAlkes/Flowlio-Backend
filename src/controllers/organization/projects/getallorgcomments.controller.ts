@@ -75,8 +75,6 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
       id: string;
       projectId: string;
       projectName: string | null;
-      taskId: string | null;
-      taskTitle: string | null;
       parentId: string | null;
       userId: string;
       userName: string | null;
@@ -89,8 +87,6 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
           pc.id,
           pc.project_id      AS "projectId",
           p.name             AS "projectName",
-          pc."taskId"        AS "taskId",
-          t.title            AS "taskTitle",
           pc.parent_id       AS "parentId",
           pc.user_id         AS "userId",
           u.name             AS "userName",
@@ -100,7 +96,6 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
         FROM project_comments pc
         LEFT JOIN projects p ON pc.project_id = p.id
         LEFT JOIN users    u ON pc.user_id    = u.id
-        LEFT JOIN tasks    t ON pc."taskId"   = t.id
         WHERE pc.project_id IN (${inPlaceholders})
           AND pc.parent_id IS NULL
         ORDER BY pc.created_at DESC
@@ -123,7 +118,6 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
     const replyResult = await connection.query<{
       id: string;
       projectId: string;
-      taskId: string | null;
       parentId: string;
       userId: string;
       userName: string | null;
@@ -135,7 +129,6 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
         SELECT
           pc.id,
           pc.project_id  AS "projectId",
-          pc."taskId"    AS "taskId",
           pc.parent_id   AS "parentId",
           pc.user_id     AS "userId",
           u.name         AS "userName",
@@ -161,8 +154,8 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
       id: c.id,
       projectId: c.projectId,
       projectName: c.projectName ?? null,
-      taskId: c.taskId ?? null,
-      taskTitle: c.taskTitle ?? null,
+      taskId: null,
+      taskTitle: null,
       parentId: c.parentId ?? null,
       userId: c.userId,
       userName: c.userName ?? null,
@@ -172,7 +165,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
       replies: (repliesByParent.get(c.id) ?? []).map((r) => ({
         id: r.id,
         projectId: r.projectId,
-        taskId: r.taskId ?? null,
+        taskId: null,
         parentId: r.parentId,
         userId: r.userId,
         userName: r.userName ?? null,
