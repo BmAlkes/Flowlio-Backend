@@ -60,15 +60,17 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
     const totalPages = Math.ceil(total / limit);
 
     // Fetch top-level comments (paginated) with user + project name
+    // NOTE: projects.name and users.name share the column name "name" — must use
+    // sql``.as() to force SQL-level aliases, otherwise the pg driver collapses them.
     const topLevel = await database
       .select({
         id: projectComments.id,
         projectId: projectComments.projectId,
-        projectName: projects.name,
+        projectName: sql<string | null>`${projects.name}`.as("project_name"),
         taskId: projectComments.taskId,
         parentId: projectComments.parentId,
         userId: projectComments.userId,
-        userName: users.name,
+        userName: sql<string | null>`${users.name}`.as("user_name"),
         content: projectComments.content,
         createdAt: projectComments.createdAt,
         updatedAt: projectComments.updatedAt,
@@ -106,7 +108,7 @@ export const getAllOrgComments = async (req: Request, res: Response) => {
         taskId: projectComments.taskId,
         parentId: projectComments.parentId,
         userId: projectComments.userId,
-        userName: users.name,
+        userName: sql<string | null>`${users.name}`.as("user_name"),
         content: projectComments.content,
         createdAt: projectComments.createdAt,
         updatedAt: projectComments.updatedAt,
