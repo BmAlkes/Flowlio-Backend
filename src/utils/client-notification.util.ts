@@ -31,15 +31,22 @@ export const notifyClientInteraction = async (params: {
       usersToNotify.add(client.userId);
     }
 
-    // 3. Add organization admins
-    const orgManagers = await database.query.userOrganizations.findMany({
-      where: and(
-        eq(userOrganizations.organizationId, organizationId),
-        inArray(userOrganizations.role, ["admin", "owner", "manager", "subadmin"])
-      ),
-    });
-
-    orgManagers.forEach(manager => usersToNotify.add(manager.userId));
+    if (interaction.type === "note") {
+      // Notes are messages from the client — notify ALL org members
+      const allMembers = await database.query.userOrganizations.findMany({
+        where: eq(userOrganizations.organizationId, organizationId),
+      });
+      allMembers.forEach(m => usersToNotify.add(m.userId));
+    } else {
+      // 3. Add organization admins/managers for other interaction types
+      const orgManagers = await database.query.userOrganizations.findMany({
+        where: and(
+          eq(userOrganizations.organizationId, organizationId),
+          inArray(userOrganizations.role, ["admin", "owner", "manager", "subadmin"])
+        ),
+      });
+      orgManagers.forEach(manager => usersToNotify.add(manager.userId));
+    }
 
     // Remove the actor from notification list
     usersToNotify.delete(actor.id);
@@ -73,18 +80,28 @@ export const notifyClientInteraction = async (params: {
 
     for (const targetUser of targetUsers) {
       // Create in-app notification
+      const isNote = interaction.type === "note";
+      const notifTitle = isNote
+        ? "New client message"
+        : `New Client Log: ${client.name}`;
+      const preview = interaction.content.substring(0, 80) + (interaction.content.length > 80 ? "..." : "");
+      const notifMessage = isNote
+        ? `${client.name}: ${preview}`
+        : `${actor.name} logged a ${interaction.type}: ${interaction.content.substring(0, 100)}${interaction.content.length > 100 ? "..." : ""}`;
+      const notifType = isNote ? "client_message" : "client_interaction";
+
       try {
         await database.insert(notifications).values({
           id: crypto.randomUUID(),
           userId: targetUser.id,
           organizationId,
-          type: "client_interaction",
-          title: `New Client Log: ${client.name}`,
-          message: `${actor.name} logged a ${interaction.type}: ${interaction.content.substring(0, 100)}${interaction.content.length > 100 ? '...' : ''}`,
-          data: { 
-            clientId: client.id, 
+          type: notifType,
+          title: notifTitle,
+          message: notifMessage,
+          data: {
+            clientId: client.id,
             interactionId: interaction.id,
-            interactionType: interaction.type 
+            interactionType: interaction.type
           },
           read: false,
           createdAt: new Date(),

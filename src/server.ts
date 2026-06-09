@@ -46,6 +46,7 @@ import leadsRoutes from "./routes/leads.routes";
 import reportsRoutes from "./routes/reports.routes";
 import proposalsRoutes from "./routes/proposals.routes";
 import onboardingRoutes from "./routes/onboarding.routes";
+import crmRoutes from "./routes/crm.routes";
 import { backgroundSyncService } from "./services/backgroundSync.service";
 import { autoRenewalService } from "./services/autoRenewal.service";
 import { initCronJobs } from "./services/automation/cron.service";
@@ -239,6 +240,7 @@ app.use("/api/custom-fields", customFieldsRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/proposals", proposalsRoutes);
 app.use("/api/onboarding", onboardingRoutes);
+app.use("/api/crm", crmRoutes);
 app.use("/api", fileRoutes);
 app.use(unknownRoutes);
 
