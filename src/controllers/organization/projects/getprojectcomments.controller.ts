@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { projectComments, users } from "../../../../drizzle/schema";
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 
@@ -21,8 +21,8 @@ export const getProjectComments = async (req: Request, res: Response) => {
       return;
     }
 
-    const conditions = [eq(projectComments.projectId, projectId)];
-    if (taskId) conditions.push(eq(projectComments.taskId, taskId));
+    // TODO: re-enable taskId filter after running migration 0015
+    void taskId;
 
     const comments = await database
       .select({
@@ -38,7 +38,7 @@ export const getProjectComments = async (req: Request, res: Response) => {
       })
       .from(projectComments)
       .leftJoin(users, eq(projectComments.userId, users.id))
-      .where(and(...conditions))
+      .where(eq(projectComments.projectId, projectId))
       .orderBy(asc(projectComments.createdAt));
 
     if (comments.length === 0) {
