@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { projectComments, users } from "../../../../drizzle/schema";
-import { and, asc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 
@@ -21,10 +21,10 @@ export const getProjectComments = async (req: Request, res: Response) => {
       return;
     }
 
-    const conditions = [eq(projectComments.projectId, projectId)];
-    if (taskId) {
-      conditions.push(eq(projectComments.taskId, taskId));
-    }
+    // taskId filter is intentionally disabled: the task_id column exists in the
+    // Drizzle schema but has not been migrated to production yet.
+    // Re-enable once: ALTER TABLE project_comments ADD COLUMN IF NOT EXISTS task_id text;
+    void taskId;
 
     const comments = await database
       .select({
@@ -40,7 +40,7 @@ export const getProjectComments = async (req: Request, res: Response) => {
       })
       .from(projectComments)
       .leftJoin(users, eq(projectComments.userId, users.id))
-      .where(and(...conditions))
+      .where(eq(projectComments.projectId, projectId))
       .orderBy(asc(projectComments.createdAt));
 
     if (comments.length === 0) {
