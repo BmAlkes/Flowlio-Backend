@@ -51,8 +51,8 @@ router.get("/users/organization", isAuthenticated, getOrganizationUsers);
 
 // ==================== PROJECT COMMENT ROUTES ====================
 router.post("/comments", isAuthenticated, createProjectComment);
-router.get("/comments", isAuthenticated, getProjectComments);       // ?projectId=UUID&taskId=UUID(optional)
-router.get("/comments/all", isAuthenticated, getAllOrgComments);    // org-wide list with pagination
+router.get("/comments/all", isAuthenticated, getAllOrgComments);          // org-wide, paginated — must be before /:projectId
+router.get("/comments/:projectId", isAuthenticated, getProjectComments);  // taskId optional via query
 router.patch("/comments/:commentId", isAuthenticated, updateProjectComment);
 router.delete("/comments/:commentId", isAuthenticated, deleteProjectComment);
 

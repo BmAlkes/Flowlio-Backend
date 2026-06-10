@@ -13,7 +13,7 @@ export const getProjectComments = async (req: Request, res: Response) => {
       return;
     }
 
-    const projectId = req.query.projectId as string | undefined;
+    const projectId = req.params.projectId as string | undefined;
     const taskId = req.query.taskId as string | undefined;
 
     if (!projectId) {
