@@ -144,6 +144,8 @@ export const subscriptionPlans = pgTable(
       customFeatures?: string[];
       [key: string]: any;
     }>(),
+    paypalPlanId: text("paypal_plan_id"),
+    paypalProductId: text("paypal_product_id"),
     isActive: boolean("is_active")
       .$defaultFn(() => true)
       .notNull(),
@@ -1256,6 +1258,164 @@ export const userOnboarding = pgTable(
   }),
 );
 
+export const aiTokenLimits = pgTable(
+  "ai_token_limits",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    feature: text("feature"),
+    tokenLimit: integer("token_limit").notNull(),
+    tokensUsed: integer("tokens_used")
+      .$defaultFn(() => 0)
+      .notNull(),
+    period: text("period")
+      .default("monthly")
+      .notNull(),
+    resetAt: timestamp("reset_at"),
+    alertThresholdPercent: integer("alert_threshold_percent")
+      .$defaultFn(() => 80)
+      .notNull(),
+    isActive: boolean("is_active")
+      .$defaultFn(() => true)
+      .notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    organizationIdx: index("ai_token_limits_organization_idx").on(
+      table.organizationId,
+    ),
+    userIdx: index("ai_token_limits_user_idx").on(table.userId),
+    uniqueOrgUserFeature: unique("ai_token_limits_org_user_feature_unique").on(
+      table.organizationId,
+      table.userId,
+      table.feature,
+    ),
+  }),
+);
+
+export const aiUsageLogs = pgTable(
+  "ai_usage_logs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    feature: text("feature").notNull(),
+    provider: text("provider")
+      .default("openai")
+      .notNull(),
+    model: text("model"),
+    promptTokens: integer("prompt_tokens")
+      .$defaultFn(() => 0)
+      .notNull(),
+    completionTokens: integer("completion_tokens")
+      .$defaultFn(() => 0)
+      .notNull(),
+    totalTokens: integer("total_tokens")
+      .$defaultFn(() => 0)
+      .notNull(),
+    status: text("status")
+      .default("success")
+      .notNull(),
+    errorMessage: text("error_message"),
+    metadata: json("metadata"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    organizationIdx: index("ai_usage_logs_organization_idx").on(
+      table.organizationId,
+    ),
+    userIdx: index("ai_usage_logs_user_idx").on(table.userId),
+    featureIdx: index("ai_usage_logs_feature_idx").on(table.feature),
+    createdAtIdx: index("ai_usage_logs_created_at_idx").on(table.createdAt),
+  }),
+);
+
+export const aiUsageAlerts = pgTable(
+  "ai_usage_alerts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    alertType: text("alert_type").notNull(),
+    thresholdPercent: integer("threshold_percent"),
+    tokensUsed: integer("tokens_used")
+      .$defaultFn(() => 0)
+      .notNull(),
+    tokenLimit: integer("token_limit")
+      .$defaultFn(() => 0)
+      .notNull(),
+    notifiedTo: text("notified_to"),
+    isRead: boolean("is_read")
+      .$defaultFn(() => false)
+      .notNull(),
+    metadata: json("metadata"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    organizationIdx: index("ai_usage_alerts_organization_idx").on(
+      table.organizationId,
+    ),
+    userIdx: index("ai_usage_alerts_user_idx").on(table.userId),
+  }),
+);
+
+export const webhookSecrets = pgTable(
+  "webhook_secrets",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    secret: text("secret").notNull(),
+    label: text("label"),
+    isActive: boolean("is_active")
+      .$defaultFn(() => true)
+      .notNull(),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    organizationIdx: index("webhook_secrets_organization_idx").on(
+      table.organizationId,
+    ),
+  }),
+);
+
 // ==================== RELATIONS ====================
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -1286,6 +1446,10 @@ export const usersRelations = relations(users, ({ many }) => ({
   createdInvoices: many(invoices),
   createdRecurringInvoices: many(recurringInvoices),
   supportTicketMessages: many(supportTicketMessages),
+  aiTokenLimits: many(aiTokenLimits),
+  aiUsageLogs: many(aiUsageLogs),
+  aiUsageAlerts: many(aiUsageAlerts),
+  webhookSecrets: many(webhookSecrets),
 }));
 
 export const organizationsRelations = relations(

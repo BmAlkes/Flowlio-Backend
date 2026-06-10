@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
+import { requireViewer } from "@/middlewares/role.middleware";
 import { getViewerProjects } from "../controllers/viewer/projects/getviewerprojects.controller";
 import { getViewerProjectById } from "../controllers/viewer/projects/getviewerprojectbyid.controller";
 import { getViewerTasks } from "../controllers/viewer/tasks/getviewertasks.controller";
@@ -34,6 +35,8 @@ import { createTicketMessage } from "../controllers/support ticket/create-ticket
 import { updateViewerSupportTicket } from "../controllers/support ticket/update-viewer-ticket.controller";
 
 const router = Router();
+
+router.use(isAuthenticated, requireViewer);
 
 // ==================== VIEWER PROJECTS ROUTES ====================
 router.get("/projects", isAuthenticated, getViewerProjects);

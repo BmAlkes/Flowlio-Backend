@@ -29,6 +29,7 @@ import { eq, gte, lte, inArray } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { aiGateway } from "@/services/ai-gateway.service";
 // Lazy import - only load OpenAI service when actually needed
 // This prevents blocking server startup
 
@@ -912,7 +913,7 @@ export const advancedConversation = async (
       return;
     }
 
-    const { userInput, conversationHistory, userPreferences } = req.body;
+    const { userInput, conversationHistory } = req.body;
 
     // Parse conversation history if it's a JSON string
     let parsedConversationHistory = conversationHistory;
@@ -998,11 +999,39 @@ export const advancedConversation = async (
       logger.info("📁 No files uploaded for this request");
     }
 
-    // Generate advanced AI response
-    const aiResponse = await service.generateAdvancedResponse(userInput, {
-      conversationHistory: parsedConversationHistory,
-      files: fileContext,
-      userPreferences,
+    // Build messages array for the gateway, mirroring generateAdvancedResponse internals
+    const gatewayMessages: Array<{
+      role: "system" | "user" | "assistant";
+      content: string;
+    }> = [];
+
+    if (parsedConversationHistory && parsedConversationHistory.length > 0) {
+      for (const msg of parsedConversationHistory) {
+        const role = msg.role === "ai" ? "assistant" : msg.role;
+        gatewayMessages.push({
+          role: role as "system" | "user" | "assistant",
+          content: msg.content,
+        });
+      }
+    }
+
+    // Fold file context into the user message (mirrors generateAdvancedResponse file handling)
+    let userMessageContent = userInput;
+    if (fileContext.length > 0) {
+      const filesText = (fileContext as Array<{ name: string; content: string }>)
+        .map((f) => `File: ${f.name}\nContent: ${f.content.substring(0, 2000)}`)
+        .join("\n\n");
+      userMessageContent = `Context from uploaded files:\n${filesText}\n\nUser question: ${userInput}`;
+    }
+    gatewayMessages.push({ role: "user", content: userMessageContent });
+
+    // Generate advanced AI response via gateway (logs usage automatically)
+    const chatResult = await aiGateway.chat({
+      feature: "chat",
+      messages: gatewayMessages,
+      orgId: req.user?.organizationId,
+      userId: req.user?.id,
+      model: "gpt-4o",
     });
 
     debugLog("✅ ADVANCED AI CONVERSATION COMPLETED SUCCESSFULLY");
@@ -1012,9 +1041,12 @@ export const advancedConversation = async (
       success: true,
       message: "AI response generated successfully",
       data: {
-        response: aiResponse.response,
-        type: aiResponse.type,
-        metadata: aiResponse.metadata,
+        response: chatResult.content,
+        type: "text",
+        metadata: {
+          model: chatResult.model,
+          tokens: chatResult.totalTokens,
+        },
         filesAnalyzed: fileContext.length,
       },
     });
@@ -1045,28 +1077,20 @@ export const testOpenAI = async (req: any, res: Response): Promise<void> => {
       return;
     }
 
-    // Lazy load OpenAI service - only import when needed
-    const { openaiService } = await import("@/services/openai.service");
-    const service = openaiService.instance;
-    if (!service) {
-      res.status(500).json({
-        success: false,
-        message: "AI service is not available",
-      });
-      return;
-    }
-
-    // Test with a simple request
-    const testResponse = await service.generateAdvancedResponse(
-      "Hello, this is a test message."
-    );
+    const testResult = await aiGateway.chat({
+      feature: "chat",
+      messages: [{ role: "user", content: "Hello, this is a test message." }],
+      orgId: req.user?.organizationId,
+      userId: req.user?.id,
+      model: "gpt-4o",
+    });
 
     res.status(200).json({
       success: true,
       message: "OpenAI service test completed",
       data: {
-        response: testResponse.response,
-        type: testResponse.type,
+        response: testResult.content,
+        type: "text",
         serviceWorking: true,
       },
     });
@@ -1312,17 +1336,6 @@ export const generateProposal = async (
       return;
     }
 
-    // Lazy load OpenAI service
-    const { openaiService } = await import("@/services/openai.service");
-    const service = openaiService.instance;
-    if (!service) {
-      res.status(500).json({
-        success: false,
-        message: "AI service is not available",
-      });
-      return;
-    }
-
     // Build a detailed prompt for proposal generation
     const proposalPrompt = `You are a professional business proposal writer. You must write the ENTIRE proposal in ${language}. All sections, titles, descriptions, and content must be written exclusively in ${language}. Do not use any other language.
 
@@ -1359,17 +1372,19 @@ Generate a complete professional proposal with the following sections. Return ON
   "nextSteps": ["Array of 3-4 clear next steps to move forward, each as a string"]
 }`;
 
-    // Use the existing generateAdvancedResponse method
-    const aiResponse = await service.generateAdvancedResponse(proposalPrompt, {
-      conversationHistory: [],
-      files: [],
+    const aiResponse = await aiGateway.chat({
+      feature: "proposal",
+      messages: [{ role: "user", content: proposalPrompt }],
+      orgId: req.user?.organizationId,
+      userId: req.user?.id,
+      model: "gpt-4o",
     });
 
     // Parse the AI response as JSON
     let proposalData;
     try {
       // Extract JSON from the response
-      const jsonMatch = aiResponse.response.match(/\{[\s\S]*\}/);
+      const jsonMatch = aiResponse.content.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         proposalData = JSON.parse(jsonMatch[0]);
       } else {
@@ -1382,7 +1397,7 @@ Generate a complete professional proposal with the following sections. Return ON
         success: true,
         message: "Proposal generated successfully",
         data: {
-          rawContent: aiResponse.response,
+          rawContent: aiResponse.content,
           clientName: clientName || "Valued Client",
           projectTitle,
           companyName: companyName || "Our Company",

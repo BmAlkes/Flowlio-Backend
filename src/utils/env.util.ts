@@ -24,6 +24,7 @@ const schemaObject = z.object({
   PAYPAL_CLIENT_ID: z.string().optional(),
   PAYPAL_CLIENT_SECRET: z.string().optional(),
   PAYPAL_MODE: z.enum(["sandbox", "live"]).optional().default("live"),
+  PAYPAL_WEBHOOK_ID: z.string().optional(),
   // database: z.string(),
 });
 

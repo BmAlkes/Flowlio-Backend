@@ -918,7 +918,12 @@ export class OpenAIService {
   ): Promise<{
     response: string;
     type: "text" | "image" | "code" | "analysis";
-    metadata?: any;
+    metadata?: {
+      model: string;
+      tokens: number;
+      promptTokens: number;
+      completionTokens: number;
+    };
   }> {
     try {
       logger.info("🤖 generateAdvancedResponse called with:", {
@@ -1090,6 +1095,8 @@ Always be helpful, accurate, and engaging. If you need to generate images, use t
         metadata: {
           model: "gpt-4o",
           tokens: response.usage?.total_tokens || 0,
+          promptTokens: response.usage?.prompt_tokens ?? 0,
+          completionTokens: response.usage?.completion_tokens ?? 0,
         },
       };
     } catch (error) {
