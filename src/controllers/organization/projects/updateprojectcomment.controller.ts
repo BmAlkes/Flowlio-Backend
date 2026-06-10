@@ -4,6 +4,11 @@ import { updateProjectCommentSchema } from "@/schema/validation";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 
+function toUUID(id: string): string {
+  if (id.includes("-")) return id;
+  return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
+}
+
 export const updateProjectComment = async (req: Request, res: Response) => {
   try {
     if (!req.user) {
@@ -33,7 +38,7 @@ export const updateProjectComment = async (req: Request, res: Response) => {
       return;
     }
 
-    if (existing.rows[0].userId !== req.user.id) {
+    if (toUUID(existing.rows[0].userId) !== toUUID(req.user.id)) {
       res.status(403).json({ success: false, message: "You can only edit your own comments" });
       return;
     }
