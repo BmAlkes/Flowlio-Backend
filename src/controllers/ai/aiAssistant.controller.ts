@@ -18,6 +18,8 @@ import { Response } from "express";
 import { logger } from "@/utils/logger.util";
 import { database } from "@/configs/connection.config";
 import {
+  aiTokenLimits,
+  aiUsageLogs,
   calendarEvents,
   users,
   projects,
@@ -25,7 +27,7 @@ import {
   tasks,
   timeEntries,
 } from "@/schema/schema";
-import { eq, gte, lte, inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -1145,7 +1147,7 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
     // size,
     // });
 
-    // Generate image using DALL-E
+    // Generate image using OpenAI image generation
     const imageUrl = await service.generateImage(prompt, size);
 
     if (!imageUrl) {
@@ -1156,6 +1158,43 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
       return;
     }
 
+    const imageTokenCost = 1000;
+    const imageModel = "gpt-image-1";
+
+    if (req.user.organizationId && req.user.id) {
+      await database.insert(aiUsageLogs).values({
+        feature: "image",
+        provider: "openai",
+        model: imageModel,
+        promptTokens: imageTokenCost,
+        completionTokens: 0,
+        totalTokens: imageTokenCost,
+        organizationId: req.user.organizationId,
+        userId: req.user.id,
+        status: "success",
+        metadata: {
+          prompt,
+          size,
+          responseType: imageUrl.startsWith("data:") ? "base64" : "url",
+        },
+      });
+
+      await database
+        .update(aiTokenLimits)
+        .set({
+          tokensUsed: sql`${aiTokenLimits.tokensUsed} + ${imageTokenCost}`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(aiTokenLimits.organizationId, req.user.organizationId),
+            isNull(aiTokenLimits.userId),
+            isNull(aiTokenLimits.feature),
+            eq(aiTokenLimits.isActive, true)
+          )
+        );
+    }
+
     res.status(200).json({
       success: true,
       message: "Image generated successfully",
@@ -1164,7 +1203,8 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
         prompt,
         size,
         metadata: {
-          model: "dall-e-3",
+          model: imageModel,
+          tokenCost: imageTokenCost,
           timestamp: new Date().toISOString(),
         },
       },

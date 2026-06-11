@@ -127,11 +127,15 @@ export const getUsage = async (req: any, res: Response): Promise<void> => {
 
     const limit = limitRecords[0] ?? null;
 
-    const usagePercent = limit
-      ? Math.round(
-          (Number(currentMonth.totalTokens) / limit.tokenLimit) * 100
-        )
-      : 0;
+    const usagePercent =
+      limit && limit.tokenLimit > 0
+        ? Number(
+            (
+              (Number(currentMonth.totalTokens) / limit.tokenLimit) *
+              100
+            ).toFixed(2)
+          )
+        : 0;
 
     res.status(200).json({
       currentMonth: {

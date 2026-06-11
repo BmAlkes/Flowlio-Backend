@@ -870,21 +870,21 @@ export class OpenAIService {
         return null;
       }
 
-      logger.info("🎨 Generating image with gpt-image-2:", {
+      logger.info("🎨 Generating image with gpt-image-1:", {
         prompt: prompt.substring(0, 100) + "...",
         size,
-        model: "gpt-image-2",
+        model: "gpt-image-1",
       });
 
       const response = await this.openai.images.generate({
-        model: "gpt-image-2",
+        model: "gpt-image-1",
         prompt: prompt,
         n: 1,
         size: size,
         quality: "high",
       });
 
-      logger.info("🎨 gpt-image-2 response received:", {
+      logger.info("🎨 gpt-image-1 response received:", {
         hasData: !!response.data,
         dataLength: response.data?.length || 0,
       });
@@ -892,7 +892,7 @@ export class OpenAIService {
       const image = response.data?.[0];
       if (!image) return null;
 
-      // gpt-image-2 returns base64 by default
+      // gpt-image-1 can return base64 data, which is safest for immediate chat rendering.
       if (image.b64_json) {
         return `data:image/png;base64,${image.b64_json}`;
       }
