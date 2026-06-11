@@ -6,12 +6,14 @@ export const USER_ROLES = {
   SUPER_ADMIN: "superadmin",
   SUB_ADMIN: "subadmin",
   USER: "user",
+  VIEWER: "viewer",
 } as const;
 
 export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
 
 // Role hierarchy (higher number = more permissions)
 export const ROLE_HIERARCHY: Record<UserRole, number> = {
+  [USER_ROLES.VIEWER]: 0,
   [USER_ROLES.USER]: 1,
   [USER_ROLES.SUB_ADMIN]: 2,
   [USER_ROLES.SUPER_ADMIN]: 3,
@@ -153,7 +155,7 @@ export const requireUser = requireRole(USER_ROLES.USER);
 // Legacy aliases for backward compatibility
 export const requireAdmin = requireRole(USER_ROLES.SUB_ADMIN);
 export const requireMember = requireRole(USER_ROLES.USER);
-export const requireViewer = requireRole(USER_ROLES.USER);
+export const requireViewer = requireRole(USER_ROLES.VIEWER);
 
 // Middleware for org-level access: Invoices, Payment Links, Client Mgmt, User Mgmt
 // Allow: superadmin | subadmin | (user AND isOrganizationOwner)

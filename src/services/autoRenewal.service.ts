@@ -8,6 +8,8 @@ import { eq, and, lte, gte } from "drizzle-orm";
 import { logger } from "../utils/logger.util";
 import { notifySuperAdmins } from "../utils/superadmin-notification.util";
 import { env } from "../utils/env.util";
+import axios from "axios";
+import { getPayPalAccessToken, getPayPalBaseURL } from "../utils/paypal.util";
 
 const isProduction = process.env.NODE_ENV === "production";
 const isRailway =
@@ -180,58 +182,105 @@ export class AutoRenewalService {
   }
 
   /**
-   * Process PayPal payment for renewal using saved payment method or subscription
+   * Verify PayPal subscription status and return next billing date.
+   * For subscriptions using PayPal Subscriptions API, PayPal charges the customer
+   * automatically — we just need to sync the status and dates from PayPal's response.
+   * Legacy one-time-order subscriptions (pre-subscriptions-API) cannot be auto-renewed
+   * and are marked past_due so the customer knows to re-subscribe.
    */
   private async processRenewalPayment(
     plan: typeof subscriptionPlans.$inferSelect,
     subscription: typeof subscriptions.$inferSelect
-  ): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    orderId?: string;
+    error?: string;
+    nextPeriodEnd?: Date;
+  }> {
     try {
-      // Check if PayPal is configured
-      if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-        logger.warn("PayPal not configured, cannot process renewal payment");
-        return {
-          success: false,
-          error: "PayPal not configured",
-        };
-      }
-
-      // Check if plan has a price (free plans don't need payment)
+      // Free plans never need payment
       const planPrice = Number(plan.price);
       if (!planPrice || planPrice <= 0) {
-        logger.info(
-          `Plan ${plan.id} has no price, skipping payment processing`
-        );
-        return { success: true }; // Free plan, no payment needed
+        return { success: true };
       }
 
-      // Check if user has PayPal subscription ID (recurring billing setup)
+      if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+        logger.warn("PayPal not configured, cannot process renewal payment");
+        return { success: false, error: "PayPal not configured" };
+      }
+
       const metadata = (subscription.metadata as any) || {};
-      const paypalSubscriptionId = metadata.paypalSubscriptionId;
-      const paypalOrderId = metadata.paypalOrderId;
-      const paypalCaptureId = metadata.paypalCaptureId;
+      const paypalSubscriptionId: string | undefined =
+        metadata.paypalSubscriptionId;
+      const paypalOrderId: string | undefined = metadata.paypalOrderId;
+      const paypalCaptureId: string | undefined = metadata.paypalCaptureId;
 
-      // If user has PayPal subscription ID, they've linked PayPal for recurring billing
-      // In this case, we can auto-renew (PayPal will handle the billing)
+      // ── New flow: subscription created via PayPal Subscriptions API ──────────
       if (paypalSubscriptionId) {
-        logger.info(
-          `Subscription ${subscription.id} has PayPal subscription ID ${paypalSubscriptionId}. ` +
-            `PayPal will handle automatic billing. Proceeding with renewal.`
-        );
-        return { success: true, orderId: paypalSubscriptionId };
+        try {
+          const accessToken = await getPayPalAccessToken();
+          const baseURL = getPayPalBaseURL();
+
+          const subDetails = await axios.get(
+            `${baseURL}/v1/billing/subscriptions/${paypalSubscriptionId}`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+
+          const paypalStatus: string = subDetails.data.status;
+          const nextBillingTimeStr: string | undefined =
+            subDetails.data.billing_info?.next_billing_time;
+
+          logger.info(
+            `PayPal subscription ${paypalSubscriptionId} status: ${paypalStatus}, ` +
+              `next billing: ${nextBillingTimeStr ?? "unknown"}`
+          );
+
+          if (paypalStatus === "ACTIVE") {
+            const nextPeriodEnd = nextBillingTimeStr
+              ? new Date(nextBillingTimeStr)
+              : undefined;
+
+            return {
+              success: true,
+              orderId: paypalSubscriptionId,
+              nextPeriodEnd,
+            };
+          }
+
+          // SUSPENDED or CANCELLED — PayPal stopped billing
+          logger.warn(
+            `PayPal subscription ${paypalSubscriptionId} is ${paypalStatus}. ` +
+              `Marking subscription ${subscription.id} as past_due.`
+          );
+          return {
+            success: false,
+            error: `PayPal subscription is ${paypalStatus}. Customer must resubscribe.`,
+          };
+        } catch (apiError: any) {
+          logger.error(
+            `Failed to verify PayPal subscription ${paypalSubscriptionId}:`,
+            apiError
+          );
+          return {
+            success: false,
+            error: `PayPal API error during renewal verification: ${apiError.message}`,
+          };
+        }
       }
 
-      // If user has PayPal order/capture ID, they've paid via PayPal before
-      // This means they've linked PayPal, so we can auto-renew
+      // ── Legacy flow: one-time order (pre-subscriptions-API) ─────────────────
+      // These cannot be auto-charged. The customer must re-subscribe using the
+      // new PayPal Subscriptions flow to enable true recurring billing.
       if (paypalOrderId || paypalCaptureId) {
-        logger.info(
-          `Subscription ${subscription.id} has PayPal payment history (Order: ${paypalOrderId}, Capture: ${paypalCaptureId}). ` +
-            `User has linked PayPal, proceeding with auto-renewal. ` +
-            `Note: For true recurring billing, PayPal Subscriptions API should be implemented.`
+        logger.warn(
+          `Subscription ${subscription.id} uses legacy one-time PayPal order ` +
+            `(orderId=${paypalOrderId}). True auto-billing requires the PayPal ` +
+            `Subscriptions API. Marking as past_due so customer re-subscribes.`
         );
-        // For now, allow renewal if user has PayPal payment history
-        // In production, you should implement PayPal Subscriptions API for true auto-billing
-        return { success: true, orderId: paypalOrderId };
+        return {
+          success: false,
+          error: "Legacy one-time order: customer must re-subscribe via PayPal Subscriptions.",
+        };
       }
 
       // No PayPal payment method linked

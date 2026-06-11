@@ -14,6 +14,8 @@ import {
 } from "../controllers/ai/aiAssistant.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
+import { checkAIAccess } from "@/middlewares/ai-rbac.middleware";
+import { checkAITokenLimit } from "@/middlewares/ai-limit.middleware";
 import { generateWeeklyProjectSummary } from "@/controllers/ai/generateweeklyprojectsummary.controller";
 
 const router = Router();
@@ -21,6 +23,8 @@ const router = Router();
 router.post(
   "/suggestions",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   generateEventSuggestions
 );
@@ -28,6 +32,8 @@ router.post(
 router.post(
   "/categories",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   generateEventCategories
 );
@@ -35,6 +41,8 @@ router.post(
 router.post(
   "/enhance-description",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   enhanceEventDescription
 );
@@ -42,6 +50,8 @@ router.post(
 router.get(
   "/insights",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   getCalendarInsights
 );
@@ -49,6 +59,8 @@ router.get(
 router.post(
   "/conversation",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   upload.array("files", 5),
   advancedConversation
@@ -57,6 +69,8 @@ router.post(
 router.post(
   "/generate-image",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   generateImage
 );
@@ -64,6 +78,8 @@ router.post(
 router.post(
   "/generate-task",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   generateTaskFromNaturalLanguage
 );
@@ -71,6 +87,8 @@ router.post(
 router.get(
   "/weekly-summary",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   generateWeeklyProjectSummary
 );
@@ -78,6 +96,8 @@ router.get(
 router.get(
   "/project-insights",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   getProjectInsights
 );
@@ -85,6 +105,8 @@ router.get(
 router.get(
   "/test",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   testOpenAI
 );
@@ -92,6 +114,8 @@ router.get(
 router.post(
   "/generate-proposal",
   isAuthenticated,
+  checkAIAccess,
+  checkAITokenLimit,
   requirePlanFeature("aiAssist"),
   generateProposal
 );

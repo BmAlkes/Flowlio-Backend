@@ -38,6 +38,8 @@ import universalSupportTicketRoutes from "./routes/universalsupportticket.routes
 import viewerRoutes from "./routes/viewer.routes";
 import googleCalendarRoutes from "./routes/googleCalendar.routes";
 import aiRoutes from "./routes/ai.routes";
+import aiMonitoringRoutes from "./routes/ai-monitoring.routes";
+import webhookRoutes from "./routes/webhook.routes";
 import notificationRoutes from "./routes/notifications.routes";
 import newsletterRoutes from "./routes/newsletter.routes";
 import customFieldsRoutes from "./routes/custom-fields.routes";
@@ -215,6 +217,7 @@ app.all("/api/auth/*splat", (req, res) => {
 // enable after database connection
 app.use(throttle("default"));
 // Reduced body size limit for security (50mb was too high and vulnerable to DoS)
+app.use('/api/webhooks', express.raw({ type: '*/*' }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
@@ -234,6 +237,8 @@ app.use("/api/support-tickets", universalSupportTicketRoutes);
 app.use("/api/viewer", viewerRoutes);
 app.use("/api/google-calendar", googleCalendarRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/ai", aiMonitoringRoutes);
+app.use("/api/webhooks", webhookRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/newsletter", newsletterRoutes);
 app.use("/api/custom-fields", customFieldsRoutes);
