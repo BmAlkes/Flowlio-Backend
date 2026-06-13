@@ -3,25 +3,25 @@ import { connection } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { randomUUID } from "crypto";
 
-function safeStringify(value: unknown): string | null {
+// PostgreSQL error code for "column does not exist"
+const PG_UNDEFINED_COLUMN = "42703";
+
+function safeStringify(value: unknown): string {
   try {
-    const s = JSON.stringify(value);
-    return s ?? null;
+    return JSON.stringify(value) ?? "{}";
   } catch {
-    return null;
+    return "{}";
   }
 }
 
 function parseRawBody(rawBody: string): Record<string, any> {
   if (!rawBody) return {};
 
-  // Try JSON first
   try {
     const parsed = JSON.parse(rawBody);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
   } catch { /* not JSON */ }
 
-  // Try application/x-www-form-urlencoded (WordPress CF7, Gravity Forms, etc.)
   try {
     const params = new URLSearchParams(rawBody);
     const obj: Record<string, any> = {};
@@ -39,11 +39,29 @@ function applyMapping(
   if (!mapping || Object.keys(mapping).length === 0) return payload;
   const result: Record<string, any> = {};
   for (const [externalKey, leadField] of Object.entries(mapping)) {
-    if (payload[externalKey] !== undefined) {
-      result[leadField] = payload[externalKey];
-    }
+    if (payload[externalKey] !== undefined) result[leadField] = payload[externalKey];
   }
   return result;
+}
+
+async function findOrgUserId(orgId: string): Promise<string | null> {
+  // Prefer owner → admin → any active member
+  const res = await connection.query({
+    text: `
+      SELECT user_id
+      FROM user_organizations
+      WHERE organization_id = $1
+      ORDER BY
+        CASE WHEN role = 'owner' THEN 0
+             WHEN role = 'admin' THEN 1
+             ELSE 2
+        END,
+        id
+      LIMIT 1
+    `,
+    values: [orgId],
+  });
+  return res.rows.length > 0 ? (res.rows[0].user_id as string) : null;
 }
 
 export const receiveWebhook = async (req: Request, res: Response): Promise<void> => {
@@ -54,47 +72,38 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
   let webhookName: string | null = null;
   let orgId: string | null = null;
   let incomingPayload: Record<string, any> = {};
-  // payloadJson is set immediately after parsing — before any DB calls —
-  // so the finally block always has the correct value even if something throws later
-  let payloadJson: string | null = null;
+  let payloadJson = "{}";
   let leadId: string | null = null;
   let logStatus: "success" | "error" = "success";
   let logError: string | null = null;
 
   try {
-    // ── 1. Capture and parse the request body ──────────────────────────────
-    // express.raw({ type: '*/*' }) at server.ts level converts the body to a
-    // Buffer before this handler runs. We convert back to string then parse.
+    // ── 1. Parse body ──────────────────────────────────────────────────────
     if (Buffer.isBuffer(req.body)) {
-      const rawStr = req.body.toString("utf8");
-      incomingPayload = parseRawBody(rawStr);
+      incomingPayload = parseRawBody(req.body.toString("utf8"));
     } else if (typeof req.body === "string") {
       incomingPayload = parseRawBody(req.body);
     } else if (req.body && typeof req.body === "object") {
       incomingPayload = req.body as Record<string, any>;
     }
 
-    // Serialise immediately — never rely on incomingPayload being stable past this point
-    payloadJson = safeStringify(incomingPayload) ?? "{}";
+    // Serialise immediately so finally always has the correct value
+    payloadJson = safeStringify(incomingPayload);
 
-    logger.info("receiveWebhook: body parsed", {
-      token,
-      payloadKeys: Object.keys(incomingPayload),
-      payloadJson,
-    });
+    logger.info("receiveWebhook payload", { token, keys: Object.keys(incomingPayload) });
 
     // ── 2. Look up webhook ─────────────────────────────────────────────────
-    const webhookResult = await connection.query({
+    const wh = await connection.query({
       text: `SELECT id, org_id, name, field_mapping, active FROM lead_webhooks WHERE token = $1`,
       values: [token],
     });
 
-    if (webhookResult.rows.length === 0) {
+    if (wh.rows.length === 0) {
       res.status(404).json({ success: false, error: "Webhook not found" });
       return;
     }
 
-    const webhook = webhookResult.rows[0];
+    const webhook = wh.rows[0];
     webhookId   = webhook.id as string;
     webhookName = webhook.name as string;
     orgId       = webhook.org_id as string;
@@ -104,7 +113,7 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // ── 3. Apply field mapping ─────────────────────────────────────────────
+    // ── 3. Map fields ──────────────────────────────────────────────────────
     const mapping: Record<string, string> = webhook.field_mapping ?? {};
     const mapped = applyMapping(incomingPayload, mapping);
 
@@ -113,30 +122,56 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
     const leadPhone = (mapped.phone   as string) || (incomingPayload.phone   as string) || null;
     const leadAddr  = (mapped.address as string) || (incomingPayload.address as string) || null;
 
-    // ── 4. Create the lead ─────────────────────────────────────────────────
+    // ── 4. Resolve created_by (prefer owner → admin → any member) ─────────
+    const createdBy = await findOrgUserId(orgId);
+    if (!createdBy) {
+      throw new Error(`No member found for org ${orgId} — cannot create lead`);
+    }
+
     const newLeadId = randomUUID();
     const now = new Date();
 
-    await connection.query({
-      text: `
-        INSERT INTO clients
-          (id, organization_id, name, email, phone, address,
-           status, type, webhook_id, webhook_name,
-           created_by, position, created_at, updated_at)
-        SELECT
-          $1, $2, $3, $4, $5, $6,
-          'New Lead', 'lead', $7, $8,
-          u.id, 0, $9, $9
-        FROM users u
-        INNER JOIN user_organizations uo
-          ON uo.user_id = u.id AND uo.organization_id = $2 AND uo.role = 'owner'
-        LIMIT 1
-      `,
-      values: [newLeadId, orgId, leadName, leadEmail, leadPhone, leadAddr, webhookId, webhookName, now],
-    });
+    // ── 5. INSERT lead — try with source columns, fallback without ─────────
+    try {
+      const result = await connection.query({
+        text: `
+          INSERT INTO clients
+            (id, organization_id, name, email, phone, address,
+             status, type, webhook_id, webhook_name,
+             created_by, position, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6,
+                  'New Lead', 'lead', $7, $8,
+                  $9, 0, $10, $10)
+        `,
+        values: [newLeadId, orgId, leadName, leadEmail, leadPhone, leadAddr,
+                 webhookId, webhookName, createdBy, now],
+      });
+
+      if ((result.rowCount ?? 0) === 0) {
+        throw new Error("INSERT returned rowCount 0 — lead not created");
+      }
+    } catch (insertErr: any) {
+      if (insertErr?.code === PG_UNDEFINED_COLUMN) {
+        // Migration 0019 not yet applied — insert without source columns
+        logger.warn("receiveWebhook: webhook_id/webhook_name columns missing, inserting without source");
+        const fallback = await connection.query({
+          text: `
+            INSERT INTO clients
+              (id, organization_id, name, email, phone, address,
+               status, type, created_by, position, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, 'New Lead', 'lead', $7, 0, $8, $8)
+          `,
+          values: [newLeadId, orgId, leadName, leadEmail, leadPhone, leadAddr, createdBy, now],
+        });
+        if ((fallback.rowCount ?? 0) === 0) {
+          throw new Error("Fallback INSERT returned rowCount 0 — lead not created");
+        }
+      } else {
+        throw insertErr;
+      }
+    }
 
     leadId = newLeadId;
-
     res.status(200).json({ success: true, leadId });
 
   } catch (error: any) {
@@ -147,7 +182,6 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
       res.status(500).json({ success: false, error: "Internal server error" });
     }
   } finally {
-    // Always log — even on early returns (404/403) webhookId may be null, skip then
     if (webhookId) {
       connection
         .query({
@@ -158,9 +192,7 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
           `,
           values: [randomUUID(), webhookId, logStatus, payloadJson, leadId, logError, ip],
         })
-        .catch((e) =>
-          logger.error("webhook log insert failed:", { message: e?.message, detail: e?.detail }),
-        );
+        .catch((e) => logger.error("webhook log insert failed:", { message: e?.message }));
     }
   }
 };
