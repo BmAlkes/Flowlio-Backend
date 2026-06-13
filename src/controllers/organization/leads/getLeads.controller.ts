@@ -9,21 +9,22 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
     if (!organizationId) return;
 
     const {
-      search = "",
-      status = "",
+      search      = "",
+      status      = "",
       temperature = "",
-      dateFrom = "",
-      dateTo = "",
-      page = "1",
-      limit = "50",
+      webhookId   = "",
+      dateFrom    = "",
+      dateTo      = "",
+      page        = "1",
+      limit       = "50",
     } = req.query as Record<string, string>;
 
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const pageNum  = Math.max(1, parseInt(page,  10) || 1);
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
-    const offset = (pageNum - 1) * limitNum;
+    const offset   = (pageNum - 1) * limitNum;
 
     const conditions: string[] = [`c.organization_id = $1`, `c.type = 'lead'`];
-    const values: any[] = [organizationId];
+    const values: any[]        = [organizationId];
     let idx = 2;
 
     if (search) {
@@ -39,6 +40,11 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
     if (temperature) {
       conditions.push(`c.lead_temperature = $${idx}`);
       values.push(temperature);
+      idx++;
+    }
+    if (webhookId) {
+      conditions.push(`c.webhook_id = $${idx}`);
+      values.push(webhookId);
       idx++;
     }
     if (dateFrom) {
@@ -73,6 +79,8 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
             c.lead_temperature      AS "leadTemperature",
             c.follow_up_at          AS "followUpAt",
             c.last_interaction_at   AS "lastInteractionAt",
+            c.webhook_id            AS "webhookId",
+            c.webhook_name          AS "webhookName",
             c.position,
             c.created_at            AS "createdAt",
             c.updated_at            AS "updatedAt"
@@ -84,19 +92,17 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
         values: [...values, limitNum, offset],
       }),
       connection.query({
-        text: `SELECT COUNT(*) FROM clients c WHERE ${where}`,
+        text:   `SELECT COUNT(*) FROM clients c WHERE ${where}`,
         values,
       }),
     ]);
 
-    const total = parseInt(countResult.rows[0].count, 10);
-
     res.status(200).json({
       success: true,
-      data: dataResult.rows,
-      total,
-      page: pageNum,
-      limit: limitNum,
+      data:    dataResult.rows,
+      total:   parseInt(countResult.rows[0].count, 10),
+      page:    pageNum,
+      limit:   limitNum,
     });
   } catch (error: any) {
     logger.error("Error fetching leads:", { message: error?.message, detail: error?.detail });

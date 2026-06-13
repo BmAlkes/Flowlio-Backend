@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { database } from "../../../configs/connection.config";
+import { database, connection } from "../../../configs/connection.config";
 import { clients, notifications } from "../../../schema/schema";
-import { eq, and, lte, gte, isNotNull, lt, gt } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { requireOrganizationId } from "@/utils/organization.util";
@@ -42,7 +42,6 @@ export const updateLeadFollowUp = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    // Create notification for the current user when follow-up is set
     if (followUpDate && req.user?.id) {
       const client = updated[0];
       const dateLabel = followUpDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -74,16 +73,18 @@ export const updateLeadFollowUp = async (req: Request, res: Response): Promise<v
   }
 };
 
-const FOLLOW_UP_COLUMNS = {
-  id: clients.id,
-  name: clients.name,
-  email: clients.email,
-  phone: clients.phone,
-  status: clients.status,
-  leadTemperature: clients.leadTemperature,
-  followUpAt: clients.followUpAt,
-  lastInteractionAt: clients.lastInteractionAt,
-} as const;
+const FOLLOW_UP_SELECT = `
+  id,
+  name,
+  email,
+  phone,
+  status,
+  lead_temperature  AS "leadTemperature",
+  follow_up_at      AS "followUpAt",
+  last_interaction_at AS "lastInteractionAt",
+  webhook_id        AS "webhookId",
+  webhook_name      AS "webhookName"
+`;
 
 // GET /leads/followups/pending  — overdue + today (full day window)
 export const getPendingFollowUps = async (req: Request, res: Response): Promise<void> => {
@@ -91,20 +92,23 @@ export const getPendingFollowUps = async (req: Request, res: Response): Promise<
     const organizationId = requireOrganizationId(req as any, res);
     if (!organizationId) return;
 
-    const now = new Date();
-    const pending = await database
-      .select(FOLLOW_UP_COLUMNS)
-      .from(clients)
-      .where(
-        and(
-          eq(clients.organizationId, organizationId),
-          isNotNull(clients.followUpAt),
-          lte(clients.followUpAt, endOfDay(now))  // includes all of today
-        )
-      )
-      .orderBy(clients.followUpAt);
+    const now    = new Date();
+    const todayEnd = endOfDay(now);
 
-    res.status(status.OK).json({ success: true, data: pending });
+    const result = await connection.query({
+      text: `
+        SELECT ${FOLLOW_UP_SELECT}
+        FROM clients
+        WHERE organization_id = $1
+          AND type = 'lead'
+          AND follow_up_at IS NOT NULL
+          AND follow_up_at <= $2
+        ORDER BY follow_up_at ASC
+      `,
+      values: [organizationId, todayEnd],
+    });
+
+    res.status(status.OK).json({ success: true, data: result.rows });
 
   } catch (error) {
     logger.error("Error fetching pending follow-ups:", error);
@@ -118,28 +122,40 @@ export const getFollowUpsDashboard = async (req: Request, res: Response): Promis
     const organizationId = requireOrganizationId(req as any, res);
     if (!organizationId) return;
 
-    const now = new Date();
+    const now        = new Date();
     const todayStart = startOfDay(now);
     const todayEnd   = endOfDay(now);
     const in7Days    = endOfDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7));
 
-    const [overdue, today, upcoming] = await Promise.all([
-      database.select(FOLLOW_UP_COLUMNS).from(clients).where(
-        and(eq(clients.organizationId, organizationId), isNotNull(clients.followUpAt), lt(clients.followUpAt, todayStart))
-      ).orderBy(clients.followUpAt),
+    const BASE = `
+      FROM clients
+      WHERE organization_id = $1
+        AND type = 'lead'
+        AND follow_up_at IS NOT NULL
+    `;
 
-      database.select(FOLLOW_UP_COLUMNS).from(clients).where(
-        and(eq(clients.organizationId, organizationId), isNotNull(clients.followUpAt), gte(clients.followUpAt, todayStart), lte(clients.followUpAt, todayEnd))
-      ).orderBy(clients.followUpAt),
-
-      database.select(FOLLOW_UP_COLUMNS).from(clients).where(
-        and(eq(clients.organizationId, organizationId), isNotNull(clients.followUpAt), gt(clients.followUpAt, todayEnd), lte(clients.followUpAt, in7Days))
-      ).orderBy(clients.followUpAt),
+    const [overdueRes, todayRes, upcomingRes] = await Promise.all([
+      connection.query({
+        text:   `SELECT ${FOLLOW_UP_SELECT} ${BASE} AND follow_up_at < $2 ORDER BY follow_up_at ASC`,
+        values: [organizationId, todayStart],
+      }),
+      connection.query({
+        text:   `SELECT ${FOLLOW_UP_SELECT} ${BASE} AND follow_up_at >= $2 AND follow_up_at <= $3 ORDER BY follow_up_at ASC`,
+        values: [organizationId, todayStart, todayEnd],
+      }),
+      connection.query({
+        text:   `SELECT ${FOLLOW_UP_SELECT} ${BASE} AND follow_up_at > $2 AND follow_up_at <= $3 ORDER BY follow_up_at ASC`,
+        values: [organizationId, todayEnd, in7Days],
+      }),
     ]);
 
     res.status(status.OK).json({
       success: true,
-      data: { overdue, today, upcoming }
+      data: {
+        overdue:  overdueRes.rows,
+        today:    todayRes.rows,
+        upcoming: upcomingRes.rows,
+      },
     });
 
   } catch (error) {

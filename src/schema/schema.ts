@@ -846,6 +846,8 @@ export const clients = pgTable(
     clientType: text("type")
       .$type<"lead" | "client">()
       .$defaultFn(() => "lead"),
+    webhookId: text("webhook_id"),
+    webhookName: text("webhook_name"),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
