@@ -14,7 +14,7 @@ export const updateLeadTemperature = async (req: Request, res: Response): Promis
     const organizationId = requireOrganizationId(req as any, res);
     if (!organizationId) return;
 
-    const { id: clientId } = req.params;
+    const { clientId } = req.params;
     const { temperature } = req.body;
 
     if (!clientId) {
