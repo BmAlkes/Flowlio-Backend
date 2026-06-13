@@ -3,6 +3,32 @@ import { connection } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { randomUUID } from "crypto";
 
+function safeStringify(value: unknown): string | null {
+  try {
+    return JSON.stringify(value) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function parseBody(rawBody: string): Record<string, any> {
+  // Try JSON first
+  try {
+    const parsed = JSON.parse(rawBody);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch { /* not JSON */ }
+
+  // Try application/x-www-form-urlencoded (WordPress Contact Form 7, Gravity Forms, etc.)
+  try {
+    const params = new URLSearchParams(rawBody);
+    const obj: Record<string, any> = {};
+    params.forEach((value, key) => { obj[key] = value; });
+    if (Object.keys(obj).length > 0) return obj;
+  } catch { /* not form-encoded */ }
+
+  return {};
+}
+
 function applyMapping(
   payload: Record<string, any>,
   mapping: Record<string, string>,
@@ -24,17 +50,32 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
   let webhookId: string | null = null;
   let orgId: string | null = null;
   let incomingPayload: Record<string, any> = {};
+  let payloadJson: string | null = null;
   let leadId: string | null = null;
   let logStatus: "success" | "error" = "success";
   let logError: string | null = null;
 
   try {
-    // Parse body (may be raw Buffer from global express.raw middleware)
+    // Capture raw body string regardless of content type
+    let rawBodyStr = "";
     if (Buffer.isBuffer(req.body)) {
-      try { incomingPayload = JSON.parse(req.body.toString("utf8")); } catch { incomingPayload = {}; }
+      rawBodyStr = req.body.toString("utf8");
+    } else if (typeof req.body === "string") {
+      rawBodyStr = req.body;
     } else if (req.body && typeof req.body === "object") {
-      incomingPayload = req.body;
+      // Already parsed by some middleware — use as-is
+      incomingPayload = req.body as Record<string, any>;
+      rawBodyStr = safeStringify(incomingPayload) ?? "";
     }
+
+    // Parse raw body if not yet populated
+    if (rawBodyStr && Object.keys(incomingPayload).length === 0) {
+      incomingPayload = parseBody(rawBodyStr);
+    }
+
+    // Store payload JSON early so the finally block always has it,
+    // even if subsequent code throws
+    payloadJson = safeStringify(incomingPayload);
 
     // Look up webhook by token
     const webhookResult = await connection.query({
@@ -59,13 +100,12 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
     const mapping: Record<string, string> = webhook.field_mapping ?? {};
     const mapped = applyMapping(incomingPayload, mapping);
 
-    // Build lead fields from mapped payload
-    const leadName = (mapped.name as string) || (incomingPayload.name as string) || "Lead sem nome";
+    const leadName  = (mapped.name as string)  || (incomingPayload.name as string)  || "Lead sem nome";
     const leadEmail =
       (mapped.email as string) ||
       (incomingPayload.email as string) ||
       `lead-${randomUUID()}@noemail.invalid`;
-    const leadPhone = (mapped.phone as string) || (incomingPayload.phone as string) || null;
+    const leadPhone   = (mapped.phone as string)   || (incomingPayload.phone as string)   || null;
     const leadAddress = (mapped.address as string) || (incomingPayload.address as string) || null;
 
     const newLeadId = randomUUID();
@@ -89,9 +129,10 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
     logStatus = "error";
     logError = "Failed to process webhook";
     logger.error("receiveWebhook error:", { message: error?.message, detail: error?.detail });
-    res.status(500).json({ success: false, error: "Internal server error" });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: "Internal server error" });
+    }
   } finally {
-    // Always log the attempt (fire-and-forget)
     if (webhookId) {
       connection
         .query({
@@ -99,17 +140,9 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
             INSERT INTO lead_webhook_logs (id, webhook_id, status, payload, lead_id, error, ip, created_at)
             VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, now())
           `,
-          values: [
-            randomUUID(),
-            webhookId,
-            logStatus,
-            JSON.stringify(incomingPayload),
-            leadId,
-            logError,
-            ip,
-          ],
+          values: [randomUUID(), webhookId, logStatus, payloadJson, leadId, logError, ip],
         })
-        .catch((e) => logger.error("webhook log insert failed:", e?.message));
+        .catch((e) => logger.error("webhook log insert failed:", { message: e?.message, detail: e?.detail }));
     }
   }
 };
