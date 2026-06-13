@@ -117,6 +117,18 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
     const mapping: Record<string, string> = webhook.field_mapping ?? {};
     const mapped = applyMapping(incomingPayload, mapping);
 
+    // Separate base fields from custom fields.
+    // Mapped keys starting with "custom_" are custom field definitions:
+    //   e.g. leadField = "custom_abc123" → customFields["abc123"] = value
+    const customFields: Record<string, any> = {};
+    for (const [leadField, value] of Object.entries(mapped)) {
+      if (leadField.startsWith("custom_")) {
+        const fieldId = leadField.slice(7); // strip "custom_"
+        customFields[fieldId] = value;
+      }
+    }
+    const hasCustomFields = Object.keys(customFields).length > 0;
+
     const leadName  = (mapped.name    as string) || (incomingPayload.name    as string) || "Lead sem nome";
     const leadEmail = (mapped.email   as string) || (incomingPayload.email   as string) || `lead-${randomUUID()}@noemail.invalid`;
     const leadPhone = (mapped.phone   as string) || (incomingPayload.phone   as string) || null;
@@ -130,6 +142,7 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
 
     const newLeadId = randomUUID();
     const now = new Date();
+    const customFieldsJson = hasCustomFields ? safeStringify(customFields) : null;
 
     // ── 5. INSERT lead — try with source columns, fallback without ─────────
     try {
@@ -138,13 +151,13 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
           INSERT INTO clients
             (id, organization_id, name, email, phone, address,
              status, type, webhook_id, webhook_name,
-             created_by, position, created_at, updated_at)
+             custom_fields, created_by, position, created_at, updated_at)
           VALUES ($1, $2, $3, $4, $5, $6,
                   'New Lead', 'lead', $7, $8,
-                  $9, 0, $10, $10)
+                  $9::jsonb, $10, 0, $11, $11)
         `,
         values: [newLeadId, orgId, leadName, leadEmail, leadPhone, leadAddr,
-                 webhookId, webhookName, createdBy, now],
+                 webhookId, webhookName, customFieldsJson, createdBy, now],
       });
 
       if ((result.rowCount ?? 0) === 0) {
@@ -158,10 +171,11 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
           text: `
             INSERT INTO clients
               (id, organization_id, name, email, phone, address,
-               status, type, created_by, position, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, 'New Lead', 'lead', $7, 0, $8, $8)
+               status, type, custom_fields, created_by, position, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, 'New Lead', 'lead', $7::jsonb, $8, 0, $9, $9)
           `,
-          values: [newLeadId, orgId, leadName, leadEmail, leadPhone, leadAddr, createdBy, now],
+          values: [newLeadId, orgId, leadName, leadEmail, leadPhone, leadAddr,
+                   customFieldsJson, createdBy, now],
         });
         if ((fallback.rowCount ?? 0) === 0) {
           throw new Error("Fallback INSERT returned rowCount 0 — lead not created");
