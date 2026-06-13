@@ -843,6 +843,9 @@ export const clients = pgTable(
     lastInteractionAt: timestamp("last_interaction_at"),
     leadTemperature: text("lead_temperature").$type<"Hot" | "Warm" | "Cold" | "Lost">(),
     followUpAt: timestamp("follow_up_at"),
+    clientType: text("type")
+      .$type<"lead" | "client">()
+      .$defaultFn(() => "lead"),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
@@ -978,6 +981,92 @@ export const interactionReplies = pgTable(
   },
   (table) => ({
     interactionIdx: index("interaction_replies_interaction_idx").on(table.interactionId),
+  }),
+);
+
+// ==================== LEAD FIELD DEFINITIONS ====================
+
+export const leadFieldDefinitions = pgTable(
+  "lead_field_definitions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type")
+      .$type<"text" | "number" | "select" | "multiselect" | "date" | "boolean" | "url">()
+      .notNull(),
+    options: json("options").$type<string[]>(),
+    required: boolean("required").$defaultFn(() => false),
+    position: integer("position").$defaultFn(() => 0),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("lead_field_definitions_org_idx").on(table.orgId),
+  }),
+);
+
+// ==================== LEAD WEBHOOKS ====================
+
+export const leadWebhooks = pgTable(
+  "lead_webhooks",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    source: text("source")
+      .$type<"wordpress" | "facebook" | "generic">()
+      .notNull(),
+    token: text("token").notNull().unique(),
+    active: boolean("active").$defaultFn(() => true),
+    fieldMapping: json("field_mapping").$type<Record<string, string>>().$defaultFn(() => ({})),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("lead_webhooks_org_idx").on(table.orgId),
+  }),
+);
+
+// ==================== LEAD WEBHOOK LOGS ====================
+
+export const leadWebhookLogs = pgTable(
+  "lead_webhook_logs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => leadWebhooks.id, { onDelete: "cascade" }),
+    status: text("status").$type<"success" | "error">().notNull(),
+    payload: json("payload").$type<Record<string, any>>(),
+    leadId: text("lead_id"),
+    error: text("error"),
+    ip: text("ip"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    webhookIdx: index("lead_webhook_logs_webhook_idx").on(table.webhookId),
+    createdAtIdx: index("lead_webhook_logs_created_at_idx").on(table.createdAt),
   }),
 );
 

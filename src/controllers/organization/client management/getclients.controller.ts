@@ -26,6 +26,7 @@ export const getClients = async (
       search = "",
       status = "",
       industry = "",
+      type = "",
       sortBy = "position",
       sortOrder = "asc",
     } = req.query;
@@ -43,6 +44,10 @@ export const getClients = async (
 
     if (industry) {
       whereConditions.push(eq(clients.businessIndustry, industry as string));
+    }
+
+    if (type) {
+      whereConditions.push(eq(clients.clientType, type as any));
     }
 
     // Build order by
