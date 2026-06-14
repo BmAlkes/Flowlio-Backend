@@ -13,6 +13,8 @@ import { rotateWebhookToken } from "@/controllers/organization/webhooks/rotateWe
 import { getWebhookMapping } from "@/controllers/organization/webhooks/getWebhookMapping.controller";
 import { updateWebhookMapping } from "@/controllers/organization/webhooks/updateWebhookMapping.controller";
 import { getWebhookLogs } from "@/controllers/organization/webhooks/getWebhookLogs.controller";
+import { deleteWebhookLog } from "@/controllers/organization/webhooks/deleteWebhookLog.controller";
+import { getLeadWebhookLog } from "@/controllers/organization/webhooks/getLeadWebhookLog.controller";
 import { testWebhook } from "@/controllers/organization/webhooks/testWebhook.controller";
 import { receiveWebhook } from "@/controllers/organization/webhooks/receiveWebhook.controller";
 
@@ -59,6 +61,8 @@ router.post("/:id/rotate-token", ...orgOwner, rotateWebhookToken as any);
 router.get("/:id/mapping", ...auth, getWebhookMapping as any);
 router.put("/:id/mapping", ...orgOwner, updateWebhookMapping as any);
 router.get("/:id/logs", ...auth, getWebhookLogs as any);
+router.delete("/logs/:logId", ...auth, deleteWebhookLog as any);
+router.get("/logs/by-lead/:leadId", ...auth, getLeadWebhookLog as any);
 router.post("/:id/test", ...orgOwner, testWebhook as any);
 
 export default router;
