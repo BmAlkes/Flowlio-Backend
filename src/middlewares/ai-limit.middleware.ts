@@ -2,6 +2,10 @@ import { Request, Response, NextFunction } from "express";
 import { database } from "@/configs/connection.config";
 import { aiTokenLimits, aiUsageAlerts } from "@/schema/schema";
 import { eq, and, isNull, gte } from "drizzle-orm";
+import {
+  insertDefaultAITokenLimit,
+  DEFAULT_PAID_TOKEN_LIMIT,
+} from "@/utils/aiTokenLimit.util";
 
 export const checkAITokenLimit = async (
   req: Request,
@@ -31,8 +35,9 @@ export const checkAITokenLimit = async (
       )
       .limit(1);
 
-    // Step 3 — No limit record found, allow through
+    // Step 3 — No limit record found: create default for legacy orgs and allow through
     if (limits.length === 0) {
+      await insertDefaultAITokenLimit(orgId, DEFAULT_PAID_TOKEN_LIMIT);
       next();
       return;
     }

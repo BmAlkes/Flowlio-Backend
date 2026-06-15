@@ -2,6 +2,10 @@ import cron from "node-cron";
 import { automationService } from "./automation.service";
 import { RecurringInvoiceService } from "../recurringInvoice.service";
 import { logger } from "../../utils/logger.util";
+import { database } from "../../configs/connection.config";
+import { aiTokenLimits } from "../../schema/schema";
+import { and, eq, lte } from "drizzle-orm";
+import { nextMonthReset } from "../../utils/aiTokenLimit.util";
 
 /**
  * Initializes and starts all backend cron jobs
@@ -29,9 +33,28 @@ export const initCronJobs = () => {
     }
   });
 
-  // You can add more schedules here if needed
-  // For example, if we wanted to run progress checks more often:
-  // cron.schedule('0 */4 * * *', () => { ... });
+  // Daily AI token reset: resets tokensUsed for orgs whose monthly period has expired
+  cron.schedule("0 0 * * *", async () => {
+    try {
+      const now = new Date();
+      await database
+        .update(aiTokenLimits)
+        .set({
+          tokensUsed: 0,
+          resetAt: nextMonthReset(),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(aiTokenLimits.isActive, true),
+            lte(aiTokenLimits.resetAt, now)
+          )
+        );
+      logger.info("AI token monthly reset completed.");
+    } catch (error) {
+      logger.error("Error resetting AI token usage:", error);
+    }
+  });
 
   logger.info("Cron jobs scheduled.");
 };

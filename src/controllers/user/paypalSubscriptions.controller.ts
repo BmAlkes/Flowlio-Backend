@@ -14,6 +14,10 @@ import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
 import { getPayPalAccessToken, getPayPalBaseURL } from "@/utils/paypal.util";
+import {
+  insertDefaultAITokenLimit,
+  DEFAULT_PAID_TOKEN_LIMIT,
+} from "@/utils/aiTokenLimit.util";
 
 // ── Billing plan setup ────────────────────────────────────────────────────────
 
@@ -451,6 +455,9 @@ export const activatePayPalSubscription = async (
         metadata: subscriptionMetadata,
       });
     }
+
+    // Assign default AI token limit for new organization
+    await insertDefaultAITokenLimit(orgId, DEFAULT_PAID_TOKEN_LIMIT);
 
     // Activate user
     await database

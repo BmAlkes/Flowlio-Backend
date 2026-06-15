@@ -12,6 +12,10 @@ import {
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
+import {
+  insertDefaultAITokenLimit,
+  DEFAULT_PAID_TOKEN_LIMIT,
+} from "@/utils/aiTokenLimit.util";
 
 interface CreatePayPalOrderRequest {
   planId: string;
@@ -1381,6 +1385,9 @@ export const capturePayPalOrder = async (
               .where(eq(userOrganizations.id, existingUserOrg.id));
           }
         }
+
+        // Assign default AI token limit for new organization
+        await insertDefaultAITokenLimit(organizationId, DEFAULT_PAID_TOKEN_LIMIT);
 
         logger.info(
           `Organization created after payment: ${organizationId} for user: ${userId} with subscription: ${newSubscription.id}`

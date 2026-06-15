@@ -10,6 +10,10 @@ import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import crypto from "crypto";
 import { eq } from "drizzle-orm";
+import {
+  insertDefaultAITokenLimit,
+  DEFAULT_DEMO_TOKEN_LIMIT,
+} from "@/utils/aiTokenLimit.util";
 
 export const createDemoAccount = async (req: Request, res: Response) => {
   try {
@@ -73,6 +77,9 @@ export const createDemoAccount = async (req: Request, res: Response) => {
         passwordChanged: false, // Track if demo user has changed password
       },
     });
+
+    // Assign default AI token limit for demo organization
+    await insertDefaultAITokenLimit(orgId, DEFAULT_DEMO_TOKEN_LIMIT);
 
     // Check if user already exists
     const existingUsers = await database
