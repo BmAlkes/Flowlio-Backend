@@ -7,7 +7,7 @@ import {
   auditLogs,
   organizations,
 } from "@/schema/schema";
-import { eq, and, gte, isNull, sql, desc, isNotNull } from "drizzle-orm";
+import { eq, and, gte, isNull, sql, desc } from "drizzle-orm";
 
 // ==================== GET /api/ai/usage ====================
 
@@ -207,6 +207,8 @@ export const getLimits = async (req: any, res: Response): Promise<void> => {
 
 // ==================== GET /api/ai/limits/all ====================
 
+const DEFAULT_TOKEN_LIMIT = 50_000;
+
 export const getAllLimits = async (req: any, res: Response): Promise<void> => {
   try {
     const role = req.user?.role as string | undefined;
@@ -222,68 +224,66 @@ export const getAllLimits = async (req: any, res: Response): Promise<void> => {
       1
     );
 
+    // Start from organizations so that orgs WITHOUT a limit record are included.
+    // The ai_token_limits join conditions (userId IS NULL, feature IS NULL) live
+    // in the ON clause — moving them to WHERE would turn the LEFT JOIN into an
+    // INNER JOIN and drop orgs with no limit record.
     const rows = await database
       .select({
         id: aiTokenLimits.id,
-        organizationId: aiTokenLimits.organizationId,
+        organizationId: organizations.id,
         organizationName: organizations.name,
         organizationSlug: organizations.slug,
-        tokenLimit: aiTokenLimits.tokenLimit,
+        isDemo: sql<boolean>`coalesce((${organizations.settings}->>'demo')::boolean, false)`,
+        tokenLimit: sql<number>`coalesce(${aiTokenLimits.tokenLimit}, ${DEFAULT_TOKEN_LIMIT})`,
         tokensUsed: sql<number>`coalesce(sum(${aiUsageLogs.totalTokens}), 0)`,
         totalRequests: sql<number>`count(${aiUsageLogs.id})`,
-        alertThresholdPercent: aiTokenLimits.alertThresholdPercent,
-        period: aiTokenLimits.period,
-        isActive: aiTokenLimits.isActive,
-        createdAt: aiTokenLimits.createdAt,
-        updatedAt: aiTokenLimits.updatedAt,
+        alertThresholdPercent: sql<number>`coalesce(${aiTokenLimits.alertThresholdPercent}, 80)`,
+        period: sql<string>`coalesce(${aiTokenLimits.period}, 'monthly')`,
+        isActive: sql<boolean>`coalesce(${aiTokenLimits.isActive}, false)`,
+        isDefault: sql<boolean>`(${aiTokenLimits.id} is null)`,
       })
-      .from(aiTokenLimits)
-      .innerJoin(
-        organizations,
-        eq(aiTokenLimits.organizationId, organizations.id)
+      .from(organizations)
+      .leftJoin(
+        aiTokenLimits,
+        and(
+          eq(aiTokenLimits.organizationId, organizations.id),
+          isNull(aiTokenLimits.userId),
+          isNull(aiTokenLimits.feature)
+        )
       )
       .leftJoin(
         aiUsageLogs,
         and(
-          eq(aiUsageLogs.organizationId, aiTokenLimits.organizationId),
+          eq(aiUsageLogs.organizationId, organizations.id),
           eq(aiUsageLogs.status, "success"),
           gte(aiUsageLogs.createdAt, monthStart)
         )
       )
-      .where(
-        and(
-          isNull(aiTokenLimits.userId),
-          isNull(aiTokenLimits.feature),
-          eq(aiTokenLimits.isActive, true),
-          eq(organizations.subscriptionStatus, "active"),
-          isNotNull(organizations.subscriptionPlanId)
-        )
-      )
+      .where(eq(organizations.status, "active"))
       .groupBy(
-        aiTokenLimits.id,
-        aiTokenLimits.organizationId,
+        organizations.id,
         organizations.name,
         organizations.slug,
+        organizations.settings,
+        aiTokenLimits.id,
         aiTokenLimits.tokenLimit,
         aiTokenLimits.alertThresholdPercent,
         aiTokenLimits.period,
-        aiTokenLimits.isActive,
-        aiTokenLimits.createdAt,
-        aiTokenLimits.updatedAt
+        aiTokenLimits.isActive
       )
-      .orderBy(desc(aiTokenLimits.updatedAt));
+      .orderBy(sql`coalesce(sum(${aiUsageLogs.totalTokens}), 0) desc`);
 
     res.status(200).json({
       data: rows.map((row) => {
         const tokensUsed = Number(row.tokensUsed);
+        const tokenLimit = Number(row.tokenLimit);
         return {
           ...row,
           tokensUsed,
           totalRequests: Number(row.totalRequests),
           usagePercent:
-            row.tokenLimit > 0
-              ? Math.round((tokensUsed / row.tokenLimit) * 100)
-              : 0,
+            tokenLimit > 0 ? Math.round((tokensUsed / tokenLimit) * 100) : 0,
         };
       }),
     });
