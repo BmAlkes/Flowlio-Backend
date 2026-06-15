@@ -7,7 +7,7 @@ import {
   auditLogs,
   organizations,
 } from "@/schema/schema";
-import { eq, and, gte, isNull, sql, or, ne } from "drizzle-orm";
+import { eq, and, gte, isNull, sql, or, desc } from "drizzle-orm";
 
 // ==================== GET /api/ai/usage ====================
 
