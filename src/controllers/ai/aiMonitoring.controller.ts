@@ -7,7 +7,7 @@ import {
   auditLogs,
   organizations,
 } from "@/schema/schema";
-import { eq, and, gte, isNull, sql, desc } from "drizzle-orm";
+import { eq, and, gte, isNull, sql, or, ne } from "drizzle-orm";
 
 // ==================== GET /api/ai/usage ====================
 
@@ -260,12 +260,24 @@ export const getAllLimits = async (req: any, res: Response): Promise<void> => {
           gte(aiUsageLogs.createdAt, monthStart)
         )
       )
-      .where(eq(organizations.status, "active"))
+      .where(
+        // Include orgs with status='active' AND legacy orgs where status is NULL
+        // (status.$defaultFn only applies at JS insert time, not as a DB DEFAULT,
+        //  so older rows can have status=NULL)
+        // Exclude only explicitly suspended/inactive orgs.
+        or(
+          eq(organizations.status, "active"),
+          isNull(organizations.status)
+        )
+      )
       .groupBy(
+        // organizations.id is the PK — PostgreSQL allows all other organizations.*
+        // columns in SELECT without repeating them here (functional dependency).
+        // Critically: organizations.settings is json type (not jsonb), so it has
+        // no equality operator and CANNOT appear in GROUP BY.
         organizations.id,
         organizations.name,
         organizations.slug,
-        organizations.settings,
         aiTokenLimits.id,
         aiTokenLimits.tokenLimit,
         aiTokenLimits.alertThresholdPercent,
