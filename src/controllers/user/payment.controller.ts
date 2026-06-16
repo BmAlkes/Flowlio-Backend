@@ -15,6 +15,7 @@ import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
 import {
   insertDefaultAITokenLimit,
   DEFAULT_PAID_TOKEN_LIMIT,
+  getAITokenLimitFromPlan,
 } from "@/utils/aiTokenLimit.util";
 
 interface CreatePayPalOrderRequest {
@@ -1386,8 +1387,11 @@ export const capturePayPalOrder = async (
           }
         }
 
-        // Assign default AI token limit for new organization
-        await insertDefaultAITokenLimit(organizationId, DEFAULT_PAID_TOKEN_LIMIT);
+        // Assign default AI token limit — use plan's aiTokenLimit if defined
+        const aiLimit = planIdString
+          ? await getAITokenLimitFromPlan(planIdString)
+          : DEFAULT_PAID_TOKEN_LIMIT;
+        await insertDefaultAITokenLimit(organizationId, aiLimit);
 
         logger.info(
           `Organization created after payment: ${organizationId} for user: ${userId} with subscription: ${newSubscription.id}`

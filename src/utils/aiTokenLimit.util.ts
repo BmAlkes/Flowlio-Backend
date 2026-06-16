@@ -1,5 +1,5 @@
 import { database } from "@/configs/connection.config";
-import { aiTokenLimits } from "@/schema/schema";
+import { aiTokenLimits, subscriptionPlans } from "@/schema/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
@@ -34,6 +34,26 @@ export type TokenPackage = (typeof TOKEN_PACKAGES)[number];
 
 export const getTokenPackageById = (id: string): TokenPackage | undefined =>
   TOKEN_PACKAGES.find((p) => p.id === id) as TokenPackage | undefined;
+
+/**
+ * Reads aiTokenLimit from a plan's features.
+ * Falls back to DEFAULT_PAID_TOKEN_LIMIT if the plan doesn't define one.
+ */
+export const getAITokenLimitFromPlan = async (planId: string): Promise<number> => {
+  try {
+    const [plan] = await database
+      .select({ features: subscriptionPlans.features })
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.id, planId))
+      .limit(1);
+
+    const limit = (plan?.features as any)?.aiTokenLimit;
+    if (typeof limit === "number" && limit > 0) return limit;
+  } catch (err) {
+    logger.error(`Failed to read aiTokenLimit for plan ${planId}:`, err);
+  }
+  return DEFAULT_PAID_TOKEN_LIMIT;
+};
 
 export const nextMonthReset = (): Date => {
   const now = new Date();

@@ -17,6 +17,7 @@ import { getPayPalAccessToken, getPayPalBaseURL } from "@/utils/paypal.util";
 import {
   insertDefaultAITokenLimit,
   DEFAULT_PAID_TOKEN_LIMIT,
+  getAITokenLimitFromPlan,
 } from "@/utils/aiTokenLimit.util";
 
 // ── Billing plan setup ────────────────────────────────────────────────────────
@@ -456,8 +457,11 @@ export const activatePayPalSubscription = async (
       });
     }
 
-    // Assign default AI token limit for new organization
-    await insertDefaultAITokenLimit(orgId, DEFAULT_PAID_TOKEN_LIMIT);
+    // Assign default AI token limit — use plan's aiTokenLimit if defined
+    const aiLimit = finalPlanId
+      ? await getAITokenLimitFromPlan(finalPlanId)
+      : DEFAULT_PAID_TOKEN_LIMIT;
+    await insertDefaultAITokenLimit(orgId, aiLimit);
 
     // Activate user
     await database

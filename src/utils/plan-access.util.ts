@@ -51,55 +51,66 @@ export interface PlanAccessResult {
 }
 
 /**
- * Get organization's plan features
+ * Get organization's effective plan features.
+ * Hierarchy: org override > plan limit > null (unlimited).
  */
 export async function getOrganizationPlanFeatures(
   organizationId: string
 ): Promise<PlanFeatures | null> {
   try {
-    // Get active subscription
-    const subscription = await database
-      .select({
-        plan: {
-          features: subscriptionPlans.features,
-        },
-      })
-      .from(subscriptions)
-      .leftJoin(
-        subscriptionPlans,
-        eq(subscriptions.planId, subscriptionPlans.id)
-      )
-      .where(eq(subscriptions.organizationId, organizationId))
-      .limit(1);
-
-    if (subscription.length > 0 && subscription[0].plan?.features) {
-      return subscription[0].plan.features as PlanFeatures;
-    }
-
-    // Fallback: Get plan from organization's subscriptionPlanId
-    const org = await database
+    // Fetch org override columns alongside the active subscription's plan features
+    const [orgRow] = await database
       .select({
         subscriptionPlanId: organizations.subscriptionPlanId,
+        overrideMaxLeads: organizations.overrideMaxLeads,
+        overrideMaxClients: organizations.overrideMaxClients,
+        overrideMaxWebhooks: organizations.overrideMaxWebhooks,
+        overrideMaxTasks: organizations.overrideMaxTasks,
+        overrideMaxInvoices: organizations.overrideMaxInvoices,
+        overrideMaxProposals: organizations.overrideMaxProposals,
+        overrideAiTokenLimit: organizations.overrideAiTokenLimit,
       })
       .from(organizations)
       .where(eq(organizations.id, organizationId))
       .limit(1);
 
-    if (org.length > 0 && org[0].subscriptionPlanId) {
-      const plan = await database
-        .select({
-          features: subscriptionPlans.features,
-        })
-        .from(subscriptionPlans)
-        .where(eq(subscriptionPlans.id, org[0].subscriptionPlanId))
-        .limit(1);
+    // Get plan features from active subscription
+    let planFeatures: PlanFeatures | null = null;
 
-      if (plan.length > 0 && plan[0].features) {
-        return plan[0].features as PlanFeatures;
-      }
+    const subscription = await database
+      .select({ features: subscriptionPlans.features })
+      .from(subscriptions)
+      .leftJoin(subscriptionPlans, eq(subscriptions.planId, subscriptionPlans.id))
+      .where(eq(subscriptions.organizationId, organizationId))
+      .limit(1);
+
+    if (subscription.length > 0 && subscription[0].features) {
+      planFeatures = subscription[0].features as PlanFeatures;
+    } else if (orgRow?.subscriptionPlanId) {
+      // Fallback: read plan directly from org's subscriptionPlanId
+      const [plan] = await database
+        .select({ features: subscriptionPlans.features })
+        .from(subscriptionPlans)
+        .where(eq(subscriptionPlans.id, orgRow.subscriptionPlanId))
+        .limit(1);
+      if (plan?.features) planFeatures = plan.features as PlanFeatures;
     }
 
-    return null;
+    if (!planFeatures && !orgRow) return null;
+
+    // Merge: org overrides take precedence over plan values
+    const effective: PlanFeatures = {
+      ...(planFeatures ?? {}),
+      maxLeads: orgRow?.overrideMaxLeads ?? planFeatures?.maxLeads,
+      maxClients: orgRow?.overrideMaxClients ?? planFeatures?.maxClients,
+      maxWebhooks: orgRow?.overrideMaxWebhooks ?? planFeatures?.maxWebhooks,
+      maxTasks: orgRow?.overrideMaxTasks ?? planFeatures?.maxTasks,
+      maxInvoices: orgRow?.overrideMaxInvoices ?? planFeatures?.maxInvoices,
+      maxProposals: orgRow?.overrideMaxProposals ?? planFeatures?.maxProposals,
+      aiTokenLimit: orgRow?.overrideAiTokenLimit ?? planFeatures?.aiTokenLimit,
+    };
+
+    return effective;
   } catch (error) {
     logger.error("Error getting organization plan features:", error);
     return null;

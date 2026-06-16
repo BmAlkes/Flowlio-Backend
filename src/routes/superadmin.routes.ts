@@ -16,6 +16,8 @@ import { updateSuperAdminPassword } from "../controllers/super admin/sub admin s
 import { getPublicPlans } from "../controllers/super admin/plans";
 import { deleteOrganization } from "../controllers/super admin/organizations/deleteorganization.controller";
 import { getCompanyDetails } from "../controllers/super admin/organizations/getcompanydetails.controller";
+import { assignPlan } from "../controllers/super admin/organizations/assignPlan.controller";
+import { overrideLimits } from "../controllers/super admin/organizations/overrideLimits.controller";
 import { getAllData } from "../controllers/super admin/organizations/getalldata.controller";
 import { getTotalInvoices } from "../controllers/super admin/organizations/gettotalinvoices.controller";
 import { getSuperadminOverview } from "../controllers/super admin/organizations/getoverview.controller";
@@ -94,6 +96,18 @@ router.delete(
   isAuthenticated,
   requireSuperAdmin,
   deleteOrganization as any,
+);
+router.put(
+  "/organizations/:orgId/assign-plan",
+  isAuthenticated,
+  requireSuperAdmin,
+  assignPlan as any,
+);
+router.put(
+  "/organizations/:orgId/override-limits",
+  isAuthenticated,
+  requireSuperOrSubAdmin,
+  overrideLimits as any,
 );
 
 // DEMO ACCOUNT ROUTES - require super admin role

@@ -204,6 +204,14 @@ export const organizations = pgTable(
     maxUsers: integer("max_users").$defaultFn(() => 5),
     maxProjects: integer("max_projects").$defaultFn(() => 3),
     maxStorage: integer("max_storage").$defaultFn(() => 1), // in GB
+    // Per-org limit overrides — take precedence over plan limits (null = follow plan)
+    overrideMaxLeads: integer("override_max_leads"),
+    overrideMaxClients: integer("override_max_clients"),
+    overrideMaxWebhooks: integer("override_max_webhooks"),
+    overrideMaxTasks: integer("override_max_tasks"),
+    overrideMaxInvoices: integer("override_max_invoices"),
+    overrideMaxProposals: integer("override_max_proposals"),
+    overrideAiTokenLimit: integer("override_ai_token_limit"),
     settings: json("settings").$type<{
       timezone: string;
       dateFormat: string;
