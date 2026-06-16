@@ -5,20 +5,39 @@ import {
   subscriptionPlans,
   userOrganizations,
   projects,
+  clients,
+  tasks,
+  leadWebhooks,
+  invoices,
+  proposals,
 } from "@/schema/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
 export interface PlanFeatures {
-  maxUsers?: number;
-  maxProjects?: number;
-  maxStorage?: number;
-  maxTasks?: number;
+  // Numeric limits (null/undefined/0 = unlimited)
+  maxUsers?: number | null;
+  maxProjects?: number | null;
+  maxStorage?: number | null;
+  maxTasks?: number | null;
+  maxLeads?: number | null;
+  maxClients?: number | null;
+  maxWebhooks?: number | null;
+  maxInvoices?: number | null;
+  maxProposals?: number | null;
+  aiTokenLimit?: number | null;
+  // Boolean feature flags
   aiAssist?: boolean;
   prioritySupport?: boolean;
   calendarAccess?: boolean;
   taskManagement?: boolean;
   timeTracking?: boolean;
+  analyticsAccess?: boolean;
+  apiAccess?: boolean;
+  paymentLinks?: boolean;
+  proposalsAccess?: boolean;
+  whitelabel?: boolean;
+  customDomain?: boolean;
   customFeatures?: string[];
   [key: string]: any;
 }
@@ -304,6 +323,100 @@ export async function canUploadFile(
     return { hasAccess: true };
   }
 }
+
+// ─── helper: count rows in a table by organizationId ─────────────────────────
+
+async function countRows(
+  table: any,
+  orgColumn: any,
+  organizationId: string,
+  extraWhere?: any
+): Promise<number> {
+  const conditions = extraWhere
+    ? and(eq(orgColumn, organizationId), extraWhere)
+    : eq(orgColumn, organizationId);
+  const [row] = await database
+    .select({ count: sql<number>`count(*)` })
+    .from(table)
+    .where(conditions);
+  return Number(row?.count ?? 0);
+}
+
+// ─── numeric-limit enforcement factories ──────────────────────────────────────
+
+function numericLimitCheck(
+  limitKey: keyof PlanFeatures,
+  entityLabel: string,
+  counter: (orgId: string) => Promise<number>
+) {
+  return async function (organizationId: string): Promise<PlanAccessResult> {
+    try {
+      const features = await getOrganizationPlanFeatures(organizationId);
+      if (!features) return { hasAccess: true };
+
+      const max = features[limitKey] as number | null | undefined;
+      if (!max || max === 0) return { hasAccess: true, planFeatures: features };
+
+      const current = await counter(organizationId);
+      if (current >= max) {
+        return {
+          hasAccess: false,
+          reason: `${entityLabel} limit reached. Your plan allows ${max}, and you currently have ${current}.`,
+          currentCount: current,
+          maxAllowed: max,
+          planFeatures: features,
+        };
+      }
+      return { hasAccess: true, currentCount: current, maxAllowed: max, planFeatures: features };
+    } catch (error) {
+      logger.error(`Error checking ${entityLabel} limit:`, error);
+      return { hasAccess: true };
+    }
+  };
+}
+
+export const canCreateLead = numericLimitCheck(
+  "maxLeads",
+  "Lead",
+  (orgId) => countRows(clients, clients.organizationId, orgId, eq(clients.clientType, "lead"))
+);
+
+export const canCreateClient = numericLimitCheck(
+  "maxClients",
+  "Client",
+  (orgId) => countRows(clients, clients.organizationId, orgId, eq(clients.clientType, "client"))
+);
+
+export const canCreateWebhook = numericLimitCheck(
+  "maxWebhooks",
+  "Webhook",
+  (orgId) => countRows(leadWebhooks, leadWebhooks.orgId, orgId)
+);
+
+export const canCreateInvoice = numericLimitCheck(
+  "maxInvoices",
+  "Invoice",
+  (orgId) => countRows(invoices, invoices.organizationId, orgId)
+);
+
+export const canCreateProposal = numericLimitCheck(
+  "maxProposals",
+  "Proposal",
+  (orgId) => countRows(proposals, proposals.organizationId, orgId)
+);
+
+export const canCreateTask = numericLimitCheck(
+  "maxTasks",
+  "Task",
+  async (orgId) => {
+    const [row] = await database
+      .select({ count: sql<number>`count(*)` })
+      .from(tasks)
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .where(eq(projects.organizationId, orgId));
+    return Number(row?.count ?? 0);
+  }
+);
 
 /**
  * Get current storage usage for an organization

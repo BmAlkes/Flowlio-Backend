@@ -3,6 +3,7 @@ import { connection } from "@/configs/connection.config";
 import { requireOrganizationId } from "@/utils/organization.util";
 import { logger } from "@/utils/logger.util";
 import { randomUUID } from "crypto";
+import { canCreateWebhook } from "@/utils/plan-access.util";
 
 const VALID_SOURCES = ["wordpress", "facebook", "generic"];
 
@@ -10,6 +11,12 @@ export const createWebhook = async (req: Request, res: Response): Promise<void> 
   try {
     const organizationId = requireOrganizationId(req, res);
     if (!organizationId) return;
+
+    const webhookAccess = await canCreateWebhook(organizationId);
+    if (!webhookAccess.hasAccess) {
+      res.status(403).json({ success: false, message: webhookAccess.reason });
+      return;
+    }
 
     const { name, source } = req.body;
 

@@ -132,15 +132,29 @@ export const subscriptionPlans = pgTable(
     durationType: text("duration_type"),
     trialDays: integer("trial_days").$defaultFn(() => 7), // Number of trial days (default 7, 0 = no trial)
     features: json("features").$type<{
-      maxUsers: number;
-      maxProjects: number;
-      maxStorage: number; // in GB
-      maxTasks: number;
-      aiAssist: boolean;
-      prioritySupport: boolean;
+      // Numeric limits (null = unlimited)
+      maxUsers?: number | null;
+      maxProjects?: number | null;
+      maxStorage?: number | null; // in GB
+      maxTasks?: number | null;
+      maxLeads?: number | null;
+      maxClients?: number | null;
+      maxWebhooks?: number | null;
+      maxInvoices?: number | null;
+      maxProposals?: number | null;
+      aiTokenLimit?: number | null; // tokens per month
+      // Boolean feature flags
+      aiAssist?: boolean;
+      prioritySupport?: boolean;
       calendarAccess?: boolean;
       taskManagement?: boolean;
       timeTracking?: boolean;
+      analyticsAccess?: boolean;
+      apiAccess?: boolean;
+      paymentLinks?: boolean;
+      proposalsAccess?: boolean;
+      whitelabel?: boolean;
+      customDomain?: boolean;
       customFeatures?: string[];
       [key: string]: any;
     }>(),

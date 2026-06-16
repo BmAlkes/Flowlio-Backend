@@ -7,6 +7,7 @@ import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { logActivity } from "@/utils/activity.util";
 import { logger } from "@/utils/logger.util";
 import { automationService } from "@/services/automation/automation.service";
+import { canCreateTask } from "@/utils/plan-access.util";
 
 interface CreateTaskRequest extends Request {
   user?: {
@@ -84,6 +85,15 @@ export const createTask = async (
         message: "Title and projectId are required.",
       });
       return;
+    }
+
+    const orgId = req.user?.organizationId;
+    if (orgId) {
+      const taskAccess = await canCreateTask(orgId);
+      if (!taskAccess.hasAccess) {
+        res.status(403).json({ success: false, message: taskAccess.reason });
+        return;
+      }
     }
 
     // Normalize parentId: empty string -> null

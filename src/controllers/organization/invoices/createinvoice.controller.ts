@@ -10,6 +10,7 @@ import { z } from "zod";
 import { uploadToCloudinary } from "@/utils/cloudinary.util";
 import { logActivity } from "@/utils/activity.util";
 import { requireOrganizationId } from "@/utils/organization.util";
+import { canCreateInvoice } from "@/utils/plan-access.util";
 
 interface CreateInvoiceRequest {
   body: z.infer<typeof createInvoiceSchema>;
@@ -42,6 +43,12 @@ export const createInvoice = async (
     const organizationId = requireOrganizationId(req, res);
     if (!organizationId) {
       return; // Response already sent by requireOrganizationId
+    }
+
+    const invoiceAccess = await canCreateInvoice(organizationId);
+    if (!invoiceAccess.hasAccess) {
+      res.status(403).json({ success: false, message: invoiceAccess.reason });
+      return;
     }
 
     const client = await database.query.clients.findFirst({

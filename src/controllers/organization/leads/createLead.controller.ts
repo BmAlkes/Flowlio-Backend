@@ -3,11 +3,18 @@ import { connection } from "@/configs/connection.config";
 import { requireOrganizationId } from "@/utils/organization.util";
 import { logger } from "@/utils/logger.util";
 import { randomUUID } from "crypto";
+import { canCreateLead } from "@/utils/plan-access.util";
 
 export const createLead = async (req: Request, res: Response): Promise<void> => {
   try {
     const organizationId = requireOrganizationId(req, res);
     if (!organizationId) return;
+
+    const leadAccess = await canCreateLead(organizationId);
+    if (!leadAccess.hasAccess) {
+      res.status(403).json({ success: false, message: leadAccess.reason });
+      return;
+    }
 
     const userId = (req as any).user?.id as string;
 

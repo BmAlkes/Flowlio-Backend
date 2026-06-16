@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { logActivity } from "@/utils/activity.util";
 import { requireOrganizationId } from "@/utils/organization.util";
 import { logger } from "@/utils/logger.util";
+import { canCreateClient } from "@/utils/plan-access.util";
 
 export const createClient = async (
   req: Request,
@@ -45,6 +46,12 @@ export const createClient = async (
           "The organization associated with your account does not exist. Please contact support.",
         code: "ORGANIZATION_NOT_FOUND",
       });
+      return;
+    }
+
+    const clientAccess = await canCreateClient(organizationId);
+    if (!clientAccess.hasAccess) {
+      res.status(403).json({ success: false, message: clientAccess.reason });
       return;
     }
 

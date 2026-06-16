@@ -6,6 +6,7 @@ import { proposals, notifications, clients } from "@/schema/schema";
 import crypto from "crypto";
 import { uploadToCloudinary } from "@/utils/cloudinary.util";
 import fs from "fs";
+import { canCreateProposal } from "@/utils/plan-access.util";
 
 /**
  * Save a generated proposal to the database and notify the client
@@ -23,6 +24,12 @@ export const createProposal = async (
     const organizationId = (req.user as any)?.organizationId;
     if (!organizationId) {
       res.status(400).json({ success: false, message: "Organization not found" });
+      return;
+    }
+
+    const proposalAccess = await canCreateProposal(organizationId);
+    if (!proposalAccess.hasAccess) {
+      res.status(403).json({ success: false, message: proposalAccess.reason });
       return;
     }
 
