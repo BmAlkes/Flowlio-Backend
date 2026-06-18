@@ -18,6 +18,10 @@ import { deleteOrganization } from "../controllers/super admin/organizations/del
 import { getCompanyDetails } from "../controllers/super admin/organizations/getcompanydetails.controller";
 import { assignPlan } from "../controllers/super admin/organizations/assignPlan.controller";
 import { overrideLimits } from "../controllers/super admin/organizations/overrideLimits.controller";
+import {
+  createPlanPaymentOrder,
+  confirmPlanPayment,
+} from "../controllers/super admin/invoices/planPayment.controller";
 import { getAllData } from "../controllers/super admin/organizations/getalldata.controller";
 import { getTotalInvoices } from "../controllers/super admin/organizations/gettotalinvoices.controller";
 import { getSuperadminOverview } from "../controllers/super admin/organizations/getoverview.controller";
@@ -109,6 +113,16 @@ router.put(
   requireSuperOrSubAdmin,
   overrideLimits as any,
 );
+
+// On-demand plan payment via PayPal (one-time order, not recurring subscription)
+router.post(
+  "/invoices/plan-payment",
+  isAuthenticated,
+  requireSuperAdmin,
+  createPlanPaymentOrder as any,
+);
+// Public confirm endpoint — validated by orderId/orgId/planId, no auth required
+router.post("/invoices/plan-payment/confirm", confirmPlanPayment as any);
 
 // DEMO ACCOUNT ROUTES - require super admin role
 router.post(

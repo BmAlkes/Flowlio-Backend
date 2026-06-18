@@ -569,6 +569,47 @@ export const invoices = pgTable(
   }),
 );
 
+// ==================== PLAN PAYMENT REQUESTS (on-demand PayPal flow) ====================
+
+export const planPaymentRequests = pgTable(
+  "plan_payment_requests",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    planId: text("plan_id")
+      .notNull()
+      .references(() => subscriptionPlans.id),
+    paypalOrderId: text("paypal_order_id").notNull().unique(),
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    currency: text("currency")
+      .$defaultFn(() => "USD")
+      .notNull(),
+    startDate: timestamp("start_date").notNull(),
+    endDate: timestamp("end_date").notNull(),
+    description: text("description"),
+    notes: text("notes"),
+    invoiceNumber: text("invoice_number"),
+    status: text("status")
+      .$defaultFn(() => "pending")
+      .notNull(), // pending | completed | failed | cancelled
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("plan_payment_requests_org_idx").on(table.orgId),
+    statusIdx: index("plan_payment_requests_status_idx").on(table.status),
+    orderIdx: index("plan_payment_requests_order_idx").on(table.paypalOrderId),
+  }),
+);
+
 export const recurringInvoices = pgTable(
   "recurring_invoices",
   {
