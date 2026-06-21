@@ -65,7 +65,7 @@ export const createClient = async (
       businessIndustry,
       address,
       socialMediaLinks,
-      status = "New Lead",
+      status = "Active",
       image,
       customFields,
     } = req.body;
@@ -77,6 +77,9 @@ export const createClient = async (
       });
       return;
     }
+
+    const validClientStatuses = ["Active", "Onboarding", "On Hold", "Inactive", "Completed", "Churned"];
+    const clientStatus = validClientStatuses.includes(status) ? status : "Active";
 
     // Check if client with same email already exists in users table (auth identity)
     const existingUser = await database
@@ -173,7 +176,7 @@ export const createClient = async (
           address,
           socialMediaLinks: parsedSocialMediaLinks,
           customFields: parsedCustomFields,
-          status,
+          status: clientStatus,
           clientType: "client",
           createdBy: userReq.user!.id,
           createdAt: now,
@@ -193,7 +196,7 @@ export const createClient = async (
       resource: "client",
       resourceId: result.clientId,
       message: `Created client: ${result.newClient.name}`,
-      metadata: { email, status },
+      metadata: { email, status: clientStatus },
     });
 
     // Return success response

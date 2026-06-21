@@ -13,7 +13,7 @@ export const convertLead = async (req: Request, res: Response): Promise<void> =>
     const result = await connection.query({
       text: `
         UPDATE clients
-        SET type = 'client', status = 'Contract Signed', updated_at = now()
+        SET type = 'client', status = 'Active', updated_at = now()
         WHERE id = $1 AND organization_id = $2 AND type = 'lead'
         RETURNING id AS "clientId"
       `,
