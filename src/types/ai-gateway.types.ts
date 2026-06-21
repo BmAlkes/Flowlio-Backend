@@ -4,6 +4,7 @@ export interface AIChatParams {
   messages: { role: "system" | "user" | "assistant"; content: string }[]
   orgId: string
   userId: string
+  endpoint?: string
   metadata?: Record<string, any>
 }
 

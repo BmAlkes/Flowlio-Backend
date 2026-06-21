@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
+import { logAIUsage } from "@/middlewares/ai-usage-log.middleware";
+import { aiRateLimit } from "@/middlewares/ai-rate-limit.middleware";
 import { requireViewer } from "@/middlewares/role.middleware";
 import { getViewerProjects } from "../controllers/viewer/projects/getviewerprojects.controller";
 import { getViewerProjectById } from "../controllers/viewer/projects/getviewerprojectbyid.controller";
@@ -51,62 +53,15 @@ router.post("/tasks/:id/start", isAuthenticated, startTask);
 router.post("/tasks/:id/end", isAuthenticated, endTask);
 
 // ==================== VIEWER AI ASSISTANT ROUTES ====================
-// Generate AI-powered event suggestions
-router.post(
-  "/ai/suggestions",
-  isAuthenticated,
-  requirePlanFeature("aiAssist"),
-  generateEventSuggestions,
-);
+const aiMiddleware = [isAuthenticated, aiRateLimit, logAIUsage, requirePlanFeature("aiAssist")];
 
-// Generate event categories and tags
-router.post(
-  "/ai/categories",
-  isAuthenticated,
-  requirePlanFeature("aiAssist"),
-  generateEventCategories,
-);
-
-// Enhance event description with AI
-router.post(
-  "/ai/enhance-description",
-  isAuthenticated,
-  requirePlanFeature("aiAssist"),
-  enhanceEventDescription,
-);
-
-// Get AI-powered calendar insights
-router.get(
-  "/ai/insights",
-  isAuthenticated,
-  requirePlanFeature("aiAssist"),
-  getCalendarInsights,
-);
-
-// Advanced AI conversation with file analysis
-router.post(
-  "/ai/conversation",
-  isAuthenticated,
-  requirePlanFeature("aiAssist"),
-  upload.array("files", 5),
-  advancedConversation,
-);
-
-// Generate images using DALL-E
-router.post(
-  "/ai/generate-image",
-  isAuthenticated,
-  requirePlanFeature("aiAssist"),
-  generateImage,
-);
-
-// Test OpenAI service connection
-router.get(
-  "/ai/test",
-  isAuthenticated,
-  requirePlanFeature("aiAssist"),
-  testOpenAI,
-);
+router.post("/ai/suggestions", ...aiMiddleware, generateEventSuggestions);
+router.post("/ai/categories", ...aiMiddleware, generateEventCategories);
+router.post("/ai/enhance-description", ...aiMiddleware, enhanceEventDescription);
+router.get("/ai/insights", ...aiMiddleware, getCalendarInsights);
+router.post("/ai/conversation", ...aiMiddleware, upload.array("files", 5), advancedConversation);
+router.post("/ai/generate-image", ...aiMiddleware, generateImage);
+router.get("/ai/test", ...aiMiddleware, testOpenAI);
 
 // ==================== VIEWER CALENDAR ROUTES ====================
 // Create a new calendar event

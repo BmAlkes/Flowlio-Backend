@@ -1488,6 +1488,8 @@ export const aiUsageLogs = pgTable(
     status: text("status")
       .default("success")
       .notNull(),
+    endpoint: text("endpoint"),
+    durationMs: integer("duration_ms"),
     errorMessage: text("error_message"),
     metadata: json("metadata"),
     createdAt: timestamp("created_at")
@@ -1501,6 +1503,7 @@ export const aiUsageLogs = pgTable(
     userIdx: index("ai_usage_logs_user_idx").on(table.userId),
     featureIdx: index("ai_usage_logs_feature_idx").on(table.feature),
     createdAtIdx: index("ai_usage_logs_created_at_idx").on(table.createdAt),
+    statusIdx: index("ai_usage_logs_status_idx").on(table.status),
   }),
 );
 

@@ -16,9 +16,15 @@ import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
 import { checkAIAccess } from "@/middlewares/ai-rbac.middleware";
 import { checkAITokenLimit } from "@/middlewares/ai-limit.middleware";
+import { logAIUsage } from "@/middlewares/ai-usage-log.middleware";
+import { aiRateLimit } from "@/middlewares/ai-rate-limit.middleware";
 import { generateWeeklyProjectSummary } from "@/controllers/ai/generateweeklyprojectsummary.controller";
 
 const router = Router();
+
+// Rate limit + log every AI call
+router.use(aiRateLimit);
+router.use(logAIUsage);
 
 router.post(
   "/suggestions",

@@ -13,16 +13,12 @@ export class AIGateway {
   }
 
   async chat(params: AIChatParams): Promise<AIChatResult> {
-    const { feature, model = "gpt-4o", messages, orgId, userId, metadata } =
+    const { feature, model = "gpt-4o", messages, orgId, userId, endpoint, metadata } =
       params
+    const startTime = Date.now()
 
     try {
       if (this.provider === "openai") {
-        // generateAdvancedResponse is the existing OpenAIService method that accepts
-        // a messages array (via conversationHistory) and returns a response with usage stats.
-        // It surfaces total_tokens via result.metadata.tokens.
-        // promptTokens / completionTokens are not individually exposed by this method
-        // and are recorded as 0 until a lower-level method is available.
         const lastUserIdx = [...messages]
           .reverse()
           .findIndex((m) => m.role === "user")
@@ -47,6 +43,7 @@ export class AIGateway {
         const totalTokens = result.metadata?.tokens ?? 0
         const promptTokens = result.metadata?.promptTokens ?? 0
         const completionTokens = result.metadata?.completionTokens ?? 0
+        const durationMs = Date.now() - startTime
 
         await database.insert(aiUsageLogs).values({
           feature,
@@ -58,6 +55,8 @@ export class AIGateway {
           organizationId: orgId,
           userId,
           status: "success",
+          endpoint: endpoint ?? null,
+          durationMs,
           ...(metadata !== undefined ? { metadata } : {}),
         })
 
@@ -88,6 +87,8 @@ export class AIGateway {
 
       throw new Error("Provider not supported yet")
     } catch (err: any) {
+      const durationMs = Date.now() - startTime
+
       await database.insert(aiUsageLogs).values({
         feature,
         provider: this.provider,
@@ -99,6 +100,8 @@ export class AIGateway {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
+        endpoint: endpoint ?? null,
+        durationMs,
       })
 
       throw err

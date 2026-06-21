@@ -22,6 +22,7 @@ import {
   createPlanPaymentOrder,
   confirmPlanPayment,
 } from "../controllers/super admin/invoices/planPayment.controller";
+import { getSuperadminAILogs } from "../controllers/ai/aiLogs.controller";
 import { getAllData } from "../controllers/super admin/organizations/getalldata.controller";
 import { getTotalInvoices } from "../controllers/super admin/organizations/gettotalinvoices.controller";
 import { getSuperadminOverview } from "../controllers/super admin/organizations/getoverview.controller";
@@ -123,6 +124,9 @@ router.post(
 );
 // Public confirm endpoint — validated by orderId/orgId/planId, no auth required
 router.post("/invoices/plan-payment/confirm", confirmPlanPayment as any);
+
+// AI audit logs with filtering, pagination and summary
+router.get("/ai/logs", isAuthenticated, requireSuperAdmin, getSuperadminAILogs as any);
 
 // DEMO ACCOUNT ROUTES - require super admin role
 router.post(

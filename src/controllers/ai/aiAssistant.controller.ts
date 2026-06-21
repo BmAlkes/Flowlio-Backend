@@ -1034,7 +1034,9 @@ export const advancedConversation = async (
       orgId: req.user?.organizationId,
       userId: req.user?.id,
       model: "gpt-4o",
+      endpoint: req.originalUrl || req.path,
     });
+    (res as any).locals._aiLogged = true;
 
     debugLog("✅ ADVANCED AI CONVERSATION COMPLETED SUCCESSFULLY");
     // logger.info("✅ ADVANCED AI CONVERSATION COMPLETED SUCCESSFULLY");
@@ -1080,12 +1082,14 @@ export const testOpenAI = async (req: any, res: Response): Promise<void> => {
     }
 
     const testResult = await aiGateway.chat({
-      feature: "chat",
+      feature: "test",
       messages: [{ role: "user", content: "Hello, this is a test message." }],
       orgId: req.user?.organizationId,
       userId: req.user?.id,
       model: "gpt-4o",
+      endpoint: req.originalUrl || req.path,
     });
+    (res as any).locals._aiLogged = true;
 
     res.status(200).json({
       success: true,
@@ -1163,7 +1167,7 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
 
     if (req.user.organizationId && req.user.id) {
       await database.insert(aiUsageLogs).values({
-        feature: "image",
+        feature: "image_generation",
         provider: "openai",
         model: imageModel,
         promptTokens: imageTokenCost,
@@ -1172,12 +1176,15 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
         organizationId: req.user.organizationId,
         userId: req.user.id,
         status: "success",
+        endpoint: req.originalUrl || req.path,
+        durationMs: null,
         metadata: {
           prompt,
           size,
           responseType: imageUrl.startsWith("data:") ? "base64" : "url",
         },
       });
+      (res as any).locals._aiLogged = true;
 
       await database
         .update(aiTokenLimits)
@@ -1418,7 +1425,9 @@ Generate a complete professional proposal with the following sections. Return ON
       orgId: req.user?.organizationId,
       userId: req.user?.id,
       model: "gpt-4o",
+      endpoint: req.originalUrl || req.path,
     });
+    (res as any).locals._aiLogged = true;
 
     // Parse the AI response as JSON
     let proposalData;

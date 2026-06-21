@@ -14,6 +14,8 @@ import {
   purchaseAITokens,
   confirmAITokenPurchase,
 } from "@/controllers/ai/tokenTopup.controller";
+import { getMyUsageLogs } from "@/controllers/ai/aiLogs.controller";
+import { getUserLimits, setUserLimit, dismissAlerts } from "@/controllers/ai/userLimits.controller";
 
 const router = Router();
 
@@ -23,6 +25,16 @@ router.get("/limits", isAuthenticated, checkAIAccess, getLimits);
 router.put("/limits", isAuthenticated, checkAIAccess, setLimits);
 router.delete("/limits/:orgId", isAuthenticated, checkAIAccess, removeLimits);
 router.get("/audit", isAuthenticated, checkAIAccess, getAudit);
+
+// User's own AI usage logs
+router.get("/my-usage-logs", isAuthenticated, getMyUsageLogs);
+
+// Per-user token limits (org admin)
+router.get("/user-limits", isAuthenticated, getUserLimits);
+router.put("/user-limits", isAuthenticated, setUserLimit);
+
+// Dismiss AI usage alerts
+router.post("/alerts/dismiss", isAuthenticated, dismissAlerts);
 
 // Token top-up via PayPal
 router.get("/tokens/packages", isAuthenticated, getTokenPackages);
