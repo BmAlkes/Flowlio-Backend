@@ -96,7 +96,18 @@ export async function getOrganizationPlanFeatures(
       if (plan?.features) planFeatures = plan.features as PlanFeatures;
     }
 
-    if (!planFeatures && !orgRow) return null;
+    // No plan and no overrides → null (no restrictions)
+    const hasOverrides = orgRow && (
+      orgRow.overrideMaxLeads !== null ||
+      orgRow.overrideMaxClients !== null ||
+      orgRow.overrideMaxWebhooks !== null ||
+      orgRow.overrideMaxTasks !== null ||
+      orgRow.overrideMaxInvoices !== null ||
+      orgRow.overrideMaxProposals !== null ||
+      orgRow.overrideAiTokenLimit !== null
+    );
+
+    if (!planFeatures && !hasOverrides) return null;
 
     // Merge: org overrides take precedence over plan values
     const effective: PlanFeatures = {
