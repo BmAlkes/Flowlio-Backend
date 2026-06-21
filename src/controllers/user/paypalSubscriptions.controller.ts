@@ -36,6 +36,9 @@ function getBillingFrequency(plan: typeof subscriptionPlans.$inferSelect) {
 async function ensurePayPalBillingPlan(
   plan: typeof subscriptionPlans.$inferSelect
 ): Promise<string> {
+  // If a cached PayPal plan exists, reuse it.
+  // When trialDays changes, the superadmin should clear paypalPlanId
+  // (via plans upsert) so a new billing plan is created with the updated trial.
   if (plan.paypalPlanId) return plan.paypalPlanId;
 
   const accessToken = await getPayPalAccessToken();
@@ -69,6 +72,38 @@ async function ensurePayPalBillingPlan(
     logger.info(`Created PayPal product ${productId} for plan ${plan.id}`);
   }
 
+  // Build billing cycles — optionally include a free TRIAL before the REGULAR cycle
+  const trialDays = Number(plan.trialDays) || 0;
+  const billingCycles: any[] = [];
+
+  if (trialDays > 0) {
+    billingCycles.push({
+      frequency: { interval_unit: "DAY", interval_count: trialDays },
+      tenure_type: "TRIAL",
+      sequence: 1,
+      total_cycles: 1,
+      pricing_scheme: {
+        fixed_price: {
+          value: "0",
+          currency_code: plan.currency || "USD",
+        },
+      },
+    });
+  }
+
+  billingCycles.push({
+    frequency: getBillingFrequency(plan),
+    tenure_type: "REGULAR",
+    sequence: trialDays > 0 ? 2 : 1,
+    total_cycles: 0, // indefinite
+    pricing_scheme: {
+      fixed_price: {
+        value: Number(plan.price).toFixed(2),
+        currency_code: plan.currency || "USD",
+      },
+    },
+  });
+
   // Create billing plan
   const billingRes = await axios.post(
     `${baseURL}/v1/billing/plans`,
@@ -76,20 +111,7 @@ async function ensurePayPalBillingPlan(
       product_id: productId,
       name: `Flowlio – ${plan.name}`,
       status: "ACTIVE",
-      billing_cycles: [
-        {
-          frequency: getBillingFrequency(plan),
-          tenure_type: "REGULAR",
-          sequence: 1,
-          total_cycles: 0, // indefinite
-          pricing_scheme: {
-            fixed_price: {
-              value: Number(plan.price).toFixed(2),
-              currency_code: plan.currency || "USD",
-            },
-          },
-        },
-      ],
+      billing_cycles: billingCycles,
       payment_preferences: {
         auto_bill_outstanding: true,
         setup_fee_failure_action: "CONTINUE",
@@ -338,6 +360,15 @@ export const activatePayPalSubscription = async (
       with: { organization: true },
     });
 
+    // Determine trial vs active status
+    const trialDays = Number(plan.trialDays) || 0;
+    const hasTrial = trialDays > 0;
+    const subStatus = hasTrial ? "trialing" : "active";
+    const trialStart = hasTrial ? now : null;
+    const trialEnd = hasTrial
+      ? new Date(now.getTime() + trialDays * 24 * 60 * 60 * 1000)
+      : null;
+
     let orgId: string;
     let dbSubscriptionId: string;
 
@@ -365,10 +396,12 @@ export const activatePayPalSubscription = async (
           .update(subscriptions)
           .set({
             planId: finalPlanId,
-            status: "active",
+            status: subStatus,
             currentPeriodStart: now,
             currentPeriodEnd: subscriptionEndDate,
             cancelAtPeriodEnd: false,
+            trialStart,
+            trialEnd,
             updatedAt: now,
             metadata: { ...(existingSub.metadata as any || {}), ...subscriptionMetadata },
           })
@@ -379,10 +412,12 @@ export const activatePayPalSubscription = async (
           id: dbSubscriptionId,
           organizationId: orgId,
           planId: finalPlanId,
-          status: "active",
+          status: subStatus,
           currentPeriodStart: now,
           currentPeriodEnd: subscriptionEndDate,
           cancelAtPeriodEnd: false,
+          trialStart,
+          trialEnd,
           createdAt: now,
           updatedAt: now,
           metadata: subscriptionMetadata,
@@ -393,10 +428,11 @@ export const activatePayPalSubscription = async (
         .update(organizations)
         .set({
           status: "active",
-          subscriptionStatus: "active",
+          subscriptionStatus: subStatus,
           subscriptionPlanId: finalPlanId,
           subscriptionStartDate: now,
           subscriptionEndDate,
+          trialEndsAt: trialEnd,
           settings: updatedSettings,
           updatedAt: now,
         })
@@ -422,10 +458,11 @@ export const activatePayPalSubscription = async (
         name: finalOrgName,
         slug,
         status: "active",
-        subscriptionStatus: "active",
+        subscriptionStatus: subStatus,
         subscriptionPlanId: finalPlanId,
         subscriptionStartDate: now,
         subscriptionEndDate,
+        trialEndsAt: trialEnd,
         createdAt: now,
         updatedAt: now,
         website: organizationWebsite || pendingData?.organizationWebsite,
@@ -447,10 +484,12 @@ export const activatePayPalSubscription = async (
         id: dbSubscriptionId,
         organizationId: orgId,
         planId: finalPlanId,
-        status: "active",
+        status: subStatus,
         currentPeriodStart: now,
         currentPeriodEnd: subscriptionEndDate,
         cancelAtPeriodEnd: false,
+        trialStart,
+        trialEnd,
         createdAt: now,
         updatedAt: now,
         metadata: subscriptionMetadata,

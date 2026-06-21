@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { database } from "@/configs/connection.config";
 import { subscriptions, organizations } from "@/schema/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, or } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
 export interface AuthenticatedRequest extends Request {
@@ -69,14 +69,17 @@ export const requireActiveSubscription = async (
 
     const organizationId = userOrg[0].id;
 
-    // Check for active subscription
+    // Check for active or trialing subscription
     const activeSubscription = await database
       .select()
       .from(subscriptions)
       .where(
         and(
           eq(subscriptions.organizationId, organizationId),
-          eq(subscriptions.status, "active"),
+          or(
+            eq(subscriptions.status, "active"),
+            eq(subscriptions.status, "trialing")
+          ),
           gte(subscriptions.currentPeriodEnd, new Date())
         )
       )
