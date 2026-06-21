@@ -108,7 +108,7 @@ export const setLeadTags = async (req: Request, res: Response): Promise<void> =>
     const organizationId = requireOrganizationId(req, res);
     if (!organizationId) return;
 
-    const { leadId } = req.params;
+    const leadId = req.params.leadId || req.params.id;
     const { tagIds } = req.body as { tagIds: string[] };
 
     if (!Array.isArray(tagIds)) {
@@ -137,7 +137,14 @@ export const setLeadTags = async (req: Request, res: Response): Promise<void> =>
       );
     }
 
-    res.status(200).json({ success: true, message: "Tags updated" });
+    // Return updated tags
+    const tags = await database
+      .select({ id: leadTags.id, name: leadTags.name, color: leadTags.color })
+      .from(leadTagAssignments)
+      .innerJoin(leadTags, eq(leadTags.id, leadTagAssignments.tagId))
+      .where(eq(leadTagAssignments.leadId, leadId));
+
+    res.status(200).json({ success: true, data: { tags } });
   } catch (error) {
     res.status(500).json({ success: false, message: "Failed to set lead tags" });
   }
