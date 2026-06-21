@@ -174,6 +174,7 @@ export const createClient = async (
           socialMediaLinks: parsedSocialMediaLinks,
           customFields: parsedCustomFields,
           status,
+          clientType: "client",
           createdBy: userReq.user!.id,
           createdAt: now,
           updatedAt: now,
