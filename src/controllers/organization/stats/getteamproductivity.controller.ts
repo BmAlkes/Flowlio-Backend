@@ -1,34 +1,20 @@
 import { database } from "@/configs/connection.config";
-import {
-  timeEntries,
-  projects,
-  tasks,
-  users,
-  userOrganizations,
-} from "@/schema/schema";
+import { timeEntries, projects, tasks, users, userOrganizations } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { sql, eq, and, inArray } from "drizzle-orm";
-import status from "http-status";
+import { sql, eq, and, inArray, gte, lte } from "drizzle-orm";
+import { resolveDateRange } from "@/utils/dateRange.util";
 
-export const getTeamProductivity = async (
-  req: Request,
-  res: Response,
-): Promise<void> => {
+export const getTeamProductivity = async (req: Request, res: Response): Promise<void> => {
   try {
-    logger.info("📊 getTeamProductivity called");
-
     const organizationId = req.user?.organizationId;
-
     if (!organizationId) {
-      res.status(400).json({
-        success: false,
-        message: "Organization ID is required",
-      });
+      res.status(400).json({ success: false, message: "Organization ID is required" });
       return;
     }
 
-    // 1. Get all users in this organization
+    const range = resolveDateRange(req.query as any);
+
     const orgUserIdsResult = await database
       .select({ userId: userOrganizations.userId })
       .from(userOrganizations)
@@ -40,21 +26,19 @@ export const getTeamProductivity = async (
       res.status(200).json({
         success: true,
         data: [],
+        period: { from: range.from.toISOString().split("T")[0], to: range.to.toISOString().split("T")[0] },
+        updatedAt: new Date().toISOString(),
+        totals: { totalMembers: 0, totalTasks: 0, totalCompletedTasks: 0, totalMinutes: 0, avgCompletionRate: 0 },
       });
       return;
     }
 
-    // 2. Aggregate hours/minutes tracked per user
     const hoursResult = await database
-      .select({
-        userId: timeEntries.userId,
-        totalMinutes: sql<number>`COALESCE(SUM(${timeEntries.duration}), 0)`,
-      })
+      .select({ userId: timeEntries.userId, totalMinutes: sql<number>`COALESCE(SUM(${timeEntries.duration}), 0)` })
       .from(timeEntries)
-      .where(inArray(timeEntries.userId, userIds))
+      .where(and(inArray(timeEntries.userId, userIds), gte(timeEntries.startTime, range.from), lte(timeEntries.startTime, range.to)))
       .groupBy(timeEntries.userId);
 
-    // 3. Aggregate tasks per user (Total, Completed, In Progress, Pending)
     const tasksResult = await database
       .select({
         userId: tasks.assignedTo,
@@ -65,56 +49,53 @@ export const getTeamProductivity = async (
       })
       .from(tasks)
       .innerJoin(projects, eq(tasks.projectId, projects.id))
-      .where(
-        and(
-          inArray(tasks.assignedTo, userIds),
-          eq(projects.organizationId, organizationId),
-        ),
-      )
+      .where(and(inArray(tasks.assignedTo, userIds), eq(projects.organizationId, organizationId), gte(tasks.createdAt, range.from), lte(tasks.createdAt, range.to)))
       .groupBy(tasks.assignedTo);
 
-    // 4. Get user details for these users
     const userDetails = await database
-      .select({
-        id: users.id,
-        name: users.name,
-        image: users.image,
-      })
+      .select({ id: users.id, name: users.name, image: users.image })
       .from(users)
       .where(inArray(users.id, userIds));
 
-    // 5. Merge data
+    let totalTasks = 0, totalCompleted = 0, totalMinutes = 0;
+
     const productivityData = userDetails.map((user) => {
-      const minutes =
-        hoursResult.find((h) => h.userId === user.id)?.totalMinutes || 0;
+      const minutes = Number(hoursResult.find((h) => h.userId === user.id)?.totalMinutes ?? 0);
       const tStats = tasksResult.find((t) => t.userId === user.id);
+      const ut = Number(tStats?.totalTasks ?? 0);
+      const uc = Number(tStats?.completedTasks ?? 0);
+
+      totalTasks += ut;
+      totalCompleted += uc;
+      totalMinutes += minutes;
 
       return {
         userId: user.id,
         userName: user.name,
         userImage: user.image,
-        totalMinutes: Number(minutes),
-        totalTasks: Number(tStats?.totalTasks || 0),
-        completedTasks: Number(tStats?.completedTasks || 0),
-        inProgressTasks: Number(tStats?.inProgressTasks || 0),
-        pendingTasks: Number(tStats?.pendingTasks || 0),
+        totalMinutes: minutes,
+        totalTasks: ut,
+        completedTasks: uc,
+        inProgressTasks: Number(tStats?.inProgressTasks ?? 0),
+        pendingTasks: Number(tStats?.pendingTasks ?? 0),
       };
     });
 
-    logger.info(
-      `✅ Team productivity fetched for organization ${organizationId}`,
-    );
-
     res.status(200).json({
       success: true,
-      message: "Team productivity fetched successfully",
       data: productivityData,
+      period: { from: range.from.toISOString().split("T")[0], to: range.to.toISOString().split("T")[0] },
+      updatedAt: new Date().toISOString(),
+      totals: {
+        totalMembers: userIds.length,
+        totalTasks,
+        totalCompletedTasks: totalCompleted,
+        totalMinutes,
+        avgCompletionRate: totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0,
+      },
     });
   } catch (error) {
     logger.error("Error fetching team productivity:", error);
-    res.status(status.INTERNAL_SERVER_ERROR).json({
-      success: false,
-      message: (error as Error)?.message ?? "Internal server error",
-    });
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
