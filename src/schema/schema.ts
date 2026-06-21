@@ -9,6 +9,7 @@ import {
   json,
   index,
   unique,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import crypto from "crypto";
@@ -911,6 +912,9 @@ export const clients = pgTable(
       .$defaultFn(() => "lead"),
     webhookId: text("webhook_id"),
     webhookName: text("webhook_name"),
+    assignedTo: text("assigned_to").references(() => users.id),
+    assignedAt: timestamp("assigned_at"),
+    followupNotifiedAt: timestamp("followup_notified_at"),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
@@ -922,6 +926,7 @@ export const clients = pgTable(
       table.organizationId,
     ),
     positionIdx: index("clients_position_idx").on(table.position),
+    assignedToIdx: index("clients_assigned_to_idx").on(table.assignedTo, table.organizationId),
   }),
 );
 
@@ -1120,11 +1125,14 @@ export const leadWebhookLogs = pgTable(
     webhookId: text("webhook_id")
       .notNull()
       .references(() => leadWebhooks.id, { onDelete: "cascade" }),
-    status: text("status").$type<"success" | "error">().notNull(),
+    status: text("status").$type<"success" | "error" | "merged" | "pending_retry" | "retried_success" | "permanently_failed">().notNull(),
     payload: json("payload").$type<Record<string, any>>(),
     leadId: text("lead_id"),
     error: text("error"),
     ip: text("ip"),
+    retryCount: integer("retry_count").default(0),
+    nextRetryAt: timestamp("next_retry_at"),
+    maxRetries: integer("max_retries").default(3),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -1132,6 +1140,83 @@ export const leadWebhookLogs = pgTable(
   (table) => ({
     webhookIdx: index("lead_webhook_logs_webhook_idx").on(table.webhookId),
     createdAtIdx: index("lead_webhook_logs_created_at_idx").on(table.createdAt),
+    retryIdx: index("lead_webhook_logs_retry_idx").on(table.status, table.nextRetryAt),
+  }),
+);
+
+// ==================== LEAD TAGS ====================
+
+export const leadTags = pgTable(
+  "lead_tags",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    color: text("color").notNull().$defaultFn(() => "#6B7280"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("lead_tags_org_idx").on(table.organizationId),
+    uniqueNamePerOrg: unique("lead_tags_org_name_unique").on(table.organizationId, table.name),
+  }),
+);
+
+export const leadTagAssignments = pgTable(
+  "lead_tag_assignments",
+  {
+    leadId: text("lead_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    tagId: text("tag_id")
+      .notNull()
+      .references(() => leadTags.id, { onDelete: "cascade" }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.leadId, table.tagId] }),
+    tagIdx: index("lead_tag_assignments_tag_idx").on(table.tagId),
+  }),
+);
+
+// ==================== LEAD ROUTING RULES ====================
+
+export const leadRoutingRules = pgTable(
+  "lead_routing_rules",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    priority: integer("priority").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    conditions: json("conditions").$type<{
+      match: "all" | "any";
+      rules: Array<{ field: string; operator: string; value: string }>;
+    }>().notNull(),
+    actions: json("actions").$type<{
+      assignTo?: string | null;
+      setTemperature?: string | null;
+      setStatus?: string | null;
+      addTags?: string[];
+      notify?: string[];
+    }>().notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    orgIdx: index("lead_routing_rules_org_idx").on(table.organizationId, table.priority),
   }),
 );
 

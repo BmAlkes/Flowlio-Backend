@@ -15,6 +15,7 @@ import { getWebhookMapping } from "@/controllers/organization/webhooks/getWebhoo
 import { updateWebhookMapping } from "@/controllers/organization/webhooks/updateWebhookMapping.controller";
 import { getWebhookLogs } from "@/controllers/organization/webhooks/getWebhookLogs.controller";
 import { deleteWebhookLog } from "@/controllers/organization/webhooks/deleteWebhookLog.controller";
+import { retryWebhookLog } from "@/controllers/organization/webhooks/retryWebhook.controller";
 import { getLeadWebhookLog } from "@/controllers/organization/webhooks/getLeadWebhookLog.controller";
 import { testWebhook } from "@/controllers/organization/webhooks/testWebhook.controller";
 import { receiveWebhook } from "@/controllers/organization/webhooks/receiveWebhook.controller";
@@ -59,6 +60,7 @@ router.get("/:id", ...apiManage, getWebhook as any);
 router.get("/:id/mapping", ...apiManage, getWebhookMapping as any);
 router.get("/:id/logs", ...apiManage, getWebhookLogs as any);
 router.delete("/logs/:logId", ...apiManage, deleteWebhookLog as any);
+router.post("/logs/:logId/retry", ...apiManage, retryWebhookLog as any);
 router.get("/logs/by-lead/:leadId", ...apiManage, getLeadWebhookLog as any);
 // Write / mutate — require apiAccess + orgOwner
 router.post("/", ...apiManage, parseBody, createWebhook as any);

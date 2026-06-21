@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { connection } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { randomUUID } from "crypto";
+import { applyRoutingRules } from "@/services/leadRouting.service";
 
 // PostgreSQL error code for "column does not exist"
 const PG_UNDEFINED_COLUMN = "42703";
@@ -74,7 +75,7 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
   let incomingPayload: Record<string, any> = {};
   let payloadJson = "{}";
   let leadId: string | null = null;
-  let logStatus: "success" | "error" = "success";
+  let logStatus: "success" | "error" | "merged" = "success";
   let logError: string | null = null;
 
   try {
@@ -140,11 +141,58 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
       throw new Error(`No member found for org ${orgId} — cannot create lead`);
     }
 
-    const newLeadId = randomUUID();
     const now = new Date();
     const customFieldsJson = hasCustomFields ? safeStringify(customFields) : null;
 
-    // ── 5. INSERT lead — try with source columns, fallback without ─────────
+    // ── 5. Duplicate detection ────────────────────────────────────────────
+    const isRealEmail = leadEmail && !leadEmail.includes("@noemail.invalid");
+
+    if (isRealEmail) {
+      const dup = await connection.query({
+        text: `SELECT id, custom_fields FROM clients WHERE organization_id = $1 AND email = $2 AND type = 'lead' LIMIT 1`,
+        values: [orgId, leadEmail],
+      });
+
+      if (dup.rows.length > 0) {
+        const existing = dup.rows[0];
+        leadId = existing.id as string;
+        logStatus = "merged";
+
+        // Merge custom fields (new overwrite existing)
+        const mergedCf = { ...(existing.custom_fields ?? {}), ...customFields };
+        await connection.query({
+          text: `UPDATE clients SET custom_fields = $1::jsonb, last_interaction_at = $2, updated_at = $2 WHERE id = $3`,
+          values: [safeStringify(mergedCf), now, leadId],
+        });
+
+        res.status(200).json({ success: true, action: "merged", leadId });
+        return;
+      }
+    } else if (leadPhone) {
+      const dup = await connection.query({
+        text: `SELECT id, custom_fields FROM clients WHERE organization_id = $1 AND phone = $2 AND type = 'lead' LIMIT 1`,
+        values: [orgId, leadPhone],
+      });
+
+      if (dup.rows.length > 0) {
+        const existing = dup.rows[0];
+        leadId = existing.id as string;
+        logStatus = "merged";
+
+        const mergedCf = { ...(existing.custom_fields ?? {}), ...customFields };
+        await connection.query({
+          text: `UPDATE clients SET custom_fields = $1::jsonb, last_interaction_at = $2, updated_at = $2 WHERE id = $3`,
+          values: [safeStringify(mergedCf), now, leadId],
+        });
+
+        res.status(200).json({ success: true, action: "merged", leadId });
+        return;
+      }
+    }
+
+    // ── 6. INSERT lead ───────────────────────────────────────────────────
+    const newLeadId = randomUUID();
+
     try {
       const result = await connection.query({
         text: `
@@ -165,7 +213,6 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
       }
     } catch (insertErr: any) {
       if (insertErr?.code === PG_UNDEFINED_COLUMN) {
-        // Migration 0019 not yet applied — insert without source columns
         logger.warn("receiveWebhook: webhook_id/webhook_name columns missing, inserting without source");
         const fallback = await connection.query({
           text: `
@@ -186,7 +233,20 @@ export const receiveWebhook = async (req: Request, res: Response): Promise<void>
     }
 
     leadId = newLeadId;
-    res.status(200).json({ success: true, leadId });
+
+    // ── 7. Auto-routing rules ────────────────────────────────────────────
+    applyRoutingRules(orgId, {
+      id: newLeadId,
+      name: leadName,
+      email: leadEmail,
+      phone: leadPhone,
+      source: webhookName,
+      webhookId,
+      industry: null,
+      customFields: hasCustomFields ? customFields : null,
+    }).catch((err) => logger.error("Auto-routing error:", err));
+
+    res.status(200).json({ success: true, action: "created", leadId });
 
   } catch (error: any) {
     logStatus = "error";
