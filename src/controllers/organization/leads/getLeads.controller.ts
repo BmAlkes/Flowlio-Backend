@@ -23,9 +23,22 @@ const SELECT_FULL = `
   c.last_interaction_at   AS "lastInteractionAt",
   c.webhook_id            AS "webhookId",
   c.webhook_name          AS "webhookName",
+  c.assigned_to           AS "assignedTo",
+  c.assigned_at           AS "assignedAt",
   c.position,
   c.created_at            AS "createdAt",
-  c.updated_at            AS "updatedAt"
+  c.updated_at            AS "updatedAt",
+  CASE WHEN au.id IS NOT NULL
+    THEN json_build_object('id', au.id, 'name', au.name, 'email', au.email)
+    ELSE NULL
+  END AS "assignedUser",
+  COALESCE(
+    (SELECT json_agg(json_build_object('id', lt.id, 'name', lt.name, 'color', lt.color))
+     FROM lead_tag_assignments lta
+     JOIN lead_tags lt ON lt.id = lta.tag_id
+     WHERE lta.lead_id = c.id),
+    '[]'::json
+  ) AS tags
 `;
 
 const SELECT_BASE = `
@@ -46,9 +59,13 @@ const SELECT_BASE = `
   c.last_interaction_at   AS "lastInteractionAt",
   NULL                    AS "webhookId",
   NULL                    AS "webhookName",
+  NULL                    AS "assignedTo",
+  NULL                    AS "assignedAt",
   c.position,
   c.created_at            AS "createdAt",
-  c.updated_at            AS "updatedAt"
+  c.updated_at            AS "updatedAt",
+  NULL                    AS "assignedUser",
+  '[]'::json              AS tags
 `;
 
 export const getLeads = async (req: Request, res: Response): Promise<void> => {
@@ -61,6 +78,8 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
       status      = "",
       temperature = "",
       webhookId   = "",
+      assignedTo  = "",
+      tagId       = "",
       dateFrom    = "",
       dateTo      = "",
       page        = "1",
@@ -95,6 +114,16 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
       values.push(webhookId);
       idx++;
     }
+    if (assignedTo) {
+      conditions.push(`c.assigned_to = $${idx}`);
+      values.push(assignedTo);
+      idx++;
+    }
+    if (tagId) {
+      conditions.push(`EXISTS (SELECT 1 FROM lead_tag_assignments lta2 WHERE lta2.lead_id = c.id AND lta2.tag_id = $${idx})`);
+      values.push(tagId);
+      idx++;
+    }
     if (dateFrom) {
       conditions.push(`c.created_at >= $${idx}`);
       values.push(dateFrom);
@@ -108,12 +137,14 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
 
     const where = conditions.join(" AND ");
 
-    const runQuery = async (selectCols: string) => {
+    const runQuery = async (selectCols: string, useJoin: boolean) => {
+      const joinClause = useJoin ? `LEFT JOIN users au ON au.id = c.assigned_to` : ``;
       const [data, count] = await Promise.all([
         connection.query({
           text: `
             SELECT ${selectCols}
             FROM clients c
+            ${joinClause}
             WHERE ${where}
             ORDER BY c.position ASC, c.created_at DESC
             LIMIT $${idx} OFFSET $${idx + 1}
@@ -131,12 +162,11 @@ export const getLeads = async (req: Request, res: Response): Promise<void> => {
     let result: { rows: any[]; total: number };
 
     try {
-      result = await runQuery(SELECT_FULL);
+      result = await runQuery(SELECT_FULL, true);
     } catch (err: any) {
       if (err?.code === PG_UNDEFINED_COLUMN) {
-        // Migration 0019 not yet applied — skip webhook source columns
-        logger.warn("getLeads: webhook source columns missing, falling back to base SELECT");
-        result = await runQuery(SELECT_BASE);
+        logger.warn("getLeads: new columns missing, falling back to base SELECT");
+        result = await runQuery(SELECT_BASE, false);
       } else {
         throw err;
       }
