@@ -1,15 +1,19 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { invoices, projectExpenses, projects } from "@/schema/schema";
+import { revenueEntries, projectExpenses, projects } from "@/schema/schema";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import { resolveDateRange, previousRange, pctChange, getGranularity, DateRange } from "@/utils/dateRange.util";
 
 async function sumRevenue(orgId: string, from: Date, to: Date): Promise<number> {
   const [r] = await database
-    .select({ total: sql<number>`COALESCE(SUM(CAST(${invoices.amount} AS DECIMAL)), 0)` })
-    .from(invoices)
-    .where(and(eq(invoices.organizationId, orgId), eq(invoices.status, "paid"), gte(invoices.datepaid, from), lte(invoices.datepaid, to)));
+    .select({ total: sql<number>`COALESCE(SUM(CAST(${revenueEntries.amount} AS DECIMAL)), 0)` })
+    .from(revenueEntries)
+    .where(and(
+      eq(revenueEntries.organizationId, orgId),
+      sql`${revenueEntries.date}::date >= ${from.toISOString().split("T")[0]}::date`,
+      sql`${revenueEntries.date}::date <= ${to.toISOString().split("T")[0]}::date`,
+    ));
   return Number(r?.total ?? 0);
 }
 
@@ -33,14 +37,20 @@ async function buildTimeline(
   range: DateRange,
   granularity: "daily" | "weekly" | "monthly",
 ): Promise<Array<{ date: string; revenue: number; expenses: number }>> {
-  const truncRev = dateTruncExpr(invoices.datepaid, granularity);
+  const fromStr = range.from.toISOString().split("T")[0];
+  const toStr = range.to.toISOString().split("T")[0];
+  const truncRev = dateTruncExpr(sql`${revenueEntries.date}::date`, granularity);
   const truncExp = dateTruncExpr(projectExpenses.date, granularity);
 
   const [revRows, expRows] = await Promise.all([
     database
-      .select({ date: truncRev, amount: sql<number>`SUM(CAST(${invoices.amount} AS DECIMAL))` })
-      .from(invoices)
-      .where(and(eq(invoices.organizationId, orgId), eq(invoices.status, "paid"), gte(invoices.datepaid, range.from), lte(invoices.datepaid, range.to)))
+      .select({ date: truncRev, amount: sql<number>`SUM(CAST(${revenueEntries.amount} AS DECIMAL))` })
+      .from(revenueEntries)
+      .where(and(
+        eq(revenueEntries.organizationId, orgId),
+        sql`${revenueEntries.date}::date >= ${fromStr}::date`,
+        sql`${revenueEntries.date}::date <= ${toStr}::date`,
+      ))
       .groupBy(truncRev)
       .orderBy(truncRev),
     database

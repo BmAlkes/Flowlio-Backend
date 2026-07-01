@@ -611,6 +611,37 @@ export const planPaymentRequests = pgTable(
   }),
 );
 
+// ==================== REVENUE ENTRIES ====================
+
+export const revenueEntries = pgTable(
+  "revenue_entries",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    date: text("date").notNull(), // stored as ISO date string YYYY-MM-DD
+    amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+    currency: text("currency").notNull().$defaultFn(() => "USD"),
+    category: text("category").notNull().$defaultFn(() => "service"),
+    source: text("source").notNull().$defaultFn(() => "manual"),
+    description: text("description"),
+    clientId: text("client_id").references(() => clients.id, { onDelete: "set null" }),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+    invoiceId: text("invoice_id").unique().references(() => invoices.id, { onDelete: "set null" }),
+    createdBy: text("created_by").notNull().references(() => users.id),
+    createdAt: timestamp("created_at").$defaultFn(() => new Date()).notNull(),
+    updatedAt: timestamp("updated_at").$defaultFn(() => new Date()).notNull(),
+  },
+  (table) => ({
+    orgIdx: index("revenue_entries_org_idx").on(table.organizationId, table.date),
+    clientIdx: index("revenue_entries_client_idx").on(table.clientId),
+    sourceIdx: index("revenue_entries_source_idx").on(table.source),
+  }),
+);
+
 export const recurringInvoices = pgTable(
   "recurring_invoices",
   {
