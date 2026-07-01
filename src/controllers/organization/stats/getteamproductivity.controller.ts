@@ -57,6 +57,11 @@ export const getTeamProductivity = async (req: Request, res: Response): Promise<
       .from(users)
       .where(inArray(users.id, userIds));
 
+    // Capacity: 8h/day × working days in range (approx 5/7 of calendar days)
+    const rangeDays = Math.max(1, (range.to.getTime() - range.from.getTime()) / 86_400_000);
+    const workingDays = Math.round(rangeDays * (5 / 7));
+    const capacityMinutes = workingDays * 8 * 60; // 480 min/day
+
     let totalTasks = 0, totalCompleted = 0, totalMinutes = 0;
 
     const productivityData = userDetails.map((user) => {
@@ -78,6 +83,11 @@ export const getTeamProductivity = async (req: Request, res: Response): Promise<
         completedTasks: uc,
         inProgressTasks: Number(tStats?.inProgressTasks ?? 0),
         pendingTasks: Number(tStats?.pendingTasks ?? 0),
+        workload: {
+          minutesLogged: minutes,
+          capacityMinutes,
+          utilizationPct: capacityMinutes > 0 ? Math.min(Math.round((minutes / capacityMinutes) * 100), 999) : 0,
+        },
       };
     });
 

@@ -29,6 +29,14 @@ export function resolveDateRange(query: Record<string, string | undefined>): Dat
   return { from: new Date(now.getTime() - 30 * 86_400_000), to: now };
 }
 
+/** Returns the appropriate timeline granularity based on range duration in days. */
+export function getGranularity(range: DateRange): "daily" | "weekly" | "monthly" {
+  const days = (range.to.getTime() - range.from.getTime()) / 86_400_000;
+  if (days <= 14) return "daily";
+  if (days <= 120) return "weekly";
+  return "monthly";
+}
+
 export function pctChange(current: number, previous: number): number | null {
   if (previous === 0) return null;
   return Math.round(((current - previous) / previous) * 100);

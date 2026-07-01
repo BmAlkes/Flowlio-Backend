@@ -3,7 +3,7 @@ import { database } from "@/configs/connection.config";
 import { clients, projects, tasks, timeEntries } from "@/schema/schema";
 import { eq, sql, and, inArray, gte, lte } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
-import { resolveDateRange } from "@/utils/dateRange.util";
+import { resolveDateRange, previousRange, pctChange } from "@/utils/dateRange.util";
 
 export const getClientActivityReport = async (req: Request, res: Response) => {
   try {
@@ -11,6 +11,19 @@ export const getClientActivityReport = async (req: Request, res: Response) => {
     if (!organizationId) return res.status(400).json({ success: false, message: "Organization ID is required" });
 
     const range = resolveDateRange(req.query as any);
+    const prev = previousRange(range);
+
+    // Count new clients created in current and previous period for comparison
+    const [curClientsCreated, prevClientsCreated] = await Promise.all([
+      database
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(clients)
+        .where(and(eq(clients.organizationId, organizationId), eq(clients.clientType, "client"), gte(clients.createdAt, range.from), lte(clients.createdAt, range.to))),
+      database
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(clients)
+        .where(and(eq(clients.organizationId, organizationId), eq(clients.clientType, "client"), gte(clients.createdAt, prev.from), lte(clients.createdAt, prev.to))),
+    ]);
 
     const orgClients = await database
       .select({ id: clients.id, name: clients.name, email: clients.email, status: clients.status, industry: clients.businessIndustry, image: clients.image })
@@ -109,6 +122,9 @@ export const getClientActivityReport = async (req: Request, res: Response) => {
     orgClients.forEach((c) => { clientStatusMap[c.status ?? "Unknown"] = (clientStatusMap[c.status ?? "Unknown"] ?? 0) + 1; });
     const statusDistribution = Object.entries(clientStatusMap).map(([status, count]) => ({ status, count }));
 
+    const currentNew = Number(curClientsCreated[0]?.count ?? 0);
+    const previousNew = Number(prevClientsCreated[0]?.count ?? 0);
+
     return res.status(200).json({
       success: true,
       data: {
@@ -117,6 +133,11 @@ export const getClientActivityReport = async (req: Request, res: Response) => {
         projectStatusSummary,
         period: { from: range.from.toISOString().split("T")[0], to: range.to.toISOString().split("T")[0] },
         updatedAt: new Date().toISOString(),
+        comparison: {
+          newClientsThisPeriod: currentNew,
+          newClientsPreviousPeriod: previousNew,
+          clientChange: pctChange(currentNew, previousNew),
+        },
         totals: {
           totalClients: orgClients.length,
           totalProjects: totalProjectCount,
