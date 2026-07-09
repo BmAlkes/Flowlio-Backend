@@ -23,6 +23,7 @@ import { getOrganizationTotalClients } from "../controllers/organization/stats/g
 import { getOrganizationActiveProjects } from "../controllers/organization/stats/getactiveprojects.controller";
 import { getOrganizationHoursTracked } from "../controllers/organization/stats/gethourstracked.controller";
 import { getOrganizationPendingTasks } from "../controllers/organization/stats/getpendingtasks.controller";
+import { getOrganizationCompletedTasks } from "../controllers/organization/stats/getcompletedtasks.controller";
 import { getOrganizationWeeklyHoursTracked } from "../controllers/organization/stats/getweeklyhourstracked.controller";
 import { getOrganizationActivities } from "../controllers/organization/activities/getorganizationactivities.controller";
 import { deleteActivity } from "../controllers/organization/activities/deleteactivity.controller";
@@ -90,6 +91,11 @@ router.get(
   "/stats/pending-tasks",
   isAuthenticated,
   getOrganizationPendingTasks
+);
+router.get(
+  "/stats/completed-tasks",
+  isAuthenticated,
+  getOrganizationCompletedTasks
 );
 router.get(
   "/stats/weekly-hours-tracked",
