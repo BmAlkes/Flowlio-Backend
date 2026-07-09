@@ -52,7 +52,7 @@ export const createSinglePlan = async (req: Request, res: Response) => {
     });
 
     // Validate required fields
-    if (!planData.name || !planData.slug || !planData.price) {
+    if (!planData.name || !planData.slug || planData.price === undefined || planData.price === null) {
       return res.status(400).json({
         success: false,
         message: "Missing required fields: name, slug, and price are required",
