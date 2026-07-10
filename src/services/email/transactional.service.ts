@@ -72,7 +72,7 @@ export async function sendTransactionalEmail<K extends TransactionalTemplateKey>
       to: [{ email: to, name: toName ?? to }],
       subject,
       htmlContent,
-      sender: { name: "Flowlio", email: env.BREVO_SENDER },
+      sender: { name: env.BREVO_SENDER_NAME, email: env.BREVO_SENDER },
     });
 
     const body = (response as any)?.body ?? response;

@@ -17,6 +17,7 @@ const schemaObject = z.object({
   COOKIE_SECRET: z.string(),
   BREVO_API_KEY: z.string(),
   BREVO_SENDER: z.string(),
+  BREVO_SENDER_NAME: z.string().optional().default("Flowlio"),
   JWT_SECRET: z.string(),
   GOOGLE_REDIRECT_URI: z.string(),
   OPEN_AI: z.string().optional(),
