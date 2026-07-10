@@ -120,10 +120,10 @@ export class AutomationService {
       for (const task of overdueTasks) {
         logger.info(`Processing overdue task: "${task.title}" (id=${task.id}, endDate=${task.endDate})`);
 
-        // 1. Mark status as 'delay' and stamp overdueNotifiedAt — prevents re-processing
+        // 1. Mark status as 'delay' — always correct regardless of email outcome
         await database
           .update(tasks)
-          .set({ status: "delay", overdueNotifiedAt: now, updatedAt: now })
+          .set({ status: "delay", updatedAt: now })
           .where(eq(tasks.id, task.id));
 
         const endDateFormatted = task.endDate
@@ -145,10 +145,18 @@ export class AutomationService {
         logger.info(`Task "${task.title}": recipientIds=${JSON.stringify(recipientIds)}`);
 
         if (recipientIds.length === 0) {
-          const msg = `Task "${task.title}" (${task.id}) has no assignee or project manager — no email sent`;
+          const msg = `Task "${task.title}" (${task.id}) has no assignee or project manager — skipping email`;
           logger.warn(msg);
           result.errors.push(msg);
+          // No recipients → stamp as notified so we don't retry forever on a task with no one to notify
+          await database
+            .update(tasks)
+            .set({ overdueNotifiedAt: now })
+            .where(eq(tasks.id, task.id));
+          continue;
         }
+
+        let emailSentForThisTask = false;
 
         for (const userId of recipientIds) {
           const userRows = await database
@@ -167,7 +175,7 @@ export class AutomationService {
 
           logger.info(`Sending overdue email for task "${task.title}" to ${user.email}`);
 
-          // 3. In-app notification
+          // 3. In-app notification (always, independent of email)
           await this.createNotification({
             userId: user.id,
             organizationId: task.organizationId,
@@ -177,7 +185,7 @@ export class AutomationService {
             data: { taskId: task.id, projectId: task.projectId },
           });
 
-          // 4. Transactional email — result is captured
+          // 4. Transactional email
           const emailResult: EmailResult = await sendTransactionalEmail({
             to: user.email,
             toName: user.name ?? undefined,
@@ -193,10 +201,23 @@ export class AutomationService {
 
           if (emailResult.success) {
             result.emailsSent++;
+            emailSentForThisTask = true;
           } else {
             result.emailsFailed++;
             result.errors.push(`Email to ${user.email} failed: ${emailResult.error}`);
           }
+        }
+
+        // 5. Only stamp overdueNotifiedAt if at least one email was delivered.
+        //    If all failed, task stays eligible for the next cron run.
+        if (emailSentForThisTask) {
+          await database
+            .update(tasks)
+            .set({ overdueNotifiedAt: now })
+            .where(eq(tasks.id, task.id));
+          logger.info(`Task "${task.title}" marked as notified (overdueNotifiedAt set)`);
+        } else {
+          logger.warn(`Task "${task.title}" (${task.id}): all emails failed — overdueNotifiedAt NOT set, will retry next run`);
         }
       }
 
