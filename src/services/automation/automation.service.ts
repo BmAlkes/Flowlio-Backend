@@ -10,9 +10,9 @@ export class AutomationService {
   private async getOrgOwnerUser(
     organizationId: string,
   ): Promise<{ id: string; name: string | null; email: string } | null> {
-    // Role values vary by creation path: "org" (older), "owner" (newer), "user" (last resort)
-    // Mirror the same priority used by getCompanyDetails controller
-    for (const role of ["org", "owner", "user"]) {
+    // Role priority: ownership roles first, then admin, then any active member
+    // Covers all creation paths: "org" (legacy), "owner" (newer), plus orgs with only admin/member
+    for (const role of ["org", "owner", "admin", "user", "member"]) {
       const rows = await database
         .select({ id: users.id, name: users.name, email: users.email })
         .from(userOrganizations)
