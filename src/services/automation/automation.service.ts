@@ -1,5 +1,5 @@
 import { database } from "../../configs/connection.config";
-import { tasks, projects, notifications, users } from "../../schema/schema";
+import { tasks, projects, notifications, users, userOrganizations } from "../../schema/schema";
 import { eq, and, lt, ne, sql, gte, count, isNull } from "drizzle-orm";
 import { logger } from "../../utils/logger.util";
 import { sendTransactionalEmail, EmailResult } from "../email/transactional.service";
@@ -7,6 +7,23 @@ import { env } from "../../utils/env.util";
 import crypto from "crypto";
 
 export class AutomationService {
+  private async getOrgOwnerUser(
+    organizationId: string,
+  ): Promise<{ id: string; name: string | null; email: string } | null> {
+    const rows = await database
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(userOrganizations)
+      .innerJoin(users, eq(userOrganizations.userId, users.id))
+      .where(
+        and(
+          eq(userOrganizations.organizationId, organizationId),
+          eq(userOrganizations.role, "owner"),
+        ),
+      )
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
   /**
    * Recalculates and updates project progress based on task completion
    */
@@ -135,26 +152,36 @@ export class AutomationService {
           : "Unknown";
         const taskUrl = `${frontendUrl}/projects/${task.projectId}/tasks/${task.id}`;
 
-        // 2. Collect recipient IDs (assignee + project manager, deduplicated)
-        const recipientIds = Array.from(
+        // 2. Collect recipients: assignee + project manager (deduplicated)
+        const directRecipientIds = Array.from(
           new Set(
             [task.assignedTo, task.projectManagerId].filter(Boolean) as string[],
           ),
         );
 
-        logger.info(`Task "${task.title}": recipientIds=${JSON.stringify(recipientIds)}`);
+        // If no direct recipients, fall back to the organization owner
+        let isOwnerFallback = false;
+        let recipientIds = directRecipientIds;
 
         if (recipientIds.length === 0) {
-          const msg = `Task "${task.title}" (${task.id}) has no assignee or project manager — skipping email`;
-          logger.warn(msg);
-          result.errors.push(msg);
-          // No recipients → stamp as notified so we don't retry forever on a task with no one to notify
-          await database
-            .update(tasks)
-            .set({ overdueNotifiedAt: now })
-            .where(eq(tasks.id, task.id));
-          continue;
+          logger.info(`Task "${task.title}" has no assignee or project manager — falling back to org owner`);
+          const owner = await this.getOrgOwnerUser(task.organizationId ?? "");
+          if (!owner) {
+            const msg = `Task "${task.title}" (${task.id}): no assignee, no project manager, and no org owner found — skipping`;
+            logger.error(msg);
+            result.errors.push(msg);
+            // Mark as notified to avoid infinite retry on a genuinely ownerless org
+            await database
+              .update(tasks)
+              .set({ overdueNotifiedAt: now })
+              .where(eq(tasks.id, task.id));
+            continue;
+          }
+          recipientIds = [owner.id];
+          isOwnerFallback = true;
         }
+
+        logger.info(`Task "${task.title}": recipients=${JSON.stringify(recipientIds)}, ownerFallback=${isOwnerFallback}`);
 
         let emailSentForThisTask = false;
 
@@ -173,7 +200,7 @@ export class AutomationService {
             continue;
           }
 
-          logger.info(`Sending overdue email for task "${task.title}" to ${user.email}`);
+          logger.info(`Sending overdue email for task "${task.title}" to ${user.email}${isOwnerFallback ? " [owner fallback]" : ""}`);
 
           // 3. In-app notification (always, independent of email)
           await this.createNotification({
@@ -181,7 +208,9 @@ export class AutomationService {
             organizationId: task.organizationId,
             type: "task_overdue",
             title: "Task Overdue",
-            message: `Task "${task.title}" in project "${task.projectName}" is overdue.`,
+            message: isOwnerFallback
+              ? `Task "${task.title}" in project "${task.projectName}" is overdue and has no assigned user.`
+              : `Task "${task.title}" in project "${task.projectName}" is overdue.`,
             data: { taskId: task.id, projectId: task.projectId },
           });
 
@@ -196,6 +225,9 @@ export class AutomationService {
               projectName: task.projectName ?? "Unknown project",
               endDate: endDateFormatted,
               taskUrl,
+              fallbackNote: isOwnerFallback
+                ? "This task has no assigned user. You're being notified as the organization owner."
+                : undefined,
             },
           });
 

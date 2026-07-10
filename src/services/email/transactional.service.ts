@@ -11,6 +11,7 @@ interface TaskOverdueData {
   projectName: string;
   endDate: string;
   taskUrl?: string;
+  fallbackNote?: string;
 }
 
 type TemplateDataMap = {

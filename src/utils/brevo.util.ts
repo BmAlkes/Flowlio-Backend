@@ -177,12 +177,14 @@ export const taskOverdueTemplate = ({
   projectName,
   endDate,
   taskUrl,
+  fallbackNote,
 }: {
   assigneeName: string;
   taskTitle: string;
   projectName: string;
   endDate: string;
   taskUrl?: string;
+  fallbackNote?: string;
 }) => `
   <div style="font-family: Arial, sans-serif; background: #f7f9fb; padding: 32px;">
     <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 32px;">
@@ -191,6 +193,11 @@ export const taskOverdueTemplate = ({
         <h2 style="margin: 0; color: #dc2626;">Task Overdue</h2>
       </div>
       <p style="font-size: 18px; color: #333;">Hi <b>${assigneeName}</b>,</p>
+      ${fallbackNote ? `
+      <div style="background: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;">
+        <p style="margin: 0; font-size: 14px; color: #92400e;">${fallbackNote}</p>
+      </div>
+      ` : ""}
       <p style="font-size: 16px; color: #333;">
         The following task is past its due date and has been marked as delayed:
       </p>
