@@ -2,7 +2,7 @@ import { database } from "../../configs/connection.config";
 import { tasks, projects, notifications, users } from "../../schema/schema";
 import { eq, and, lt, ne, sql, gte, count, isNull } from "drizzle-orm";
 import { logger } from "../../utils/logger.util";
-import { sendTransactionalEmail } from "../email/transactional.service";
+import { sendTransactionalEmail, EmailResult } from "../email/transactional.service";
 import { env } from "../../utils/env.util";
 import crypto from "crypto";
 
@@ -69,10 +69,17 @@ export class AutomationService {
   /**
    * Marks overdue tasks as 'delay', creates in-app notifications, and sends
    * a one-time email to the assignee and the project manager.
-   * Runs daily via cron.
+   * Runs daily via cron. Returns a result object for observability.
    */
-  async handleOverdueTasks(): Promise<void> {
+  async handleOverdueTasks(): Promise<{
+    tasksFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
     const now = new Date();
+    const result = { tasksFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+
     logger.info("Running overdue task automation check...");
 
     try {
@@ -82,7 +89,6 @@ export class AutomationService {
           title: tasks.title,
           endDate: tasks.endDate,
           assignedTo: tasks.assignedTo,
-          overdueNotifiedAt: tasks.overdueNotifiedAt,
           projectId: tasks.projectId,
           projectName: projects.name,
           projectManagerId: projects.assignedTo,
@@ -98,12 +104,23 @@ export class AutomationService {
           ),
         );
 
-      logger.info(`Found ${overdueTasks.length} overdue tasks to process.`);
+      result.tasksFound = overdueTasks.length;
+      logger.info(`Overdue task automation: found ${overdueTasks.length} tasks to process`, {
+        taskIds: overdueTasks.map((t) => t.id),
+        taskTitles: overdueTasks.map((t) => t.title),
+      });
+
+      if (overdueTasks.length === 0) {
+        logger.info("Overdue task automation: no tasks to process — either all notified already or none are overdue");
+        return result;
+      }
 
       const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
 
       for (const task of overdueTasks) {
-        // 1. Mark status as 'delay' if not already
+        logger.info(`Processing overdue task: "${task.title}" (id=${task.id}, endDate=${task.endDate})`);
+
+        // 1. Mark status as 'delay' and stamp overdueNotifiedAt — prevents re-processing
         await database
           .update(tasks)
           .set({ status: "delay", overdueNotifiedAt: now, updatedAt: now })
@@ -125,8 +142,15 @@ export class AutomationService {
           ),
         );
 
+        logger.info(`Task "${task.title}": recipientIds=${JSON.stringify(recipientIds)}`);
+
+        if (recipientIds.length === 0) {
+          const msg = `Task "${task.title}" (${task.id}) has no assignee or project manager — no email sent`;
+          logger.warn(msg);
+          result.errors.push(msg);
+        }
+
         for (const userId of recipientIds) {
-          // Fetch user email
           const userRows = await database
             .select({ id: users.id, name: users.name, email: users.email })
             .from(users)
@@ -134,7 +158,14 @@ export class AutomationService {
             .limit(1);
 
           const user = userRows[0];
-          if (!user?.email) continue;
+          if (!user?.email) {
+            const msg = `User ${userId} not found or has no email — skipping`;
+            logger.warn(msg);
+            result.errors.push(msg);
+            continue;
+          }
+
+          logger.info(`Sending overdue email for task "${task.title}" to ${user.email}`);
 
           // 3. In-app notification
           await this.createNotification({
@@ -146,8 +177,8 @@ export class AutomationService {
             data: { taskId: task.id, projectId: task.projectId },
           });
 
-          // 4. Transactional email (fire-and-forget, errors logged inside)
-          await sendTransactionalEmail({
+          // 4. Transactional email — result is captured
+          const emailResult: EmailResult = await sendTransactionalEmail({
             to: user.email,
             toName: user.name ?? undefined,
             templateKey: "task_overdue",
@@ -159,13 +190,24 @@ export class AutomationService {
               taskUrl,
             },
           });
+
+          if (emailResult.success) {
+            result.emailsSent++;
+          } else {
+            result.emailsFailed++;
+            result.errors.push(`Email to ${user.email} failed: ${emailResult.error}`);
+          }
         }
       }
 
-      logger.info(`Overdue task automation completed. Processed ${overdueTasks.length} tasks.`);
-    } catch (error) {
+      logger.info("Overdue task automation completed", result);
+    } catch (error: any) {
+      const msg = error?.message ?? String(error);
       logger.error("Error in overdue task automation:", error);
+      result.errors.push(`Automation error: ${msg}`);
     }
+
+    return result;
   }
 
   /**

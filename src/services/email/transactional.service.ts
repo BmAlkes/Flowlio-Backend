@@ -3,7 +3,7 @@ import { taskOverdueTemplate } from "@/utils/brevo.util";
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
 
-type TransactionalTemplateKey = "task_overdue";
+export type TransactionalTemplateKey = "task_overdue";
 
 interface TaskOverdueData {
   assigneeName: string;
@@ -16,6 +16,13 @@ interface TaskOverdueData {
 type TemplateDataMap = {
   task_overdue: TaskOverdueData;
 };
+
+export interface EmailResult {
+  success: boolean;
+  to: string;
+  messageId?: string;
+  error?: string;
+}
 
 function buildHtml<K extends TransactionalTemplateKey>(
   templateKey: K,
@@ -48,27 +55,52 @@ export async function sendTransactionalEmail<K extends TransactionalTemplateKey>
   toName?: string;
   templateKey: K;
   data: TemplateDataMap[K];
-}): Promise<void> {
+}): Promise<EmailResult> {
   if (!env.BREVO_SENDER) {
-    logger.error("sendTransactionalEmail: BREVO_SENDER not configured");
-    return;
+    const error = "BREVO_SENDER env variable is not configured";
+    logger.error(`sendTransactionalEmail: ${error}`);
+    return { success: false, to, error };
   }
 
   const htmlContent = buildHtml(templateKey, data);
   const subject = buildSubject(templateKey, data);
 
+  logger.info(`sendTransactionalEmail: sending [${templateKey}] to ${to} from ${env.BREVO_SENDER}`);
+
   try {
-    await brevoTransactionApi.sendTransacEmail({
+    const response = await brevoTransactionApi.sendTransacEmail({
       to: [{ email: to, name: toName ?? to }],
       subject,
       htmlContent,
       sender: { name: "Flowlio", email: env.BREVO_SENDER },
     });
-    logger.info(`Transactional email sent [${templateKey}] → ${to}`);
-  } catch (error: any) {
-    logger.error(`Failed to send transactional email [${templateKey}] → ${to}:`, {
-      message: error?.message,
-      body: error?.body ?? error?.response?.body,
+
+    const body = (response as any)?.body ?? response;
+    const messageId: string | undefined = body?.messageId;
+    const statusCode: number = (response as any)?.response?.statusCode ?? 201;
+
+    logger.info(`sendTransactionalEmail: success [${templateKey}] → ${to}`, {
+      messageId,
+      statusCode,
     });
+
+    return { success: true, to, messageId };
+  } catch (error: any) {
+    const rawBody =
+      error?.body ?? error?.response?.body ?? error?.response?.data;
+    const errorMessage: string =
+      rawBody?.message ??
+      rawBody?.code ??
+      (typeof rawBody === "string" ? rawBody : null) ??
+      error?.message ??
+      "Unknown Brevo error";
+
+    logger.error(`sendTransactionalEmail: FAILED [${templateKey}] → ${to}`, {
+      error: errorMessage,
+      statusCode: error?.statusCode ?? error?.response?.statusCode,
+      body: rawBody,
+    });
+
+    return { success: false, to, error: errorMessage };
   }
 }
