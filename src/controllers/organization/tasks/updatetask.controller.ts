@@ -6,6 +6,7 @@ import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { logActivity } from "@/utils/activity.util";
 import { automationService } from "@/services/automation/automation.service";
+import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 
 interface UpdateTaskRequest extends Request {
   user?: {
@@ -39,8 +40,9 @@ interface UpdateTaskRequest extends Request {
     actualHours?: number;
     attachments?: Array<{
       id: string;
+      file?: string;
       name: string;
-      url: string;
+      url?: string;
       size: number;
       type: string;
     }>;
@@ -161,8 +163,41 @@ export const updateTask = async (
       updateFields.actualHours = updateData.actualHours
         ? updateData.actualHours.toString()
         : null;
-    if (updateData.attachments !== undefined)
-      updateFields.attachments = updateData.attachments;
+    if (updateData.attachments !== undefined) {
+      const processedAttachments = [];
+      for (const attachment of updateData.attachments) {
+        if (attachment.file) {
+          try {
+            const uploadResult = await uploadToCloudinary(attachment.file, "tasks");
+            processedAttachments.push({
+              id: attachment.id,
+              name: attachment.name,
+              url: uploadResult.secure_url,
+              size: attachment.size,
+              type: attachment.type,
+            });
+          } catch (uploadError) {
+            logger.error(`Failed to upload attachment ${attachment.name}:`, uploadError);
+            res.status(status.INTERNAL_SERVER_ERROR).json({
+              success: false,
+              message: "Failed to upload attachment",
+            });
+            return;
+          }
+        } else if (attachment.url && !attachment.url.startsWith("blob:")) {
+          processedAttachments.push({
+            id: attachment.id,
+            name: attachment.name,
+            url: attachment.url,
+            size: attachment.size,
+            type: attachment.type,
+          });
+        } else {
+          logger.warn(`Skipping attachment ${attachment.name}: no file and no valid url`);
+        }
+      }
+      updateFields.attachments = processedAttachments;
+    }
     if (updateData.startAfter !== undefined)
       updateFields.startAfter = updateData.startAfter ?? null;
     if (updateData.finishBefore !== undefined)

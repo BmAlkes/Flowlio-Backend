@@ -34,9 +34,9 @@ interface CreateTaskRequest extends Request {
     actualHours?: number;
     attachments?: Array<{
       id: string;
-      file: string;
+      file?: string;
       name: string;
-      url: string;
+      url?: string;
       size: number;
       type: string;
     }>;
@@ -133,11 +133,11 @@ export const createTask = async (
     }
 
     // Handle file uploads if attachments are provided
-    let processedAttachments = attachments || [];
+    let processedAttachments: { id: string; name: string; url: string; size: number; type: string }[] = [];
 
     if (attachments && Array.isArray(attachments) && attachments.length > 0) {
       try {
-        const uploadedAttachments = [];
+        const uploadedAttachments: { id: string; name: string; url: string; size: number; type: string }[] = [];
 
         for (const attachment of attachments) {
           if (attachment.file && attachment.name && attachment.type) {
@@ -149,7 +149,6 @@ export const createTask = async (
 
             uploadedAttachments.push({
               id: attachment.id,
-              file: attachment.file,
               name: attachment.name,
               url: uploadResult.secure_url,
               size: attachment.size,
