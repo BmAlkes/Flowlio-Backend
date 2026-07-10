@@ -10,18 +10,23 @@ export class AutomationService {
   private async getOrgOwnerUser(
     organizationId: string,
   ): Promise<{ id: string; name: string | null; email: string } | null> {
-    const rows = await database
-      .select({ id: users.id, name: users.name, email: users.email })
-      .from(userOrganizations)
-      .innerJoin(users, eq(userOrganizations.userId, users.id))
-      .where(
-        and(
-          eq(userOrganizations.organizationId, organizationId),
-          eq(userOrganizations.role, "owner"),
-        ),
-      )
-      .limit(1);
-    return rows[0] ?? null;
+    // Role values vary by creation path: "org" (older), "owner" (newer), "user" (last resort)
+    // Mirror the same priority used by getCompanyDetails controller
+    for (const role of ["org", "owner", "user"]) {
+      const rows = await database
+        .select({ id: users.id, name: users.name, email: users.email })
+        .from(userOrganizations)
+        .innerJoin(users, eq(userOrganizations.userId, users.id))
+        .where(
+          and(
+            eq(userOrganizations.organizationId, organizationId),
+            eq(userOrganizations.role, role),
+          ),
+        )
+        .limit(1);
+      if (rows[0]) return rows[0];
+    }
+    return null;
   }
 
   /**
