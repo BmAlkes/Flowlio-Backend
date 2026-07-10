@@ -1,7 +1,9 @@
 import { database } from "../../configs/connection.config";
-import { tasks, projects, notifications } from "../../schema/schema";
-import { eq, and, lt, ne, sql, gte, count } from "drizzle-orm";
+import { tasks, projects, notifications, users } from "../../schema/schema";
+import { eq, and, lt, ne, sql, gte, count, isNull } from "drizzle-orm";
 import { logger } from "../../utils/logger.util";
+import { sendTransactionalEmail } from "../email/transactional.service";
+import { env } from "../../utils/env.util";
 import crypto from "crypto";
 
 export class AutomationService {
@@ -65,20 +67,25 @@ export class AutomationService {
   }
 
   /**
-   * Updates tasks that are past their end date to 'delay' status
-   * Runs daily via cron
+   * Marks overdue tasks as 'delay', creates in-app notifications, and sends
+   * a one-time email to the assignee and the project manager.
+   * Runs daily via cron.
    */
   async handleOverdueTasks(): Promise<void> {
     const now = new Date();
     logger.info("Running overdue task automation check...");
 
     try {
-      // Find tasks that are overdue and not completed or already delayed
       const overdueTasks = await database
         .select({
           id: tasks.id,
           title: tasks.title,
+          endDate: tasks.endDate,
           assignedTo: tasks.assignedTo,
+          overdueNotifiedAt: tasks.overdueNotifiedAt,
+          projectId: tasks.projectId,
+          projectName: projects.name,
+          projectManagerId: projects.assignedTo,
           organizationId: projects.organizationId,
         })
         .from(tasks)
@@ -86,32 +93,76 @@ export class AutomationService {
         .where(
           and(
             ne(tasks.status, "completed"),
-            ne(tasks.status, "delay"),
             lt(tasks.endDate, now),
+            isNull(tasks.overdueNotifiedAt),
           ),
         );
 
-      logger.info(`Found ${overdueTasks.length} overdue tasks to update.`);
+      logger.info(`Found ${overdueTasks.length} overdue tasks to process.`);
+
+      const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
 
       for (const task of overdueTasks) {
-        // Update task status to delay
+        // 1. Mark status as 'delay' if not already
         await database
           .update(tasks)
-          .set({ status: "delay", updatedAt: new Date() })
+          .set({ status: "delay", overdueNotifiedAt: now, updatedAt: now })
           .where(eq(tasks.id, task.id));
 
-        // Create notification for assigned user
-        if (task.assignedTo) {
+        const endDateFormatted = task.endDate
+          ? new Date(task.endDate).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })
+          : "Unknown";
+        const taskUrl = `${frontendUrl}/projects/${task.projectId}/tasks/${task.id}`;
+
+        // 2. Collect recipient IDs (assignee + project manager, deduplicated)
+        const recipientIds = Array.from(
+          new Set(
+            [task.assignedTo, task.projectManagerId].filter(Boolean) as string[],
+          ),
+        );
+
+        for (const userId of recipientIds) {
+          // Fetch user email
+          const userRows = await database
+            .select({ id: users.id, name: users.name, email: users.email })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1);
+
+          const user = userRows[0];
+          if (!user?.email) continue;
+
+          // 3. In-app notification
           await this.createNotification({
-            userId: task.assignedTo,
+            userId: user.id,
             organizationId: task.organizationId,
             type: "task_overdue",
             title: "Task Overdue",
-            message: `Task "${task.title}" is overdue and has been marked as delayed.`,
-            data: { taskId: task.id },
+            message: `Task "${task.title}" in project "${task.projectName}" is overdue.`,
+            data: { taskId: task.id, projectId: task.projectId },
+          });
+
+          // 4. Transactional email (fire-and-forget, errors logged inside)
+          await sendTransactionalEmail({
+            to: user.email,
+            toName: user.name ?? undefined,
+            templateKey: "task_overdue",
+            data: {
+              assigneeName: user.name ?? user.email,
+              taskTitle: task.title,
+              projectName: task.projectName ?? "Unknown project",
+              endDate: endDateFormatted,
+              taskUrl,
+            },
           });
         }
       }
+
+      logger.info(`Overdue task automation completed. Processed ${overdueTasks.length} tasks.`);
     } catch (error) {
       logger.error("Error in overdue task automation:", error);
     }

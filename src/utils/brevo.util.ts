@@ -171,6 +171,52 @@ export const invitationTemplate = ({
   </div>
 `;
 
+export const taskOverdueTemplate = ({
+  assigneeName,
+  taskTitle,
+  projectName,
+  endDate,
+  taskUrl,
+}: {
+  assigneeName: string;
+  taskTitle: string;
+  projectName: string;
+  endDate: string;
+  taskUrl?: string;
+}) => `
+  <div style="font-family: Arial, sans-serif; background: #f7f9fb; padding: 32px;">
+    <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 32px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <img src="${logo}" alt="Flowlio Logo" style="width: 80px; margin-bottom: 8px;" />
+        <h2 style="margin: 0; color: #dc2626;">Task Overdue</h2>
+      </div>
+      <p style="font-size: 18px; color: #333;">Hi <b>${assigneeName}</b>,</p>
+      <p style="font-size: 16px; color: #333;">
+        The following task is past its due date and has been marked as delayed:
+      </p>
+      <div style="background: #fef2f2; border-left: 4px solid #dc2626; border-radius: 8px; padding: 16px 20px; margin: 24px 0;">
+        <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${taskTitle}</p>
+        <p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Project: <b>${projectName}</b></p>
+        <p style="margin: 0; font-size: 14px; color: #dc2626;">Due date: <b>${endDate}</b></p>
+      </div>
+      ${taskUrl ? `
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${taskUrl}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          View Task
+        </a>
+      </div>
+      ` : ""}
+      <p style="font-size: 14px; color: #6b7280;">
+        Please update the task status or reschedule it as soon as possible to keep the project on track.
+      </p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;" />
+      <p style="font-size: 13px; color: #bbb; text-align: center;">
+        &copy; ${new Date().getFullYear()} Flowlio. All rights reserved.
+      </p>
+    </div>
+  </div>
+`;
+
 function newsletterTemplate({
   subject,
   content,

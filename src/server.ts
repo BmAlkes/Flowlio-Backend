@@ -53,6 +53,7 @@ import crmRoutes from "./routes/crm.routes";
 import { backgroundSyncService } from "./services/backgroundSync.service";
 import { autoRenewalService } from "./services/autoRenewal.service";
 import { initCronJobs } from "./services/automation/cron.service";
+import automationsRoutes from "./routes/automations.routes";
 
 config();
 const app = express();
@@ -248,6 +249,7 @@ app.use("/api/reports", reportsRoutes);
 app.use("/api/proposals", proposalsRoutes);
 app.use("/api/onboarding", onboardingRoutes);
 app.use("/api/crm", crmRoutes);
+app.use("/api/automations", automationsRoutes);
 app.use("/api", fileRoutes);
 app.use(unknownRoutes);
 

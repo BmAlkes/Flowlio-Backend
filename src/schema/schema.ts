@@ -468,6 +468,7 @@ export const tasks = pgTable(
     parentId: text("parent_id").references((): any => tasks.id, {
       onDelete: "cascade",
     }),
+    overdueNotifiedAt: timestamp("overdue_notified_at"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),

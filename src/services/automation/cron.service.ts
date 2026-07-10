@@ -15,8 +15,8 @@ import { nextMonthReset } from "../../utils/aiTokenLimit.util";
 export const initCronJobs = () => {
   logger.info("Initializing scheduled automation jobs...");
 
-  // Daily Cron Job (Running every 5 minutes in dev for testing, but typically daily)
-  cron.schedule("*/5 * * * *", async () => {
+  // Daily automation job — runs once per day at 08:00 UTC
+  cron.schedule("0 8 * * *", async () => {
     logger.info("Running scheduled automation tasks...");
 
     try {
