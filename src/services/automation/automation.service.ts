@@ -405,8 +405,23 @@ export class AutomationService {
         .select({ id: organizations.id })
         .from(organizations);
 
+      logger.info(`Project risk automation: found ${allOrgs.length} org(s) to evaluate`);
+
       for (const org of allOrgs) {
         const highRiskProjects = await computeHighRiskProjects(org.id);
+
+        logger.info(
+          `Org ${org.id}: ${highRiskProjects.length} high-risk project(s) — ` +
+            (highRiskProjects.length > 0
+              ? highRiskProjects
+                  .map(
+                    (p) =>
+                      `"${p.projectName}" riskScore=${p.riskScore} delayRisk=${p.delayRisk} budgetRisk=${p.budgetRisk}`,
+                  )
+                  .join("; ")
+              : "none"),
+        );
+
         result.projectsFound += highRiskProjects.length;
 
         const highRiskProjectIds = highRiskProjects.map((p) => p.projectId);
