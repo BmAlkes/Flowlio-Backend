@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { projectRiskAlerts } from "@/schema/schema";
+import { projectRiskAlerts, projects } from "@/schema/schema";
 import { and, eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
@@ -26,13 +26,30 @@ export const getProjectRiskAlerts = async (
       conditions.push(eq(projectRiskAlerts.projectId, projectId));
     }
 
-    const alerts = await database
-      .select()
+    const rows = await database
+      .select({
+        id: projectRiskAlerts.id,
+        projectId: projectRiskAlerts.projectId,
+        projectName: projects.name,
+        projectNumber: projects.projectNumber,
+        organizationId: projectRiskAlerts.organizationId,
+        riskScore: projectRiskAlerts.riskScore,
+        delayRisk: projectRiskAlerts.delayRisk,
+        budgetRisk: projectRiskAlerts.budgetRisk,
+        reasons: projectRiskAlerts.reasons,
+        overdueTaskTitles: projectRiskAlerts.overdueTaskTitles,
+        status: projectRiskAlerts.status,
+        dismissedAt: projectRiskAlerts.dismissedAt,
+        nextEligibleAt: projectRiskAlerts.nextEligibleAt,
+        createdAt: projectRiskAlerts.createdAt,
+        updatedAt: projectRiskAlerts.updatedAt,
+      })
       .from(projectRiskAlerts)
+      .innerJoin(projects, eq(projectRiskAlerts.projectId, projects.id))
       .where(and(...conditions))
       .orderBy(projectRiskAlerts.createdAt);
 
-    res.status(200).json({ success: true, data: alerts });
+    res.status(200).json({ success: true, data: rows });
   } catch (error) {
     logger.error("Error fetching project risk alerts:", error);
     res.status(500).json({

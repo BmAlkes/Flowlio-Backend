@@ -541,6 +541,7 @@ export class AutomationService {
               delayRisk: project.delayRisk,
               budgetRisk: project.budgetRisk,
               reasons: project.reasons,
+              overdueTaskTitles: project.overdueTaskTitles,
               status: "active",
               nextEligibleAt,
             });
