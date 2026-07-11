@@ -1,11 +1,16 @@
 import { database } from "../../configs/connection.config";
-import { tasks, projects, notifications, users, userOrganizations } from "../../schema/schema";
-import { eq, and, lt, ne, sql, gte, count, isNull, or } from "drizzle-orm";
+import { tasks, projects, notifications, users, userOrganizations, organizations, projectRiskAlerts } from "../../schema/schema";
+import { eq, and, lt, ne, sql, gte, count, isNull, or, inArray, not } from "drizzle-orm";
+import { logger } from "../../utils/logger.util";
+import { computeHighRiskProjects } from "../projectRisk.service";
 
 // How often to re-send overdue reminders for tasks that remain unresolved.
 // Future: make this configurable per organization.
 const OVERDUE_REMINDER_INTERVAL_DAYS = 7;
-import { logger } from "../../utils/logger.util";
+
+// How often to re-alert on a project that remains at high risk.
+// Future: make this configurable per organization.
+const PROJECT_RISK_ALERT_INTERVAL_DAYS = 7;
 import { sendTransactionalEmail, EmailResult } from "../email/transactional.service";
 import { env } from "../../utils/env.util";
 import crypto from "crypto";
@@ -365,6 +370,193 @@ export class AutomationService {
     } catch (error) {
       logger.error(`Error in auto-assigning task ${taskId}:`, error);
     }
+  }
+
+  /**
+   * Detects high-risk projects across all organizations, persists alerts,
+   * sends email notifications, and auto-resolves projects that are no longer at risk.
+   * Runs daily via cron.
+   */
+  async handleProjectRiskAlerts(): Promise<{
+    projectsFound: number;
+    alertsCreated: number;
+    alertsResolved: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const result = {
+      projectsFound: 0,
+      alertsCreated: 0,
+      alertsResolved: 0,
+      emailsSent: 0,
+      emailsFailed: 0,
+      errors: [] as string[],
+    };
+
+    logger.info("Running project risk alert automation...");
+
+    try {
+      const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+
+      // Fetch all active organizations
+      const allOrgs = await database
+        .select({ id: organizations.id })
+        .from(organizations);
+
+      for (const org of allOrgs) {
+        const highRiskProjects = await computeHighRiskProjects(org.id);
+        result.projectsFound += highRiskProjects.length;
+
+        const highRiskProjectIds = highRiskProjects.map((p) => p.projectId);
+
+        // Auto-resolve alerts for projects no longer at high risk
+        if (highRiskProjectIds.length > 0) {
+          await database
+            .update(projectRiskAlerts)
+            .set({ status: "resolved", updatedAt: now })
+            .where(
+              and(
+                eq(projectRiskAlerts.organizationId, org.id),
+                eq(projectRiskAlerts.status, "active"),
+                not(inArray(projectRiskAlerts.projectId, highRiskProjectIds)),
+              ),
+            );
+        } else {
+          // All active alerts for this org can be resolved
+          const resolved = await database
+            .update(projectRiskAlerts)
+            .set({ status: "resolved", updatedAt: now })
+            .where(
+              and(
+                eq(projectRiskAlerts.organizationId, org.id),
+                eq(projectRiskAlerts.status, "active"),
+              ),
+            )
+            .returning({ id: projectRiskAlerts.id });
+          result.alertsResolved += resolved.length;
+          continue;
+        }
+
+        for (const project of highRiskProjects) {
+          // Check if eligible: no active alert, OR nextEligibleAt has passed
+          const existingAlert = await database
+            .select({
+              id: projectRiskAlerts.id,
+              nextEligibleAt: projectRiskAlerts.nextEligibleAt,
+            })
+            .from(projectRiskAlerts)
+            .where(
+              and(
+                eq(projectRiskAlerts.projectId, project.projectId),
+                eq(projectRiskAlerts.status, "active"),
+              ),
+            )
+            .limit(1);
+
+          if (existingAlert.length > 0) {
+            const eligible = existingAlert[0].nextEligibleAt;
+            if (!eligible || eligible > now) {
+              logger.info(`Project "${project.projectName}": active alert exists and not yet eligible for re-alert — skipping`);
+              continue;
+            }
+          }
+
+          // Resolve old active alert before creating a new one
+          if (existingAlert.length > 0) {
+            await database
+              .update(projectRiskAlerts)
+              .set({ status: "resolved", updatedAt: now })
+              .where(eq(projectRiskAlerts.id, existingAlert[0].id));
+            result.alertsResolved++;
+          }
+
+          // Determine recipient: project manager → org owner fallback
+          const recipientUserId = project.assignedTo;
+          let recipient: { id: string; name: string | null; email: string } | null = null;
+
+          if (recipientUserId) {
+            const rows = await database
+              .select({ id: users.id, name: users.name, email: users.email })
+              .from(users)
+              .where(eq(users.id, recipientUserId))
+              .limit(1);
+            recipient = rows[0] ?? null;
+          }
+
+          if (!recipient) {
+            recipient = await this.getOrgOwnerUser(org.id);
+          }
+
+          if (!recipient) {
+            const msg = `Project "${project.projectName}" (${project.projectId}): no project manager and no org owner found — skipping`;
+            logger.error(msg);
+            result.errors.push(msg);
+            continue;
+          }
+
+          // Send email first — only persist alert on success
+          const projectUrl = `${frontendUrl}/projects/${project.projectId}`;
+          const emailResult = await sendTransactionalEmail({
+            to: recipient.email,
+            toName: recipient.name ?? undefined,
+            templateKey: "project_risk",
+            data: {
+              recipientName: recipient.name ?? recipient.email,
+              projectName: project.projectName,
+              projectNumber: project.projectNumber,
+              riskScore: project.riskScore,
+              reasons: project.reasons,
+              projectUrl,
+            },
+          });
+
+          if (emailResult.success) {
+            result.emailsSent++;
+
+            const nextEligibleAt = new Date(
+              now.getTime() + PROJECT_RISK_ALERT_INTERVAL_DAYS * 24 * 60 * 60 * 1000,
+            );
+
+            await database.insert(projectRiskAlerts).values({
+              projectId: project.projectId,
+              organizationId: org.id,
+              riskScore: project.riskScore,
+              delayRisk: project.delayRisk,
+              budgetRisk: project.budgetRisk,
+              reasons: project.reasons,
+              status: "active",
+              nextEligibleAt,
+            });
+            result.alertsCreated++;
+
+            // In-app notification for the recipient
+            await this.createNotification({
+              userId: recipient.id,
+              organizationId: org.id,
+              type: "project_risk",
+              title: "Project at Risk",
+              message: `Project "${project.projectName}" has a risk score of ${project.riskScore}/100.`,
+              data: { projectId: project.projectId },
+            });
+          } else {
+            result.emailsFailed++;
+            result.errors.push(
+              `Email to ${recipient.email} for project "${project.projectName}" failed: ${emailResult.error}`,
+            );
+          }
+        }
+      }
+
+      logger.info("Project risk alert automation completed", result);
+    } catch (error: any) {
+      const msg = error?.message ?? String(error);
+      logger.error("Error in project risk alert automation:", error);
+      result.errors.push(`Automation error: ${msg}`);
+    }
+
+    return result;
   }
 
   /**

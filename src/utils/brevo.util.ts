@@ -224,6 +224,62 @@ export const taskOverdueTemplate = ({
   </div>
 `;
 
+export const projectRiskTemplate = ({
+  recipientName,
+  projectName,
+  projectNumber,
+  riskScore,
+  reasons,
+  projectUrl,
+}: {
+  recipientName: string;
+  projectName: string;
+  projectNumber: string;
+  riskScore: number;
+  reasons: string[];
+  projectUrl?: string;
+}) => `
+  <div style="font-family: Arial, sans-serif; background: #f7f9fb; padding: 32px;">
+    <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 32px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <img src="${logo}" alt="Flowlio Logo" style="width: 80px; margin-bottom: 8px;" />
+        <h2 style="margin: 0; color: #d97706;">Project at Risk</h2>
+      </div>
+      <p style="font-size: 18px; color: #333;">Hi <b>${recipientName}</b>,</p>
+      <p style="font-size: 16px; color: #333;">
+        The following project has been flagged as high risk and requires your attention:
+      </p>
+      <div style="background: #fffbeb; border-left: 4px solid #d97706; border-radius: 8px; padding: 16px 20px; margin: 24px 0;">
+        <p style="margin: 0 0 6px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${projectName}</p>
+        <p style="margin: 0 0 10px 0; font-size: 13px; color: #6b7280;">#${projectNumber}</p>
+        <p style="margin: 0 0 12px 0; font-size: 14px; color: #d97706;">
+          Risk Score: <b>${riskScore}/100</b>
+        </p>
+        ${reasons.length > 0 ? `
+        <p style="margin: 0 0 6px 0; font-size: 13px; color: #6b7280; font-weight: bold;">Risk factors:</p>
+        <ul style="margin: 0; padding-left: 20px;">
+          ${reasons.map((r) => `<li style="font-size: 13px; color: #374151; margin-bottom: 4px;">${r}</li>`).join("")}
+        </ul>
+        ` : ""}
+      </div>
+      ${projectUrl ? `
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${projectUrl}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          View Project
+        </a>
+      </div>
+      ` : ""}
+      <p style="font-size: 14px; color: #6b7280;">
+        Please review the project and take action to reduce the risk before it impacts the delivery timeline.
+      </p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;" />
+      <p style="font-size: 13px; color: #bbb; text-align: center;">
+        &copy; ${new Date().getFullYear()} Flowlio. All rights reserved.
+      </p>
+    </div>
+  </div>
+`;
+
 function newsletterTemplate({
   subject,
   content,

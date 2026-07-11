@@ -35,6 +35,16 @@ export const initCronJobs = () => {
     }
   });
 
+  // Project risk alert job — runs once per day at 09:00 UTC
+  cron.schedule("0 9 * * *", async () => {
+    logger.info("Running project risk alert automation...");
+    try {
+      await automationService.handleProjectRiskAlerts();
+    } catch (error) {
+      logger.error("Error running project risk alert automation:", error);
+    }
+  });
+
   // Daily AI token reset: resets tokensUsed for orgs whose monthly period has expired
   cron.schedule("0 0 * * *", async () => {
     try {
