@@ -84,7 +84,10 @@ export async function computeHighRiskProjects(
     });
 
     if (overdueTasks.length > 0) {
-      delayRisk = Math.min(100, delayRisk + overdueTasks.length * 15);
+      // Intentionally NOT capping here — allows overallRisk formula (delayRisk * 0.5)
+      // to reach 70+ even when schedule-based delayRisk is already at 100.
+      // Mirrors aiAssistant.controller.ts behavior exactly.
+      delayRisk += overdueTasks.length * 15;
     }
 
     const estimatedHours = projectTasks.reduce(
@@ -103,6 +106,8 @@ export async function computeHighRiskProjects(
       );
     }
 
+    // resourceRisk is always 0 in this computation (same as aiAssistant controller).
+    // Keep the formula identical so both paths agree on which projects are high-risk.
     const overallRisk = Math.min(
       100,
       delayRisk * 0.5 + budgetRisk * 0.3,
