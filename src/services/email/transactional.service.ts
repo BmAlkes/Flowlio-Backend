@@ -1,9 +1,9 @@
 import { brevoTransactionApi } from "@/configs/brevo.config";
-import { taskOverdueTemplate } from "@/utils/brevo.util";
+import { taskOverdueTemplate, projectRiskTemplate } from "@/utils/brevo.util";
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
 
-export type TransactionalTemplateKey = "task_overdue";
+export type TransactionalTemplateKey = "task_overdue" | "project_risk";
 
 interface TaskOverdueData {
   assigneeName: string;
@@ -14,8 +14,18 @@ interface TaskOverdueData {
   fallbackNote?: string;
 }
 
+interface ProjectRiskData {
+  recipientName: string;
+  projectName: string;
+  projectNumber: string;
+  riskScore: number;
+  reasons: string[];
+  projectUrl?: string;
+}
+
 type TemplateDataMap = {
   task_overdue: TaskOverdueData;
+  project_risk: ProjectRiskData;
 };
 
 export interface EmailResult {
@@ -32,6 +42,8 @@ function buildHtml<K extends TransactionalTemplateKey>(
   switch (templateKey) {
     case "task_overdue":
       return taskOverdueTemplate(data as TaskOverdueData);
+    case "project_risk":
+      return projectRiskTemplate(data as ProjectRiskData);
     default:
       throw new Error(`Unknown email template: ${templateKey}`);
   }
@@ -41,6 +53,8 @@ function buildSubject(templateKey: TransactionalTemplateKey, data: any): string 
   switch (templateKey) {
     case "task_overdue":
       return `[Flowlio] Task overdue: ${data.taskTitle}`;
+    case "project_risk":
+      return `[Flowlio] Project at risk: ${data.projectName} (score ${data.riskScore}/100)`;
     default:
       return "Flowlio Notification";
   }

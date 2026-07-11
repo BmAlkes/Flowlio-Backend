@@ -2376,3 +2376,44 @@ export const interactionRepliesRelations = relations(
     }),
   }),
 );
+
+// ==================== PROJECT RISK ALERTS ====================
+
+export const projectRiskAlerts = pgTable(
+  "project_risk_alerts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    riskScore: integer("risk_score").notNull(),
+    delayRisk: integer("delay_risk").notNull(),
+    budgetRisk: integer("budget_risk").notNull(),
+    reasons: json("reasons").$type<string[]>().notNull(),
+    status: text("status")
+      .$type<"active" | "dismissed" | "resolved">()
+      .$defaultFn(() => "active")
+      .notNull(),
+    dismissedAt: timestamp("dismissed_at"),
+    dismissedBy: text("dismissed_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    nextEligibleAt: timestamp("next_eligible_at"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => ({
+    projectIdx: index("project_risk_alerts_project_idx").on(table.projectId),
+    orgIdx: index("project_risk_alerts_org_idx").on(table.organizationId),
+    statusIdx: index("project_risk_alerts_status_idx").on(table.status),
+  }),
+);

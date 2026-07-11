@@ -26,6 +26,7 @@ import { saveProjectAsTemplate } from "../controllers/organization/projects/temp
 import { createProjectTemplate } from "../controllers/organization/projects/templates/createtemplate.controller";
 import { updateProjectTemplate } from "../controllers/organization/projects/templates/updatetemplate.controller";
 import { deleteProjectTemplate } from "../controllers/organization/projects/templates/deletetemplate.controller";
+import { getProjectRiskAlerts, dismissProjectRiskAlert } from "../controllers/organization/projects/riskAlerts.controller";
 
 const router = Router();
 
@@ -60,6 +61,10 @@ router.delete("/comments/:commentId", isAuthenticated, deleteProjectComment);
 router.get("/:projectId/expenses", isAuthenticated, getProjectExpenses);
 router.post("/:projectId/expenses", isAuthenticated, createProjectExpense as any);
 router.delete("/:projectId/expenses/:expenseId", isAuthenticated, deleteProjectExpense as any);
+
+// ==================== RISK ALERT ROUTES ====================
+router.get("/risk-alerts", isAuthenticated, getProjectRiskAlerts as any);
+router.delete("/risk-alerts/:id", isAuthenticated, dismissProjectRiskAlert as any);
 
 // ==================== WILDCARD ROUTES (must be last) ====================
 router.get("/:id", isAuthenticated, getProjectById);
