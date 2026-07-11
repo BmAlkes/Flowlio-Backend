@@ -1,6 +1,10 @@
 import { database } from "../../configs/connection.config";
 import { tasks, projects, notifications, users, userOrganizations } from "../../schema/schema";
-import { eq, and, lt, ne, sql, gte, count, isNull } from "drizzle-orm";
+import { eq, and, lt, ne, sql, gte, count, isNull, or } from "drizzle-orm";
+
+// How often to re-send overdue reminders for tasks that remain unresolved.
+// Future: make this configurable per organization.
+const OVERDUE_REMINDER_INTERVAL_DAYS = 7;
 import { logger } from "../../utils/logger.util";
 import { sendTransactionalEmail, EmailResult } from "../email/transactional.service";
 import { env } from "../../utils/env.util";
@@ -122,7 +126,13 @@ export class AutomationService {
           and(
             ne(tasks.status, "completed"),
             lt(tasks.endDate, now),
-            isNull(tasks.overdueNotifiedAt),
+            or(
+              isNull(tasks.overdueNotifiedAt),
+              lt(
+                tasks.overdueNotifiedAt,
+                sql`now() - interval '${sql.raw(String(OVERDUE_REMINDER_INTERVAL_DAYS))} days'`,
+              ),
+            ),
           ),
         );
 
