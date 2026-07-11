@@ -12,6 +12,7 @@ export interface ProjectRiskResult {
   delayRisk: number;
   budgetRisk: number;
   reasons: string[];
+  overdueTaskTitles: string[];
 }
 
 export async function computeHighRiskProjects(
@@ -121,6 +122,8 @@ export async function computeHighRiskProjects(
     if (overdueTasks.length > 0) reasons.push(`${overdueTasks.length} overdue task${overdueTasks.length > 1 ? "s" : ""}`);
     if (completionRate < 50 && totalTasks > 5) reasons.push("Low completion rate");
 
+    const overdueTaskTitles = overdueTasks.map((t) => t.title);
+
     highRisk.push({
       projectId: project.id,
       projectName: project.name,
@@ -131,6 +134,7 @@ export async function computeHighRiskProjects(
       delayRisk: Math.round(delayRisk),
       budgetRisk: Math.round(budgetRisk),
       reasons,
+      overdueTaskTitles,
     });
   }
 

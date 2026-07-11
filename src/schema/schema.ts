@@ -2395,6 +2395,7 @@ export const projectRiskAlerts = pgTable(
     delayRisk: integer("delay_risk").notNull(),
     budgetRisk: integer("budget_risk").notNull(),
     reasons: json("reasons").$type<string[]>().notNull(),
+    overdueTaskTitles: json("overdue_task_titles").$type<string[]>(),
     status: text("status")
       .$type<"active" | "dismissed" | "resolved">()
       .$defaultFn(() => "active")
