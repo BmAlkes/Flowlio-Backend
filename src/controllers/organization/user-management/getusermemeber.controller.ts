@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
-import { userManagement } from "@/schema/schema";
-import { eq, and } from "drizzle-orm";
+import { userManagement, userOrganizations } from "@/schema/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 export const getAllUserMembers = async (req: Request, res: Response) => {
   try {
@@ -415,26 +415,18 @@ export const getCurrentOrgUserMembers = async (req: Request, res: Response) => {
     logger.info(
       `📋 Retrieved ${enrichedUserMembers.length} user members for current organization: ${organizationId}`
     );
-    logger.info(
-      "Enriched user members:",
-      enrichedUserMembers.map((m) => ({
-        id: m.id,
-        email: m.email,
-        firstname: m.firstname,
-        lastname: m.lastname,
-        userrole: m.userrole,
-        hasUser: !!m.user,
-        userId: m.user?.id,
-        userName: m.user?.name,
-      }))
-    );
+
+    // Inject org owner if not already in the list.
+    // The owner is identified via userOrganizations (role "org" or "owner") but is
+    // never added to userManagement through the normal invite flow.
+    const allEnriched = await injectOrgOwner(enrichedUserMembers, organizationId);
 
     return res.status(200).json({
       success: true,
       message: "Current organization user members retrieved successfully",
       data: {
-        userMembers: enrichedUserMembers,
-        totalCount: enrichedUserMembers.length,
+        userMembers: allEnriched,
+        totalCount: allEnriched.length,
         organizationId: organizationId,
       },
     });
@@ -448,3 +440,104 @@ export const getCurrentOrgUserMembers = async (req: Request, res: Response) => {
     });
   }
 };
+
+/**
+ * Finds the org owner via userOrganizations and, if they are not already
+ * represented in the enriched member list, prepends a synthetic entry so
+ * the owner always appears in "Assigned to" dropdowns.
+ */
+async function injectOrgOwner(
+  enrichedMembers: any[],
+  organizationId: string,
+): Promise<any[]> {
+  try {
+    // Collect user IDs already in the list (from the enriched .user.id field)
+    const existingUserIds = new Set(
+      enrichedMembers
+        .map((m) => m.user?.id)
+        .filter(Boolean),
+    );
+
+    // Find the owner(s) via userOrganizations
+    const ownerRows = await database
+      .select({
+        userId: userOrganizations.userId,
+        role: userOrganizations.role,
+        permissions: userOrganizations.permissions,
+        status: userOrganizations.status,
+        joinedAt: userOrganizations.joinedAt,
+        uoId: userOrganizations.id,
+      })
+      .from(userOrganizations)
+      .where(
+        and(
+          eq(userOrganizations.organizationId, organizationId),
+          inArray(userOrganizations.role, ["org", "owner"]),
+        ),
+      );
+
+    if (ownerRows.length === 0) return enrichedMembers;
+
+    const ownersToInject: any[] = [];
+
+    for (const ownerRow of ownerRows) {
+      if (existingUserIds.has(ownerRow.userId)) continue;
+
+      const ownerUser = await database.query.users.findFirst({
+        where: (u, { eq }) => eq(u.id, ownerRow.userId),
+      });
+      if (!ownerUser) continue;
+
+      const nameParts = (ownerUser.name ?? "").split(" ");
+      const firstname = nameParts[0] ?? "";
+      const lastname = nameParts.slice(1).join(" ");
+
+      ownersToInject.push({
+        // Use the users.id as the synthetic record id so the frontend
+        // reads member.user.id correctly for assignment.
+        id: ownerUser.id,
+        firstname,
+        lastname,
+        email: ownerUser.email,
+        phonenumber: null,
+        userrole: ownerRow.role,
+        companyname: null,
+        setpermission: null,
+        status: "active",
+        isActive: true,
+        organizationId,
+        createdBy: null,
+        createdAt: ownerUser.createdAt,
+        updatedAt: ownerUser.updatedAt,
+        lastLoginAt: null,
+        loginAttempts: null,
+        lockedUntil: null,
+        position: -1,
+        user: {
+          id: ownerUser.id,
+          name: ownerUser.name,
+          email: ownerUser.email,
+          role: ownerUser.role,
+          image: ownerUser.image,
+          emailVerified: ownerUser.emailVerified,
+          isSuperAdmin: ownerUser.isSuperAdmin,
+        },
+        userOrganization: {
+          id: ownerRow.uoId,
+          role: ownerRow.role,
+          permissions: ownerRow.permissions,
+          status: ownerRow.status,
+          joinedAt: ownerRow.joinedAt,
+        },
+      });
+
+      existingUserIds.add(ownerUser.id);
+    }
+
+    // Owners go first in the list
+    return [...ownersToInject, ...enrichedMembers];
+  } catch (err) {
+    logger.error("injectOrgOwner: failed to inject owner, returning original list", err);
+    return enrichedMembers;
+  }
+}
