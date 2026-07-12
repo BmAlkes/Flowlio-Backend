@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { userManagement, userOrganizations } from "@/schema/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export const getAllUserMembers = async (req: Request, res: Response) => {
   try {
@@ -442,24 +442,25 @@ export const getCurrentOrgUserMembers = async (req: Request, res: Response) => {
 };
 
 /**
- * Finds the org owner via userOrganizations and, if they are not already
- * represented in the enriched member list, prepends a synthetic entry so
- * the owner always appears in "Assigned to" dropdowns.
+ * Injects users from userOrganizations that are not already represented in
+ * the userManagement-sourced member list. This covers the org owner (and any
+ * other user added via userOrganizations rather than the invite flow),
+ * regardless of what role string was stored in userOrganizations.role.
  */
 async function injectOrgOwner(
   enrichedMembers: any[],
   organizationId: string,
 ): Promise<any[]> {
   try {
-    // Collect user IDs already in the list (from the enriched .user.id field)
+    // Collect users.id values already in the list (from the enriched .user.id)
     const existingUserIds = new Set(
-      enrichedMembers
-        .map((m) => m.user?.id)
-        .filter(Boolean),
+      enrichedMembers.map((m) => m.user?.id).filter(Boolean),
     );
 
-    // Find the owner(s) via userOrganizations
-    const ownerRows = await database
+    // Fetch ALL userOrganizations entries for this org — no role filter,
+    // because the owner's role string varies across orgs ("org", "owner",
+    // "admin", etc.) and we just want anyone not already in the list.
+    const uoRows = await database
       .select({
         userId: userOrganizations.userId,
         role: userOrganizations.role,
@@ -469,18 +470,13 @@ async function injectOrgOwner(
         uoId: userOrganizations.id,
       })
       .from(userOrganizations)
-      .where(
-        and(
-          eq(userOrganizations.organizationId, organizationId),
-          inArray(userOrganizations.role, ["org", "owner"]),
-        ),
-      );
+      .where(eq(userOrganizations.organizationId, organizationId));
 
-    if (ownerRows.length === 0) return enrichedMembers;
+    if (uoRows.length === 0) return enrichedMembers;
 
     const ownersToInject: any[] = [];
 
-    for (const ownerRow of ownerRows) {
+    for (const ownerRow of uoRows) {
       if (existingUserIds.has(ownerRow.userId)) continue;
 
       const ownerUser = await database.query.users.findFirst({

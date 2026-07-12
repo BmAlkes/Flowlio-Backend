@@ -1,8 +1,8 @@
 import { database } from "@/configs/connection.config";
-import { projects, clients, users, userOrganizations } from "@/schema/schema";
+import { projects, clients, users, userOrganizations, userManagement } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { eq, desc, and, or, inArray } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import status from "http-status";
 
@@ -373,10 +373,22 @@ export const getOrganizationUsers = async (
 
     const organizationId = req.user.organizationId;
 
-    // Fetch all org members — no exclusion of the current user so the org
-    // owner always appears in "Assigned to" dropdowns regardless of who is
-    // logged in.
-    const usersData = await database
+    type UserRow = {
+      id: string;
+      name: string | null;
+      email: string;
+      role: string | null;
+      organizationId: string;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+
+    const seenIds = new Set<string>();
+    const result: UserRow[] = [];
+
+    // Source 1 — users in userOrganizations (the org owner).
+    // No role filter: the owner's role string varies across orgs.
+    const uoUsers = await database
       .select({
         id: users.id,
         name: users.name,
@@ -388,46 +400,56 @@ export const getOrganizationUsers = async (
       })
       .from(users)
       .innerJoin(userOrganizations, eq(users.id, userOrganizations.userId))
-      .where(eq(userOrganizations.organizationId, organizationId))
-      .orderBy(desc(users.createdAt));
+      .where(eq(userOrganizations.organizationId, organizationId));
 
-    // Safety net: ensure the owner (role "org"/"owner") is present even if
-    // userOrganizations was not populated for some orgs.
-    const seenIds = new Set(usersData.map((u) => u.id));
-    const ownerRows = await database
-      .select({
-        id: users.id,
-        name: users.name,
-        email: users.email,
-        role: userOrganizations.role,
-        organizationId: userOrganizations.organizationId,
-        createdAt: users.createdAt,
-        updatedAt: users.updatedAt,
-      })
-      .from(users)
-      .innerJoin(userOrganizations, eq(users.id, userOrganizations.userId))
-      .where(
-        and(
-          eq(userOrganizations.organizationId, organizationId),
-          inArray(userOrganizations.role, ["org", "owner"]),
-        ),
-      );
-
-    for (const owner of ownerRows) {
-      if (!seenIds.has(owner.id)) {
-        usersData.unshift(owner);
-        seenIds.add(owner.id);
+    for (const u of uoUsers) {
+      if (!seenIds.has(u.id)) {
+        result.push(u);
+        seenIds.add(u.id);
       }
     }
 
+    // Source 2 — users in userManagement (invited team members).
+    // They are not in userOrganizations; bridge to users table via email.
+    const teamMembers = await database
+      .select({
+        email: userManagement.email,
+        userrole: userManagement.userrole,
+        createdAt: userManagement.createdAt,
+        updatedAt: userManagement.updatedAt,
+      })
+      .from(userManagement)
+      .where(eq(userManagement.organizationId, organizationId));
+
+    for (const member of teamMembers) {
+      const userRow = await database.query.users.findFirst({
+        where: (u, { eq: eqFn }) => eqFn(u.email, member.email),
+      });
+      if (!userRow || seenIds.has(userRow.id)) continue;
+
+      result.push({
+        id: userRow.id,
+        name: userRow.name,
+        email: userRow.email,
+        role: member.userrole,
+        organizationId,
+        createdAt: userRow.createdAt,
+        updatedAt: userRow.updatedAt,
+      });
+      seenIds.add(userRow.id);
+    }
+
+    // Sort newest-first, matching the original ordering
+    result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
     logger.info(
-      `Fetched ${usersData.length} users for organization ${organizationId}`,
+      `Fetched ${result.length} users for organization ${organizationId} (${uoUsers.length} via userOrganizations, ${teamMembers.length} via userManagement)`,
     );
 
     res.status(200).json({
       success: true,
       message: "Users fetched successfully",
-      data: usersData,
+      data: result,
     });
   } catch (error) {
     logger.error(error);
