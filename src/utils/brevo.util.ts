@@ -280,6 +280,158 @@ export const projectRiskTemplate = ({
   </div>
 `;
 
+export const leadFollowUpTemplate = ({
+  recipientName,
+  leadName,
+  followUpAt,
+  businessIndustry,
+  leadUrl,
+}: {
+  recipientName: string;
+  leadName: string;
+  followUpAt: string;
+  businessIndustry?: string | null;
+  leadUrl?: string;
+}) => `
+  <div style="font-family: Arial, sans-serif; background: #f7f9fb; padding: 32px;">
+    <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 32px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <img src="${logo}" alt="Flowlio Logo" style="width: 80px; margin-bottom: 8px;" />
+        <h2 style="margin: 0; color: #d97706;">Overdue Follow-up</h2>
+      </div>
+      <p style="font-size: 18px; color: #333;">Hi <b>${recipientName}</b>,</p>
+      <p style="font-size: 16px; color: #333;">
+        A scheduled follow-up with one of your leads is overdue:
+      </p>
+      <div style="background: #fffbeb; border-left: 4px solid #d97706; border-radius: 8px; padding: 16px 20px; margin: 24px 0;">
+        <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${leadName}</p>
+        ${businessIndustry ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Industry: <b>${businessIndustry}</b></p>` : ""}
+        <p style="margin: 0; font-size: 14px; color: #d97706;">Follow-up was due: <b>${followUpAt}</b></p>
+      </div>
+      ${leadUrl ? `
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${leadUrl}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          View Lead
+        </a>
+      </div>
+      ` : ""}
+      <p style="font-size: 14px; color: #6b7280;">
+        Reach out to ${leadName} as soon as possible to keep the conversation moving forward.
+      </p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 28px 0;" />
+      <p style="font-size: 13px; color: #bbb; text-align: center;">
+        &copy; ${new Date().getFullYear()} Flowlio. All rights reserved.
+      </p>
+    </div>
+  </div>
+`;
+
+export const weeklySummaryTemplate = ({
+  recipientName,
+  organizationName,
+  weekLabel,
+  summaryText,
+  highlights,
+  metrics,
+  projectBreakdown,
+  recommendations,
+}: {
+  recipientName: string;
+  organizationName: string;
+  weekLabel: string;
+  summaryText: string;
+  highlights: string[];
+  metrics: {
+    activeProjects: number;
+    completedTasks: number;
+    totalHours: number;
+    billableHours: number;
+  };
+  projectBreakdown: Array<{
+    projectName: string;
+    projectNumber: string;
+    progress: number;
+    tasksCompleted: number;
+    tasksInProgress: number;
+    tasksPending: number;
+    hoursSpent: number;
+  }>;
+  recommendations: string[];
+}) => `
+  <div style="font-family: Arial, sans-serif; background: #f7f9fb; padding: 32px;">
+    <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 32px;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <img src="${logo}" alt="Flowlio Logo" style="width: 80px; margin-bottom: 8px;" />
+        <h2 style="margin: 0; color: #1a202c;">Weekly Summary</h2>
+        <p style="margin: 6px 0 0; color: #6b7280; font-size: 14px;">${organizationName} · ${weekLabel}</p>
+      </div>
+      <p style="font-size: 18px; color: #333;">Hi <b>${recipientName}</b>,</p>
+      <p style="font-size: 15px; color: #444; line-height: 1.6;">${summaryText}</p>
+
+      <!-- Metrics grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0;">
+        <div style="background: #f0f9ff; border-radius: 8px; padding: 16px; text-align: center;">
+          <div style="font-size: 28px; font-weight: bold; color: #0369a1;">${metrics.activeProjects}</div>
+          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">Active Projects</div>
+        </div>
+        <div style="background: #f0fdf4; border-radius: 8px; padding: 16px; text-align: center;">
+          <div style="font-size: 28px; font-weight: bold; color: #16a34a;">${metrics.completedTasks}</div>
+          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">Tasks Completed</div>
+        </div>
+        <div style="background: #faf5ff; border-radius: 8px; padding: 16px; text-align: center;">
+          <div style="font-size: 28px; font-weight: bold; color: #7c3aed;">${metrics.totalHours.toFixed(1)}h</div>
+          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">Hours Worked</div>
+        </div>
+        <div style="background: #fff7ed; border-radius: 8px; padding: 16px; text-align: center;">
+          <div style="font-size: 28px; font-weight: bold; color: #c2410c;">${metrics.billableHours.toFixed(1)}h</div>
+          <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">Billable Hours</div>
+        </div>
+      </div>
+
+      ${highlights.length > 0 ? `
+      <h3 style="color: #1a202c; font-size: 16px; margin: 24px 0 12px;">Highlights</h3>
+      <ul style="margin: 0; padding-left: 20px; color: #444; font-size: 15px; line-height: 1.8;">
+        ${highlights.map(h => `<li>${h}</li>`).join("")}
+      </ul>
+      ` : ""}
+
+      ${projectBreakdown.length > 0 ? `
+      <h3 style="color: #1a202c; font-size: 16px; margin: 24px 0 12px;">Project Breakdown</h3>
+      ${projectBreakdown.map(p => `
+        <div style="background: #f9fafb; border-radius: 8px; padding: 14px 16px; margin-bottom: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: bold; color: #1a202c; font-size: 15px;">${p.projectName}</span>
+            <span style="font-size: 12px; color: #6b7280;">${p.projectNumber}</span>
+          </div>
+          <div style="background: #e5e7eb; border-radius: 4px; height: 6px; margin-bottom: 8px;">
+            <div style="background: #2563eb; border-radius: 4px; height: 6px; width: ${Math.min(100, p.progress)}%;"></div>
+          </div>
+          <div style="font-size: 13px; color: #6b7280;">
+            Progress: <b>${p.progress}%</b> &nbsp;·&nbsp;
+            ✅ ${p.tasksCompleted} done &nbsp;·&nbsp;
+            🔄 ${p.tasksInProgress} in progress &nbsp;·&nbsp;
+            📋 ${p.tasksPending} pending &nbsp;·&nbsp;
+            ⏱ ${p.hoursSpent.toFixed(1)}h
+          </div>
+        </div>
+      `).join("")}
+      ` : ""}
+
+      ${recommendations.length > 0 ? `
+      <h3 style="color: #1a202c; font-size: 16px; margin: 24px 0 12px;">Recommendations</h3>
+      <ul style="margin: 0; padding-left: 20px; color: #444; font-size: 15px; line-height: 1.8;">
+        ${recommendations.map(r => `<li>${r}</li>`).join("")}
+      </ul>
+      ` : ""}
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
+      <p style="font-size: 13px; color: #bbb; text-align: center;">
+        &copy; ${new Date().getFullYear()} Flowlio. All rights reserved.
+      </p>
+    </div>
+  </div>
+`;
+
 function newsletterTemplate({
   subject,
   content,
