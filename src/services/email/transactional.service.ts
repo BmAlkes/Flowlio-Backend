@@ -1,9 +1,18 @@
 import { brevoTransactionApi } from "@/configs/brevo.config";
-import { taskOverdueTemplate, projectRiskTemplate } from "@/utils/brevo.util";
+import {
+  taskOverdueTemplate,
+  projectRiskTemplate,
+  leadFollowUpTemplate,
+  weeklySummaryTemplate,
+} from "@/utils/brevo.util";
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
 
-export type TransactionalTemplateKey = "task_overdue" | "project_risk";
+export type TransactionalTemplateKey =
+  | "task_overdue"
+  | "project_risk"
+  | "lead_follow_up"
+  | "weekly_summary";
 
 interface TaskOverdueData {
   assigneeName: string;
@@ -23,9 +32,43 @@ interface ProjectRiskData {
   projectUrl?: string;
 }
 
+interface LeadFollowUpData {
+  recipientName: string;
+  leadName: string;
+  followUpAt: string;
+  businessIndustry?: string | null;
+  leadUrl?: string;
+}
+
+interface WeeklySummaryData {
+  recipientName: string;
+  organizationName: string;
+  weekLabel: string;
+  summaryText: string;
+  highlights: string[];
+  metrics: {
+    activeProjects: number;
+    completedTasks: number;
+    totalHours: number;
+    billableHours: number;
+  };
+  projectBreakdown: Array<{
+    projectName: string;
+    projectNumber: string;
+    progress: number;
+    tasksCompleted: number;
+    tasksInProgress: number;
+    tasksPending: number;
+    hoursSpent: number;
+  }>;
+  recommendations: string[];
+}
+
 type TemplateDataMap = {
   task_overdue: TaskOverdueData;
   project_risk: ProjectRiskData;
+  lead_follow_up: LeadFollowUpData;
+  weekly_summary: WeeklySummaryData;
 };
 
 export interface EmailResult {
@@ -44,6 +87,10 @@ function buildHtml<K extends TransactionalTemplateKey>(
       return taskOverdueTemplate(data as TaskOverdueData);
     case "project_risk":
       return projectRiskTemplate(data as ProjectRiskData);
+    case "lead_follow_up":
+      return leadFollowUpTemplate(data as LeadFollowUpData);
+    case "weekly_summary":
+      return weeklySummaryTemplate(data as WeeklySummaryData);
     default:
       throw new Error(`Unknown email template: ${templateKey}`);
   }
@@ -55,6 +102,10 @@ function buildSubject(templateKey: TransactionalTemplateKey, data: any): string 
       return `[Flowlio] Task overdue: ${data.taskTitle}`;
     case "project_risk":
       return `[Flowlio] Project at risk: ${data.projectName} (score ${data.riskScore}/100)`;
+    case "lead_follow_up":
+      return `[Flowlio] Overdue follow-up: ${data.leadName}`;
+    case "weekly_summary":
+      return `[Flowlio] Weekly summary: ${data.weekLabel}`;
     default:
       return "Flowlio Notification";
   }

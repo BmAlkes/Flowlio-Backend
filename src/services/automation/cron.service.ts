@@ -45,6 +45,26 @@ export const initCronJobs = () => {
     }
   });
 
+  // Lead follow-up overdue job — runs once per day at 10:00 UTC
+  cron.schedule("0 10 * * *", async () => {
+    logger.info("Running lead follow-up overdue automation...");
+    try {
+      await automationService.handleLeadFollowUpOverdue();
+    } catch (error) {
+      logger.error("Error running lead follow-up overdue automation:", error);
+    }
+  });
+
+  // Weekly summary job — every Monday at 08:00 UTC
+  cron.schedule("0 8 * * 1", async () => {
+    logger.info("Running weekly summary automation...");
+    try {
+      await automationService.handleWeeklySummary();
+    } catch (error) {
+      logger.error("Error running weekly summary automation:", error);
+    }
+  });
+
   // Daily AI token reset: resets tokensUsed for orgs whose monthly period has expired
   cron.schedule("0 0 * * *", async () => {
     try {

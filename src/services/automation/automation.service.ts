@@ -1,8 +1,9 @@
 import { database } from "../../configs/connection.config";
-import { tasks, projects, notifications, users, userOrganizations, organizations, projectRiskAlerts } from "../../schema/schema";
+import { tasks, projects, notifications, users, userOrganizations, organizations, projectRiskAlerts, clients } from "../../schema/schema";
 import { eq, and, lt, ne, sql, gte, count, isNull, or, inArray, not } from "drizzle-orm";
 import { logger } from "../../utils/logger.util";
 import { computeHighRiskProjects } from "../projectRisk.service";
+import { checkOrgHasWeeklyActivity, generateWeeklySummary } from "../weeklySummary.service";
 
 // How often to re-send overdue reminders for tasks that remain unresolved.
 // Future: make this configurable per organization.
@@ -569,6 +570,241 @@ export class AutomationService {
     } catch (error: any) {
       const msg = error?.message ?? String(error);
       logger.error("Error in project risk alert automation:", error);
+      result.errors.push(`Automation error: ${msg}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Finds leads whose follow-up date has passed and sends an email reminder.
+   * Re-alerts every 7 days while the follow-up remains overdue.
+   */
+  async handleLeadFollowUpOverdue(): Promise<{
+    leadsFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const result = { leadsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+
+    logger.info("Running lead follow-up overdue automation...");
+
+    try {
+      const overdueLeads = await database
+        .select({
+          id: clients.id,
+          name: clients.name,
+          email: clients.email,
+          organizationId: clients.organizationId,
+          assignedTo: clients.assignedTo,
+          followUpAt: clients.followUpAt,
+          businessIndustry: clients.businessIndustry,
+          followupNotifiedAt: clients.followupNotifiedAt,
+        })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.clientType, "lead"),
+            lt(clients.followUpAt, now),
+            not(inArray(clients.status, ["Lost", "Completed", "Inactive"])),
+            or(
+              isNull(clients.followupNotifiedAt),
+              lt(clients.followupNotifiedAt, sevenDaysAgo),
+            ),
+          ),
+        );
+
+      result.leadsFound = overdueLeads.length;
+      logger.info(`Lead follow-up automation: ${overdueLeads.length} overdue lead(s) found`);
+
+      for (const lead of overdueLeads) {
+        let recipient: { id: string; name: string | null; email: string } | null = null;
+
+        if (lead.assignedTo) {
+          const rows = await database
+            .select({ id: users.id, name: users.name, email: users.email })
+            .from(users)
+            .where(eq(users.id, lead.assignedTo))
+            .limit(1);
+          recipient = rows[0] ?? null;
+        }
+
+        if (!recipient) {
+          recipient = await this.getOrgOwnerUser(lead.organizationId);
+        }
+
+        if (!recipient) {
+          const msg = `Lead "${lead.name}" (${lead.id}): no assignee and no org owner found — skipping`;
+          logger.error(msg);
+          result.errors.push(msg);
+          continue;
+        }
+
+        const followUpLabel = lead.followUpAt
+          ? new Date(lead.followUpAt).toLocaleDateString("en-US", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })
+          : "unknown date";
+
+        const leadUrl = `${frontendUrl}/leads/${lead.id}`;
+
+        const emailResult = await sendTransactionalEmail({
+          to: recipient.email,
+          toName: recipient.name ?? recipient.email,
+          templateKey: "lead_follow_up",
+          data: {
+            recipientName: recipient.name ?? recipient.email,
+            leadName: lead.name,
+            followUpAt: followUpLabel,
+            businessIndustry: lead.businessIndustry ?? null,
+            leadUrl,
+          },
+        });
+
+        if (emailResult.success) {
+          result.emailsSent++;
+          await database
+            .update(clients)
+            .set({ followupNotifiedAt: now })
+            .where(eq(clients.id, lead.id));
+        } else {
+          result.emailsFailed++;
+          result.errors.push(
+            `Email to ${recipient.email} for lead "${lead.name}" failed: ${emailResult.error}`,
+          );
+        }
+      }
+
+      logger.info("Lead follow-up overdue automation completed", result);
+    } catch (error: any) {
+      const msg = error?.message ?? String(error);
+      logger.error("Error in lead follow-up automation:", error);
+      result.errors.push(`Automation error: ${msg}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Sends a weekly summary email to org owners for every organization that had
+   * activity during the past 7 days. Powered by the same OpenAI call as the
+   * on-demand /ai/weekly-summary endpoint.
+   */
+  async handleWeeklySummary(): Promise<{
+    organizationsFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const result = { organizationsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+
+    const weekLabel = `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+
+    logger.info(`Running weekly summary automation for week ${weekLabel}...`);
+
+    try {
+      const allOrgs = await database
+        .select({ id: organizations.id, name: organizations.name })
+        .from(organizations);
+
+      for (const org of allOrgs) {
+        const hasActivity = await checkOrgHasWeeklyActivity(org.id, weekStart, now);
+        if (!hasActivity) {
+          logger.info(`Org ${org.id} ("${org.name}"): no activity this week, skipping`);
+          continue;
+        }
+
+        result.organizationsFound++;
+
+        const summary = await generateWeeklySummary(org.id, weekStart, now, org.name);
+        if (!summary) {
+          const msg = `Org ${org.id} ("${org.name}"): failed to generate weekly summary (OpenAI unavailable or no projects)`;
+          logger.warn(msg);
+          result.errors.push(msg);
+          continue;
+        }
+
+        // Skip if all metrics are zero — nothing meaningful to report
+        const hasContent =
+          summary.metrics.completedTasks > 0 ||
+          summary.metrics.totalHours > 0 ||
+          summary.highlights.length > 0;
+        if (!hasContent) {
+          logger.info(`Org ${org.id} ("${org.name}"): metrics all zero, skipping email`);
+          continue;
+        }
+
+        // Send to all owners of this org (not just one)
+        const ownerRows = await database
+          .select({ id: users.id, name: users.name, email: users.email })
+          .from(userOrganizations)
+          .innerJoin(users, eq(userOrganizations.userId, users.id))
+          .where(
+            and(
+              eq(userOrganizations.organizationId, org.id),
+              inArray(userOrganizations.role, ["org", "owner", "admin"]),
+            ),
+          );
+
+        if (ownerRows.length === 0) {
+          // Fallback: any member
+          const fallback = await this.getOrgOwnerUser(org.id);
+          if (fallback) ownerRows.push(fallback as typeof ownerRows[0]);
+        }
+
+        for (const owner of ownerRows) {
+          const emailResult = await sendTransactionalEmail({
+            to: owner.email,
+            toName: owner.name ?? owner.email,
+            templateKey: "weekly_summary",
+            data: {
+              recipientName: owner.name ?? owner.email,
+              organizationName: org.name,
+              weekLabel,
+              summaryText: summary.summary,
+              highlights: summary.highlights,
+              metrics: {
+                activeProjects: summary.metrics.activeProjects,
+                completedTasks: summary.metrics.completedTasks,
+                totalHours: summary.metrics.totalHours,
+                billableHours: summary.metrics.billableHours,
+              },
+              projectBreakdown: summary.projectBreakdown.map((p) => ({
+                projectName: p.projectName,
+                projectNumber: p.projectNumber,
+                progress: p.progress,
+                tasksCompleted: p.tasksCompleted,
+                tasksInProgress: p.tasksInProgress,
+                tasksPending: p.tasksPending,
+                hoursSpent: p.hoursSpent,
+              })),
+              recommendations: summary.recommendations,
+            },
+          });
+
+          if (emailResult.success) {
+            result.emailsSent++;
+          } else {
+            result.emailsFailed++;
+            result.errors.push(
+              `Weekly summary email to ${owner.email} (org "${org.name}") failed: ${emailResult.error}`,
+            );
+          }
+        }
+      }
+
+      logger.info("Weekly summary automation completed", result);
+    } catch (error: any) {
+      const msg = error?.message ?? String(error);
+      logger.error("Error in weekly summary automation:", error);
       result.errors.push(`Automation error: ${msg}`);
     }
 
