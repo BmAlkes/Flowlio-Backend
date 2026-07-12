@@ -2,7 +2,7 @@ import { database } from "@/configs/connection.config";
 import { projects, clients, users, userOrganizations } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { eq, desc, and, ne, or } from "drizzle-orm";
+import { eq, desc, and, or, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import status from "http-status";
 
@@ -373,12 +373,33 @@ export const getOrganizationUsers = async (
 
     const organizationId = req.user.organizationId;
 
+    // Fetch all org members — no exclusion of the current user so the org
+    // owner always appears in "Assigned to" dropdowns regardless of who is
+    // logged in.
     const usersData = await database
       .select({
         id: users.id,
         name: users.name,
         email: users.email,
-        role: users.role,
+        role: userOrganizations.role,
+        organizationId: userOrganizations.organizationId,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+      })
+      .from(users)
+      .innerJoin(userOrganizations, eq(users.id, userOrganizations.userId))
+      .where(eq(userOrganizations.organizationId, organizationId))
+      .orderBy(desc(users.createdAt));
+
+    // Safety net: ensure the owner (role "org"/"owner") is present even if
+    // userOrganizations was not populated for some orgs.
+    const seenIds = new Set(usersData.map((u) => u.id));
+    const ownerRows = await database
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: userOrganizations.role,
         organizationId: userOrganizations.organizationId,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
@@ -388,11 +409,16 @@ export const getOrganizationUsers = async (
       .where(
         and(
           eq(userOrganizations.organizationId, organizationId),
-          // Exclude the currently logged-in user
-          ne(users.id, req.user?.id as string),
+          inArray(userOrganizations.role, ["org", "owner"]),
         ),
-      )
-      .orderBy(desc(users.createdAt));
+      );
+
+    for (const owner of ownerRows) {
+      if (!seenIds.has(owner.id)) {
+        usersData.unshift(owner);
+        seenIds.add(owner.id);
+      }
+    }
 
     logger.info(
       `Fetched ${usersData.length} users for organization ${organizationId}`,
