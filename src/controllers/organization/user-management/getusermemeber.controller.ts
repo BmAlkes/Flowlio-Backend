@@ -509,6 +509,7 @@ async function injectOrgOwner(
         loginAttempts: null,
         lockedUntil: null,
         position: -1,
+        isOrgOwner: true,
         user: {
           id: ownerUser.id,
           name: ownerUser.name,
