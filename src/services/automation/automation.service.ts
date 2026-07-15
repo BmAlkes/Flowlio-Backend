@@ -654,6 +654,16 @@ export class AutomationService {
 
         const leadUrl = `${frontendUrl}/leads/${lead.id}`;
 
+        // In-app notification — independent of email outcome
+        await this.createNotification({
+          userId: recipient.id,
+          organizationId: lead.organizationId,
+          type: "lead_followup_overdue",
+          title: "Lead Follow-up Overdue",
+          message: `Follow-up for "${lead.name}" was due on ${followUpLabel}.`,
+          data: { leadId: lead.id },
+        });
+
         const emailResult = await sendTransactionalEmail({
           to: recipient.email,
           toName: recipient.name ?? recipient.email,
@@ -761,6 +771,16 @@ export class AutomationService {
         }
 
         for (const owner of ownerRows) {
+          // In-app notification — independent of email outcome
+          await this.createNotification({
+            userId: owner.id,
+            organizationId: org.id,
+            type: "weekly_summary",
+            title: `Weekly Summary: ${weekLabel}`,
+            message: `Your weekly summary for ${org.name} is ready. ${summary.metrics.completedTasks} task(s) completed, ${summary.metrics.totalHours.toFixed(1)}h logged.`,
+            data: {},
+          });
+
           const emailResult = await sendTransactionalEmail({
             to: owner.email,
             toName: owner.name ?? owner.email,
