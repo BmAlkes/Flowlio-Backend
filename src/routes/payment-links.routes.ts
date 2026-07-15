@@ -7,6 +7,7 @@ import { getPaymentLinks } from "@/controllers/organization/payment-links/getpay
 import { deletePaymentLink } from "@/controllers/organization/payment-links/deletepaymentlink.controller";
 import { getPublicPaymentLink } from "@/controllers/organization/payment-links/getpublicpaymentlink.controller";
 import { updatePaymentLinkStatus } from "@/controllers/organization/payment-links/updatepaymentlinkstatus.controller";
+import { updatePaymentLink } from "@/controllers/organization/payment-links/updatepaymentlink.controller";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.get("/public/:id", getPublicPaymentLink);
 router.post("/", ...paymentLinksAccess, createPaymentLink);
 router.get("/", ...paymentLinksAccess, getPaymentLinks);
 router.patch("/:id/status", ...paymentLinksAccess, updatePaymentLinkStatus);
+router.patch("/:id", ...paymentLinksAccess, updatePaymentLink);
 router.delete("/:id", ...paymentLinksAccess, deletePaymentLink);
 
 export default router;
