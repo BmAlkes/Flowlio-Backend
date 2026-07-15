@@ -247,9 +247,14 @@ export const createPaymentLinkSchema = z.object({
   projectId: z.string().min(1, "Project is required"),
   description: z.string().min(1, "Description is required"),
   amount: z.number().min(0.01, "Amount must be greater than 0"),
+  externalPaymentUrl: z.string().url("Must be a valid URL"),
 });
 
 export const updatePaymentLinkSchema = createPaymentLinkSchema.partial();
+
+export const updatePaymentLinkStatusSchema = z.object({
+  status: z.enum(["paid", "unpaid"]),
+});
 
 export const deletePaymentLinkSchema = z.object({
   id: z.string().min(1, "Payment link ID is required"),

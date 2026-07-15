@@ -79,10 +79,10 @@ export const createPaymentLink = async (
       return;
     }
 
-    // Generate unique payment link
+    // Generate unique payment link pointing to the public /pay/:id page
     const paymentLinkId = randomUUID();
     const frontendUrl = env.FRONTEND_DOMAIN || "http://localhost:4000";
-    const paymentLink = `${frontendUrl}/payment/${paymentLinkId}`;
+    const paymentLink = `${frontendUrl}/pay/${paymentLinkId}`;
 
     // Create payment link
     const paymentLinkData = {
@@ -96,6 +96,8 @@ export const createPaymentLink = async (
       submittedby: req.user!.email,
       clientname: client.name,
       amount: validatedData.amount.toString(),
+      externalPaymentUrl: validatedData.externalPaymentUrl,
+      status: "unpaid",
       paymentLink: paymentLink,
     };
 

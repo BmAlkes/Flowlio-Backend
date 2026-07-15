@@ -1451,6 +1451,8 @@ export const paymentLinks = pgTable(
     submittedby: text("submitted_by").notNull(),
     clientname: text("client_name").notNull(),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    externalPaymentUrl: text("external_payment_url"),
+    status: text("status").$defaultFn(() => "unpaid"),
     paymentLink: text("payment_link").notNull().unique(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
