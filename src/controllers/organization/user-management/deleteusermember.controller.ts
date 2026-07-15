@@ -78,20 +78,15 @@ export const deleteUserMember = async (req: Request, res: Response) => {
       });
     }
 
-    // Get user details to perform cascade deletion
+    // Get user details for cascade deletion (may be null for partial/test accounts)
     const userDetails = await database.query.users.findFirst({
       where: (user, { eq }) => eq(user.email, memberToDelete.email),
     });
 
     if (!userDetails) {
-      logger.warn("⚠️ DeleteUserMember - User not found in users table:", {
+      logger.warn("⚠️ DeleteUserMember - No users record found, deleting userManagement only:", {
         userMemberId: id,
         userEmail: memberToDelete.email,
-      });
-
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
       });
     }
 
@@ -101,11 +96,11 @@ export const deleteUserMember = async (req: Request, res: Response) => {
       await logActivity({
         organizationId,
         actorId,
-        userId: userDetails.id,
+        userId: userDetails?.id ?? memberToDelete.id,
         type: "user",
         action: "delete",
         resource: "user",
-        resourceId: userDetails.id,
+        resourceId: userDetails?.id ?? memberToDelete.id,
         message: `Deleted user: ${memberToDelete.firstname} ${memberToDelete.lastname} (${memberToDelete.email})`,
         metadata: { role: memberToDelete.userrole },
       });
@@ -116,25 +111,23 @@ export const deleteUserMember = async (req: Request, res: Response) => {
       // 1. Delete from userManagement table
       await tx.delete(userManagement).where(eq(userManagement.id, id));
 
-      // 2. Delete from userOrganizations table
-      await tx
-        .delete(userOrganizations)
-        .where(
-          and(
-            eq(userOrganizations.userId, userDetails.id),
-            eq(userOrganizations.organizationId, organizationId)
-          )
-        );
-
-      // 3. Delete from account table (Better Auth)
-      await tx.delete(account).where(eq(account.userId, userDetails.id));
-
-      // 4. Delete from users table
-      await tx.delete(users).where(eq(users.id, userDetails.id));
+      // 2-4. Only cascade to users/account/userOrganizations if the users record exists
+      if (userDetails) {
+        await tx
+          .delete(userOrganizations)
+          .where(
+            and(
+              eq(userOrganizations.userId, userDetails.id),
+              eq(userOrganizations.organizationId, organizationId)
+            )
+          );
+        await tx.delete(account).where(eq(account.userId, userDetails.id));
+        await tx.delete(users).where(eq(users.id, userDetails.id));
+      }
 
       logger.info("🗑️ User member deleted successfully:", {
         userMemberId: id,
-        userId: userDetails.id,
+        userId: userDetails?.id ?? "(no users record)",
         userEmail: memberToDelete.email,
         organizationId,
       });
@@ -152,12 +145,14 @@ export const deleteUserMember = async (req: Request, res: Response) => {
           userrole: memberToDelete.userrole,
           companyname: memberToDelete.companyname,
         },
-        deletedUser: {
-          id: userDetails.id,
-          name: userDetails.name,
-          email: userDetails.email,
-          role: userDetails.role,
-        },
+        deletedUser: userDetails
+          ? {
+              id: userDetails.id,
+              name: userDetails.name,
+              email: userDetails.email,
+              role: userDetails.role,
+            }
+          : null,
       },
     });
   } catch (error) {

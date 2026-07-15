@@ -59,24 +59,20 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
     }
 
     const member = memberRows[0];
+    // userRecord may be null for members that exist only in userManagement (no users table entry)
     const userRecord = await database.query.users.findFirst({
       where: (u, { eq }) => eq(u.email, member.email),
     });
 
-    if (!userRecord) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    const userOrgRow = await database.query.userOrganizations.findFirst({
-      where: (uo, { eq, and }) =>
-        and(
-          eq(uo.userId, userRecord.id),
-          eq(uo.organizationId, organizationId),
-        ),
-    });
+    const userOrgRow = userRecord
+      ? await database.query.userOrganizations.findFirst({
+          where: (uo, { eq, and }) =>
+            and(
+              eq(uo.userId, userRecord.id),
+              eq(uo.organizationId, organizationId),
+            ),
+        })
+      : null;
 
     const realOwnerUserId =
       await getRealOrganizationOwnerUserId(organizationId);
@@ -84,8 +80,8 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
     if (setAsManager) {
       // Promote: role = "user", isOrganizationManager = true
       const alreadyManager =
-        userRecord.role === USER_ROLE &&
-        userRecord.isOrganizationManager === true;
+        userRecord?.role === USER_ROLE &&
+        userRecord?.isOrganizationManager === true;
       if (alreadyManager) {
         return res.status(200).json({
           success: true,
@@ -101,14 +97,16 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
         });
       }
 
-      await database
-        .update(users)
-        .set({
-          role: USER_ROLE,
-          isOrganizationManager: true,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userRecord.id));
+      if (userRecord) {
+        await database
+          .update(users)
+          .set({
+            role: USER_ROLE,
+            isOrganizationManager: true,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, userRecord.id));
+      }
 
       await database
         .update(userManagement)
@@ -140,11 +138,11 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
         await logActivity({
           organizationId,
           actorId,
-          userId: userRecord.id,
+          userId: userRecord?.id ?? member.id,
           type: "user",
           action: "update",
           resource: "user",
-          resourceId: userRecord.id,
+          resourceId: userRecord?.id ?? member.id,
           message: `Promoted to organization manager: ${member.firstname} ${member.lastname} (${member.email})`,
           metadata: { role: USER_ROLE, isOrganizationManager: true },
         });
@@ -152,7 +150,7 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
 
       logger.info("Promoted member to organization manager", {
         memberId,
-        userId: userRecord.id,
+        userId: userRecord?.id ?? "(no users record)",
         organizationId,
       });
 
@@ -171,7 +169,7 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
     }
 
     // Demote: role = "viewer", isOrganizationManager = false (never for real owner)
-    if (realOwnerUserId && userRecord.id === realOwnerUserId) {
+    if (realOwnerUserId && userRecord?.id === realOwnerUserId) {
       return res.status(400).json({
         success: false,
         message: "Cannot demote the organization owner (purchaser).",
@@ -179,8 +177,8 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
     }
 
     const alreadyViewer =
-      userRecord.role === VIEWER_ROLE &&
-      userRecord.isOrganizationManager === false;
+      userRecord?.role === VIEWER_ROLE &&
+      userRecord?.isOrganizationManager === false;
     if (alreadyViewer) {
       return res.status(200).json({
         success: true,
@@ -196,14 +194,16 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
       });
     }
 
-    await database
-      .update(users)
-      .set({
-        role: VIEWER_ROLE,
-        isOrganizationManager: false,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, userRecord.id));
+    if (userRecord) {
+      await database
+        .update(users)
+        .set({
+          role: VIEWER_ROLE,
+          isOrganizationManager: false,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userRecord.id));
+    }
 
     await database
       .update(userManagement)
@@ -235,11 +235,11 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
       await logActivity({
         organizationId,
         actorId,
-        userId: userRecord.id,
+        userId: userRecord?.id ?? member.id,
         type: "user",
         action: "update",
         resource: "user",
-        resourceId: userRecord.id,
+        resourceId: userRecord?.id ?? member.id,
         message: `Demoted to viewer: ${member.firstname} ${member.lastname} (${member.email})`,
         metadata: { role: VIEWER_ROLE, isOrganizationManager: false },
       });
@@ -247,7 +247,7 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
 
     logger.info("Demoted member to viewer", {
       memberId,
-      userId: userRecord.id,
+      userId: userRecord?.id ?? "(no users record)",
       organizationId,
     });
 
