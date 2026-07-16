@@ -5,8 +5,13 @@ import { logger } from "@/utils/logger.util";
 
 export const runClientInactivityAutomation = async (req: Request, res: Response): Promise<void> => {
   try {
-    const organizationId: string | undefined = req.body?.organizationId || undefined;
-    logger.info("Manual trigger: client inactivity automation", { organizationId });
+    const organizationId: string | undefined = (req.body?.organizationId as string)?.trim() || undefined;
+    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+    logger.info("Manual trigger: client inactivity automation", { organizationId, isSuperAdmin });
+    if (!organizationId && !isSuperAdmin) {
+      res.status(400).json({ success: false, message: "organizationId is required" });
+      return;
+    }
     const result = await automationService.handleClientInactivity({ organizationId });
     await recordAutomationRun("client-inactivity", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Clients found: ${result.clientsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });

@@ -5,8 +5,13 @@ import { logger } from "@/utils/logger.util";
 
 export const runSupportTicketUnansweredAutomation = async (req: Request, res: Response): Promise<void> => {
   try {
-    const organizationId: string | undefined = req.body?.organizationId || undefined;
-    logger.info("Manual trigger: support ticket unanswered automation", { organizationId });
+    const organizationId: string | undefined = (req.body?.organizationId as string)?.trim() || undefined;
+    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+    logger.info("Manual trigger: support ticket unanswered automation", { organizationId, isSuperAdmin });
+    if (!organizationId && !isSuperAdmin) {
+      res.status(400).json({ success: false, message: "organizationId is required" });
+      return;
+    }
     const result = await automationService.handleSupportTicketUnanswered({ organizationId });
     await recordAutomationRun("support-ticket-unanswered", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Tickets found: ${result.ticketsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
