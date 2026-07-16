@@ -240,28 +240,31 @@ export class AutomationService {
           });
 
           // 4. Transactional email
-          const emailResult: EmailResult = await sendTransactionalEmail({
-            to: user.email,
-            toName: user.name ?? undefined,
-            templateKey: "task_overdue",
-            data: {
-              assigneeName: user.name ?? user.email,
-              taskTitle: task.title,
-              projectName: task.projectName ?? "Unknown project",
-              endDate: endDateFormatted,
-              taskUrl,
-              fallbackNote: isOwnerFallback
-                ? "This task has no assigned user. You're being notified as the organization owner."
-                : undefined,
-            },
-          });
+          const canEmail = await this.userEmailEnabled(user.id, "projectActivityUpdates");
+          if (canEmail) {
+            const emailResult: EmailResult = await sendTransactionalEmail({
+              to: user.email,
+              toName: user.name ?? undefined,
+              templateKey: "task_overdue",
+              data: {
+                assigneeName: user.name ?? user.email,
+                taskTitle: task.title,
+                projectName: task.projectName ?? "Unknown project",
+                endDate: endDateFormatted,
+                taskUrl,
+                fallbackNote: isOwnerFallback
+                  ? "This task has no assigned user. You're being notified as the organization owner."
+                  : undefined,
+              },
+            });
 
-          if (emailResult.success) {
-            result.emailsSent++;
-            emailSentForThisTask = true;
-          } else {
-            result.emailsFailed++;
-            result.errors.push(`Email to ${user.email} failed: ${emailResult.error}`);
+            if (emailResult.success) {
+              result.emailsSent++;
+              emailSentForThisTask = true;
+            } else {
+              result.emailsFailed++;
+              result.errors.push(`Email to ${user.email} failed: ${emailResult.error}`);
+            }
           }
         }
 
@@ -520,54 +523,57 @@ export class AutomationService {
 
           // Send email first — only persist alert on success
           const projectUrl = `${frontendUrl}/projects/${project.projectId}`;
-          const emailResult = await sendTransactionalEmail({
-            to: recipient.email,
-            toName: recipient.name ?? undefined,
-            templateKey: "project_risk",
-            data: {
-              recipientName: recipient.name ?? recipient.email,
-              projectName: project.projectName,
-              projectNumber: project.projectNumber,
-              riskScore: project.riskScore,
-              reasons: project.reasons,
-              projectUrl,
-            },
-          });
-
-          if (emailResult.success) {
-            result.emailsSent++;
-
-            const nextEligibleAt = new Date(
-              now.getTime() + PROJECT_RISK_ALERT_INTERVAL_DAYS * 24 * 60 * 60 * 1000,
-            );
-
-            await database.insert(projectRiskAlerts).values({
-              projectId: project.projectId,
-              organizationId: org.id,
-              riskScore: project.riskScore,
-              delayRisk: project.delayRisk,
-              budgetRisk: project.budgetRisk,
-              reasons: project.reasons,
-              overdueTaskTitles: project.overdueTaskTitles,
-              status: "active",
-              nextEligibleAt,
+          const canEmail = await this.userEmailEnabled(recipient.id, "projectActivityUpdates");
+          if (canEmail) {
+            const emailResult = await sendTransactionalEmail({
+              to: recipient.email,
+              toName: recipient.name ?? undefined,
+              templateKey: "project_risk",
+              data: {
+                recipientName: recipient.name ?? recipient.email,
+                projectName: project.projectName,
+                projectNumber: project.projectNumber,
+                riskScore: project.riskScore,
+                reasons: project.reasons,
+                projectUrl,
+              },
             });
-            result.alertsCreated++;
 
-            // In-app notification for the recipient
-            await this.createNotification({
-              userId: recipient.id,
-              organizationId: org.id,
-              type: "project_risk",
-              title: "Project at Risk",
-              message: `Project "${project.projectName}" has a risk score of ${project.riskScore}/100.`,
-              data: { projectId: project.projectId },
-            });
-          } else {
-            result.emailsFailed++;
-            result.errors.push(
-              `Email to ${recipient.email} for project "${project.projectName}" failed: ${emailResult.error}`,
-            );
+            if (emailResult.success) {
+              result.emailsSent++;
+
+              const nextEligibleAt = new Date(
+                now.getTime() + PROJECT_RISK_ALERT_INTERVAL_DAYS * 24 * 60 * 60 * 1000,
+              );
+
+              await database.insert(projectRiskAlerts).values({
+                projectId: project.projectId,
+                organizationId: org.id,
+                riskScore: project.riskScore,
+                delayRisk: project.delayRisk,
+                budgetRisk: project.budgetRisk,
+                reasons: project.reasons,
+                overdueTaskTitles: project.overdueTaskTitles,
+                status: "active",
+                nextEligibleAt,
+              });
+              result.alertsCreated++;
+
+              // In-app notification for the recipient
+              await this.createNotification({
+                userId: recipient.id,
+                organizationId: org.id,
+                type: "project_risk",
+                title: "Project at Risk",
+                message: `Project "${project.projectName}" has a risk score of ${project.riskScore}/100.`,
+                data: { projectId: project.projectId },
+              });
+            } else {
+              result.emailsFailed++;
+              result.errors.push(
+                `Email to ${recipient.email} for project "${project.projectName}" failed: ${emailResult.error}`,
+              );
+            }
           }
         }
       }
@@ -673,6 +679,13 @@ export class AutomationService {
           message: `Follow-up for "${lead.name}" was due on ${followUpLabel}.`,
           data: { leadId: lead.id },
         });
+
+        const canEmail = await this.userEmailEnabled(recipient.id, "projectActivityUpdates");
+        if (!canEmail) {
+          // In-app already sent above; stamp so we don't re-alert on next cron run
+          await database.update(clients).set({ followupNotifiedAt: now }).where(eq(clients.id, lead.id));
+          continue;
+        }
 
         const emailResult = await sendTransactionalEmail({
           to: recipient.email,
@@ -1357,7 +1370,7 @@ export class AutomationService {
           data: { clientId: client.id },
         });
 
-        const canEmail = await this.userEmailEnabled(recipient.id, "projectActivityUpdates");
+        const canEmail = await this.userEmailEnabled(recipient.id, "emailNotifications");
         if (canEmail) {
           const emailResult = await sendTransactionalEmail({
             to: recipient.email,
