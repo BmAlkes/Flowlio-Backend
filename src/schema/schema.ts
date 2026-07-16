@@ -1724,6 +1724,7 @@ export const automationSettings = pgTable(
     organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
     automationKey: text("automation_key").notNull(),
     enabled: boolean("enabled").$defaultFn(() => true).notNull(),
+    scheduleHourUtc: integer("schedule_hour_utc"),
     lastScheduledRunAt: timestamp("last_scheduled_run_at"),
   },
   (table) => ({

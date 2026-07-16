@@ -13,6 +13,7 @@ import { runClientInactivityAutomation } from "@/controllers/automations/runClie
 import { runSupportTicketUnansweredAutomation } from "@/controllers/automations/runSupportTicketUnanswered.controller";
 import { runTrialAndUsageAutomation } from "@/controllers/automations/runTrialAndUsage.controller";
 import { getAutomationHistory } from "@/controllers/automations/getAutomationHistory.controller";
+import { getAutomationSettings } from "@/controllers/automations/getAutomationSettings.controller";
 import { updateAutomationSettings } from "@/controllers/automations/updateAutomationSettings.controller";
 
 const router = Router();
@@ -33,6 +34,7 @@ router.post("/support-ticket-unanswered/run", ...access, runSupportTicketUnanswe
 router.post("/trial-and-usage/run", ...access, runTrialAndUsageAutomation as any);
 
 // History + settings
+router.get("/settings", ...access, getAutomationSettings as any);
 router.get("/:key/history", ...access, getAutomationHistory as any);
 router.patch("/:key/settings", ...access, updateAutomationSettings as any);
 

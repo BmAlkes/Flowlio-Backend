@@ -16,129 +16,133 @@ import { recordAutomationRun } from "../../utils/automationRun.util";
 export const initCronJobs = () => {
   logger.info("Initializing scheduled automation jobs...");
 
-  // Daily: task overdue + project end reminders + recurring invoices @ 08:00 UTC
+  // Fixed @ 08:00 UTC — project-end reminders + recurring invoices (no per-org schedule)
   cron.schedule("0 8 * * *", async () => {
-    logger.info("Running 08:00 daily automation batch...");
+    logger.info("Running 08:00 fixed automation batch (project-end reminders + recurring invoices)...");
     try {
-      const taskResult = await automationService.handleOverdueTasks();
-      await recordAutomationRun("task-overdue", taskResult, "cron");
-
       await automationService.handleProjectEndReminders();
       await RecurringInvoiceService.processRecurringInvoices();
-
-      logger.info("08:00 daily automation batch completed.");
+      logger.info("08:00 fixed automation batch completed.");
     } catch (error) {
-      logger.error("Error in 08:00 daily automation batch:", error);
+      logger.error("Error in 08:00 fixed automation batch:", error);
     }
   });
 
-  // Daily: project risk @ 09:00 UTC
-  cron.schedule("0 9 * * *", async () => {
-    logger.info("Running project risk alert automation...");
+  // Hourly: task-overdue (default 08:00 UTC, orgs may override)
+  cron.schedule("0 * * * *", async () => {
+    const currentHour = new Date().getUTCHours();
     try {
-      const result = await automationService.handleProjectRiskAlerts();
+      const result = await automationService.handleOverdueTasks({ scheduleFilter: { currentHour, defaultHour: 8 } });
+      await recordAutomationRun("task-overdue", result, "cron");
+    } catch (error) {
+      logger.error("Error running task-overdue automation:", error);
+    }
+  });
+
+  // Hourly: project-risk (default 09:00 UTC, orgs may override)
+  cron.schedule("0 * * * *", async () => {
+    const currentHour = new Date().getUTCHours();
+    try {
+      const result = await automationService.handleProjectRiskAlerts({ scheduleFilter: { currentHour, defaultHour: 9 } });
       await recordAutomationRun("project-risk", result, "cron");
     } catch (error) {
-      logger.error("Error running project risk alert automation:", error);
+      logger.error("Error running project-risk automation:", error);
     }
   });
 
-  // Daily: lead follow-up @ 10:00 UTC
-  cron.schedule("0 10 * * *", async () => {
-    logger.info("Running lead follow-up overdue automation...");
+  // Hourly: lead-followup (default 10:00 UTC, orgs may override)
+  cron.schedule("0 * * * *", async () => {
+    const currentHour = new Date().getUTCHours();
     try {
-      const result = await automationService.handleLeadFollowUpOverdue();
+      const result = await automationService.handleLeadFollowUpOverdue({ scheduleFilter: { currentHour, defaultHour: 10 } });
       await recordAutomationRun("lead-followup", result, "cron");
     } catch (error) {
-      logger.error("Error running lead follow-up overdue automation:", error);
+      logger.error("Error running lead-followup automation:", error);
     }
   });
 
-  // Weekly summary — every Monday @ 08:00 UTC
-  cron.schedule("0 8 * * 1", async () => {
-    logger.info("Running weekly summary automation...");
+  // Hourly on Mondays: weekly-summary (default 08:00 UTC, orgs may override)
+  cron.schedule("0 * * * 1", async () => {
+    const currentHour = new Date().getUTCHours();
     try {
-      const result = await automationService.handleWeeklySummary();
+      const result = await automationService.handleWeeklySummary({ scheduleFilter: { currentHour, defaultHour: 8 } });
       await recordAutomationRun("weekly-summary", result, "cron");
     } catch (error) {
-      logger.error("Error running weekly summary automation:", error);
+      logger.error("Error running weekly-summary automation:", error);
     }
   });
 
-  // Daily: invoice overdue @ 11:00 UTC
-  cron.schedule("0 11 * * *", async () => {
-    logger.info("Running invoice overdue automation...");
+  // Hourly: invoice-overdue (default 11:00 UTC, orgs may override)
+  cron.schedule("0 * * * *", async () => {
+    const currentHour = new Date().getUTCHours();
     try {
-      const result = await automationService.handleInvoiceOverdue();
+      const result = await automationService.handleInvoiceOverdue({ scheduleFilter: { currentHour, defaultHour: 11 } });
       await recordAutomationRun("invoice-overdue", result, "cron");
     } catch (error) {
-      logger.error("Error running invoice overdue automation:", error);
+      logger.error("Error running invoice-overdue automation:", error);
     }
   });
 
-  // Daily: payment link reminder @ 12:00 UTC
-  cron.schedule("0 12 * * *", async () => {
-    logger.info("Running payment link reminder automation...");
+  // Hourly: payment-link-reminder (default 12:00 UTC, orgs may override)
+  cron.schedule("0 * * * *", async () => {
+    const currentHour = new Date().getUTCHours();
     try {
-      const result = await automationService.handlePaymentLinkReminder();
+      const result = await automationService.handlePaymentLinkReminder({ scheduleFilter: { currentHour, defaultHour: 12 } });
       await recordAutomationRun("payment-link-reminder", result, "cron");
     } catch (error) {
-      logger.error("Error running payment link reminder automation:", error);
+      logger.error("Error running payment-link-reminder automation:", error);
     }
   });
 
-  // Daily: webhook issue detection @ 07:00 UTC
-  cron.schedule("0 7 * * *", async () => {
-    logger.info("Running webhook issue automation...");
+  // Fixed every 6 hours: webhook-issue (no per-org schedule)
+  cron.schedule("0 */6 * * *", async () => {
     try {
       const result = await automationService.handleWebhookIssue();
       await recordAutomationRun("webhook-issue", result, "cron");
     } catch (error) {
-      logger.error("Error running webhook issue automation:", error);
+      logger.error("Error running webhook-issue automation:", error);
     }
   });
 
-  // Every 6 hours: new lead not contacted
+  // Fixed every 6 hours: new-lead-not-contacted (no per-org schedule)
   cron.schedule("0 */6 * * *", async () => {
-    logger.info("Running new lead not contacted automation...");
     try {
       const result = await automationService.handleNewLeadNotContacted();
       await recordAutomationRun("new-lead-not-contacted", result, "cron");
     } catch (error) {
-      logger.error("Error running new lead not contacted automation:", error);
+      logger.error("Error running new-lead-not-contacted automation:", error);
     }
   });
 
-  // Weekly: client inactivity — every Sunday @ 09:00 UTC
-  cron.schedule("0 9 * * 0", async () => {
-    logger.info("Running client inactivity automation...");
+  // Hourly on Sundays: client-inactivity (default 09:00 UTC, orgs may override)
+  cron.schedule("0 * * * 0", async () => {
+    const currentHour = new Date().getUTCHours();
     try {
-      const result = await automationService.handleClientInactivity();
+      const result = await automationService.handleClientInactivity({ scheduleFilter: { currentHour, defaultHour: 9 } });
       await recordAutomationRun("client-inactivity", result, "cron");
     } catch (error) {
-      logger.error("Error running client inactivity automation:", error);
+      logger.error("Error running client-inactivity automation:", error);
     }
   });
 
-  // Every 6 hours: support ticket unanswered
+  // Fixed every 6 hours: support-ticket-unanswered (no per-org schedule)
   cron.schedule("0 */6 * * *", async () => {
-    logger.info("Running support ticket unanswered automation...");
     try {
       const result = await automationService.handleSupportTicketUnanswered();
       await recordAutomationRun("support-ticket-unanswered", result, "cron");
     } catch (error) {
-      logger.error("Error running support ticket unanswered automation:", error);
+      logger.error("Error running support-ticket-unanswered automation:", error);
     }
   });
 
-  // Daily: trial ending + usage limits @ 06:00 UTC
-  cron.schedule("0 6 * * *", async () => {
-    logger.info("Running trial and usage limits automation...");
+  // Hourly: trial-and-usage (default 06:00 UTC, orgs may override)
+  cron.schedule("0 * * * *", async () => {
+    const currentHour = new Date().getUTCHours();
     try {
-      const result = await automationService.handleTrialAndUsageLimits();
+      const result = await automationService.handleTrialAndUsageLimits({ scheduleFilter: { currentHour, defaultHour: 6 } });
       await recordAutomationRun("trial-and-usage", result, "cron");
     } catch (error) {
-      logger.error("Error running trial and usage limits automation:", error);
+      logger.error("Error running trial-and-usage automation:", error);
     }
   });
 

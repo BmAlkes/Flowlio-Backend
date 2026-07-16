@@ -103,7 +103,7 @@ export class AutomationService {
    * a one-time email to the assignee and the project manager.
    * Runs daily via cron. Returns a result object for observability.
    */
-  async handleOverdueTasks(): Promise<{
+  async handleOverdueTasks(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     tasksFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -111,6 +111,7 @@ export class AutomationService {
   }> {
     const now = new Date();
     const result = { tasksFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const excludedOrgs = await this.getExcludedOrgIds("task-overdue", opts?.scheduleFilter);
 
     logger.info("Running overdue task automation check...");
 
@@ -156,6 +157,7 @@ export class AutomationService {
       const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
 
       for (const task of overdueTasks) {
+        if (task.organizationId && excludedOrgs.has(task.organizationId)) continue;
         logger.info(`Processing overdue task: "${task.title}" (id=${task.id}, endDate=${task.endDate})`);
 
         // 1. Mark status as 'delay' — always correct regardless of email outcome
@@ -378,7 +380,7 @@ export class AutomationService {
    * sends email notifications, and auto-resolves projects that are no longer at risk.
    * Runs daily via cron.
    */
-  async handleProjectRiskAlerts(): Promise<{
+  async handleProjectRiskAlerts(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     projectsFound: number;
     alertsCreated: number;
     alertsResolved: number;
@@ -395,6 +397,7 @@ export class AutomationService {
       emailsFailed: 0,
       errors: [] as string[],
     };
+    const excludedOrgs = await this.getExcludedOrgIds("project-risk", opts?.scheduleFilter);
 
     logger.info("Running project risk alert automation...");
 
@@ -409,6 +412,7 @@ export class AutomationService {
       logger.info(`Project risk automation: found ${allOrgs.length} org(s) to evaluate`);
 
       for (const org of allOrgs) {
+        if (excludedOrgs.has(org.id)) continue;
         const highRiskProjects = await computeHighRiskProjects(org.id);
 
         logger.info(
@@ -580,7 +584,7 @@ export class AutomationService {
    * Finds leads whose follow-up date has passed and sends an email reminder.
    * Re-alerts every 7 days while the follow-up remains overdue.
    */
-  async handleLeadFollowUpOverdue(): Promise<{
+  async handleLeadFollowUpOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     leadsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -590,6 +594,7 @@ export class AutomationService {
     const result = { leadsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+    const excludedOrgs = await this.getExcludedOrgIds("lead-followup", opts?.scheduleFilter);
 
     logger.info("Running lead follow-up overdue automation...");
 
@@ -622,6 +627,7 @@ export class AutomationService {
       logger.info(`Lead follow-up automation: ${overdueLeads.length} overdue lead(s) found`);
 
       for (const lead of overdueLeads) {
+        if (excludedOrgs.has(lead.organizationId)) continue;
         let recipient: { id: string; name: string | null; email: string } | null = null;
 
         if (lead.assignedTo) {
@@ -706,7 +712,7 @@ export class AutomationService {
    * activity during the past 7 days. Powered by the same OpenAI call as the
    * on-demand /ai/weekly-summary endpoint.
    */
-  async handleWeeklySummary(): Promise<{
+  async handleWeeklySummary(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     organizationsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -715,6 +721,7 @@ export class AutomationService {
     const now = new Date();
     const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const result = { organizationsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const excludedOrgs = await this.getExcludedOrgIds("weekly-summary", opts?.scheduleFilter);
 
     const weekLabel = `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${now.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 
@@ -726,6 +733,7 @@ export class AutomationService {
         .from(organizations);
 
       for (const org of allOrgs) {
+        if (excludedOrgs.has(org.id)) continue;
         const hasActivity = await checkOrgHasWeeklyActivity(org.id, weekStart, now);
         if (!hasActivity) {
           logger.info(`Org ${org.id} ("${org.name}"): no activity this week, skipping`);
@@ -841,13 +849,48 @@ export class AutomationService {
     return rows.length === 0 || rows[0].enabled;
   }
 
-  // A3: returns set of org IDs where this automation is disabled
-  private async getDisabledOrgIds(automationKey: string): Promise<Set<string>> {
-    const rows = await database
-      .select({ organizationId: automationSettings.organizationId })
+  // A3: returns set of org IDs to skip — disabled orgs, plus (when scheduleFilter is provided)
+  // orgs whose custom schedule hour doesn't match currentHour.
+  // Orgs with no settings row use the system defaultHour when scheduleFilter is active.
+  private async getExcludedOrgIds(
+    automationKey: string,
+    scheduleFilter?: { currentHour: number; defaultHour: number },
+  ): Promise<Set<string>> {
+    if (!scheduleFilter) {
+      const rows = await database
+        .select({ organizationId: automationSettings.organizationId })
+        .from(automationSettings)
+        .where(and(eq(automationSettings.automationKey, automationKey), eq(automationSettings.enabled, false)));
+      return new Set(rows.map((r) => r.organizationId));
+    }
+
+    const { currentHour, defaultHour } = scheduleFilter;
+    const settingsRows = await database
+      .select({
+        organizationId: automationSettings.organizationId,
+        enabled: automationSettings.enabled,
+        scheduleHourUtc: automationSettings.scheduleHourUtc,
+      })
       .from(automationSettings)
-      .where(and(eq(automationSettings.automationKey, automationKey), eq(automationSettings.enabled, false)));
-    return new Set(rows.map((r) => r.organizationId));
+      .where(eq(automationSettings.automationKey, automationKey));
+
+    const settingsMap = new Map(settingsRows.map((r) => [r.organizationId, r]));
+
+    const allOrgs = await database
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(ne(organizations.status, "inactive"));
+
+    const excluded = new Set<string>();
+    for (const org of allOrgs) {
+      const s = settingsMap.get(org.id);
+      if (s && !s.enabled) { excluded.add(org.id); continue; }
+      const customHour = s?.scheduleHourUtc ?? null;
+      if (customHour !== null ? customHour !== currentHour : currentHour !== defaultHour) {
+        excluded.add(org.id);
+      }
+    }
+    return excluded;
   }
 
   // A4: check if email should be sent to this user for this pref key
@@ -865,7 +908,7 @@ export class AutomationService {
 
   // ==================== NEW AUTOMATIONS ====================
 
-  async handleInvoiceOverdue(): Promise<{
+  async handleInvoiceOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     invoicesFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -875,7 +918,7 @@ export class AutomationService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const result = { invoicesFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
-    const disabledOrgs = await this.getDisabledOrgIds("invoice-overdue");
+    const disabledOrgs = await this.getExcludedOrgIds("invoice-overdue", opts?.scheduleFilter);
 
     try {
       const overdueInvoices = await database
@@ -952,7 +995,7 @@ export class AutomationService {
     return result;
   }
 
-  async handlePaymentLinkReminder(): Promise<{
+  async handlePaymentLinkReminder(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     linksFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -961,7 +1004,7 @@ export class AutomationService {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const result = { linksFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
-    const disabledOrgs = await this.getDisabledOrgIds("payment-link-reminder");
+    const disabledOrgs = await this.getExcludedOrgIds("payment-link-reminder", opts?.scheduleFilter);
 
     try {
       const unpaidLinks = await database
@@ -1043,7 +1086,7 @@ export class AutomationService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const result = { webhooksFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
-    const disabledOrgs = await this.getDisabledOrgIds("webhook-issue");
+    const disabledOrgs = await this.getExcludedOrgIds("webhook-issue");
 
     try {
       const activeWebhooks = await database
@@ -1145,7 +1188,7 @@ export class AutomationService {
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const result = { leadsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
-    const disabledOrgs = await this.getDisabledOrgIds("new-lead-not-contacted");
+    const disabledOrgs = await this.getExcludedOrgIds("new-lead-not-contacted");
 
     try {
       const newLeads = await database
@@ -1229,7 +1272,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleClientInactivity(): Promise<{
+  async handleClientInactivity(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     clientsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1240,7 +1283,7 @@ export class AutomationService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const result = { clientsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
-    const disabledOrgs = await this.getDisabledOrgIds("client-inactivity");
+    const disabledOrgs = await this.getExcludedOrgIds("client-inactivity", opts?.scheduleFilter);
 
     try {
       const allClients = await database
@@ -1332,7 +1375,7 @@ export class AutomationService {
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const result = { ticketsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
-    const disabledOrgs = await this.getDisabledOrgIds("support-ticket-unanswered");
+    const disabledOrgs = await this.getExcludedOrgIds("support-ticket-unanswered");
 
     try {
       const openTickets = await database
@@ -1430,7 +1473,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleTrialAndUsageLimits(): Promise<{
+  async handleTrialAndUsageLimits(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
     organizationsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1441,7 +1484,7 @@ export class AutomationService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const result = { organizationsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
-    const disabledOrgs = await this.getDisabledOrgIds("trial-and-usage");
+    const disabledOrgs = await this.getExcludedOrgIds("trial-and-usage", opts?.scheduleFilter);
 
     try {
       const allOrgs = await database
