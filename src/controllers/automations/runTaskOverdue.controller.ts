@@ -12,7 +12,7 @@ export const runTaskOverdueAutomation = async (req: Request, res: Response): Pro
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleOverdueTasks({ organizationId });
+    const result = await automationService.handleOverdueTasks({ organizationId, forceRun: true });
     await recordAutomationRun("task-overdue", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Tasks found: ${result.tasksFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

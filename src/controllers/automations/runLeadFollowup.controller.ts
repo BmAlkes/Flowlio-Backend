@@ -12,7 +12,7 @@ export const runLeadFollowupAutomation = async (req: Request, res: Response): Pr
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleLeadFollowUpOverdue({ organizationId });
+    const result = await automationService.handleLeadFollowUpOverdue({ organizationId, forceRun: true });
     await recordAutomationRun("lead-followup", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Leads found: ${result.leadsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

@@ -12,7 +12,7 @@ export const runNewLeadNotContactedAutomation = async (req: Request, res: Respon
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleNewLeadNotContacted({ organizationId });
+    const result = await automationService.handleNewLeadNotContacted({ organizationId, forceRun: true });
     await recordAutomationRun("new-lead-not-contacted", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Leads found: ${result.leadsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

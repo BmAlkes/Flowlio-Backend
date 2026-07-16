@@ -12,7 +12,7 @@ export const runClientInactivityAutomation = async (req: Request, res: Response)
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleClientInactivity({ organizationId });
+    const result = await automationService.handleClientInactivity({ organizationId, forceRun: true });
     await recordAutomationRun("client-inactivity", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Clients found: ${result.clientsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

@@ -12,7 +12,7 @@ export const runPaymentLinkReminderAutomation = async (req: Request, res: Respon
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handlePaymentLinkReminder({ organizationId });
+    const result = await automationService.handlePaymentLinkReminder({ organizationId, forceRun: true });
     await recordAutomationRun("payment-link-reminder", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Links found: ${result.linksFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

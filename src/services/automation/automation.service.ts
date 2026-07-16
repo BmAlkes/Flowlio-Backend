@@ -103,7 +103,7 @@ export class AutomationService {
    * a one-time email to the assignee and the project manager.
    * Runs daily via cron. Returns a result object for observability.
    */
-  async handleOverdueTasks(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
+  async handleOverdueTasks(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string; forceRun?: boolean }): Promise<{
     tasksFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -134,7 +134,7 @@ export class AutomationService {
           and(
             ne(tasks.status, "completed"),
             lt(tasks.endDate, now),
-            or(
+            opts?.forceRun ? undefined : or(
               isNull(tasks.overdueNotifiedAt),
               lt(
                 tasks.overdueNotifiedAt,
@@ -385,7 +385,7 @@ export class AutomationService {
    * sends email notifications, and auto-resolves projects that are no longer at risk.
    * Runs daily via cron.
    */
-  async handleProjectRiskAlerts(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
+  async handleProjectRiskAlerts(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string; forceRun?: boolean }): Promise<{
     projectsFound: number;
     alertsCreated: number;
     alertsResolved: number;
@@ -482,7 +482,7 @@ export class AutomationService {
 
           if (existingAlert.length > 0) {
             const eligible = existingAlert[0].nextEligibleAt;
-            if (!eligible || eligible > now) {
+            if (!opts?.forceRun && (!eligible || eligible > now)) {
               logger.info(`Project "${project.projectName}": active alert exists and not yet eligible for re-alert — skipping`);
               continue;
             }
@@ -592,7 +592,7 @@ export class AutomationService {
    * Finds leads whose follow-up date has passed and sends an email reminder.
    * Re-alerts every 7 days while the follow-up remains overdue.
    */
-  async handleLeadFollowUpOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
+  async handleLeadFollowUpOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string; forceRun?: boolean }): Promise<{
     leadsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -625,7 +625,7 @@ export class AutomationService {
             eq(clients.clientType, "lead"),
             lt(clients.followUpAt, now),
             not(inArray(clients.status, ["Lost", "Completed", "Inactive"])),
-            or(
+            opts?.forceRun ? undefined : or(
               isNull(clients.followupNotifiedAt),
               lt(clients.followupNotifiedAt, sevenDaysAgo),
             ),
@@ -925,7 +925,7 @@ export class AutomationService {
 
   // ==================== NEW AUTOMATIONS ====================
 
-  async handleInvoiceOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
+  async handleInvoiceOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string; forceRun?: boolean }): Promise<{
     invoicesFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -954,7 +954,7 @@ export class AutomationService {
             ne(invoices.status, "paid"),
             ne(invoices.status, "cancelled"),
             lt(invoices.dueDate, now),
-            or(isNull(invoices.overdueNotifiedAt), lt(invoices.overdueNotifiedAt, sevenDaysAgo)),
+            opts?.forceRun ? undefined : or(isNull(invoices.overdueNotifiedAt), lt(invoices.overdueNotifiedAt, sevenDaysAgo)),
             opts?.organizationId ? eq(invoices.organizationId, opts.organizationId) : undefined,
           ),
         );
@@ -1013,7 +1013,7 @@ export class AutomationService {
     return result;
   }
 
-  async handlePaymentLinkReminder(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
+  async handlePaymentLinkReminder(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string; forceRun?: boolean }): Promise<{
     linksFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1040,7 +1040,7 @@ export class AutomationService {
           and(
             eq(paymentLinks.status, "unpaid"),
             lt(paymentLinks.createdAt, sevenDaysAgo),
-            or(isNull(paymentLinks.reminderNotifiedAt), lt(paymentLinks.reminderNotifiedAt, sevenDaysAgo)),
+            opts?.forceRun ? undefined : or(isNull(paymentLinks.reminderNotifiedAt), lt(paymentLinks.reminderNotifiedAt, sevenDaysAgo)),
             opts?.organizationId ? eq(paymentLinks.organizationId, opts.organizationId) : undefined,
           ),
         );
@@ -1202,7 +1202,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleNewLeadNotContacted(opts?: { organizationId?: string }): Promise<{
+  async handleNewLeadNotContacted(opts?: { organizationId?: string; forceRun?: boolean }): Promise<{
     leadsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1237,7 +1237,7 @@ export class AutomationService {
         if (disabledOrgs.has(lead.organizationId)) continue;
 
         // Skip if already notified recently (check notifications table)
-        const recentNotif = await database
+        const recentNotif = opts?.forceRun ? [] : await database
           .select({ id: notifications.id })
           .from(notifications)
           .where(
@@ -1297,7 +1297,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleClientInactivity(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
+  async handleClientInactivity(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string; forceRun?: boolean }): Promise<{
     clientsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1342,7 +1342,7 @@ export class AutomationService {
         if ((activeProjects?.c ?? 0) > 0) continue;
 
         // Check notification guard — already notified in last 7 days?
-        const recentNotif = await database
+        const recentNotif = opts?.forceRun ? [] : await database
           .select({ id: notifications.id })
           .from(notifications)
           .where(
@@ -1395,7 +1395,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleSupportTicketUnanswered(opts?: { organizationId?: string }): Promise<{
+  async handleSupportTicketUnanswered(opts?: { organizationId?: string; forceRun?: boolean }): Promise<{
     ticketsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1448,7 +1448,7 @@ export class AutomationService {
         if (opts?.organizationId && orgId !== opts.organizationId) continue;
 
         // 24h guard via notifications table
-        const recentNotif = await database
+        const recentNotif = opts?.forceRun ? [] : await database
           .select({ id: notifications.id })
           .from(notifications)
           .where(
@@ -1504,7 +1504,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleTrialAndUsageLimits(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
+  async handleTrialAndUsageLimits(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string; forceRun?: boolean }): Promise<{
     organizationsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1551,7 +1551,7 @@ export class AutomationService {
           new Date(org.trialEndsAt) <= threeDaysFromNow &&
           new Date(org.trialEndsAt) > now
         ) {
-          const recentTrialNotif = await database
+          const recentTrialNotif = opts?.forceRun ? [] : await database
             .select({ id: notifications.id })
             .from(notifications)
             .where(
@@ -1596,7 +1596,7 @@ export class AutomationService {
         const userUsagePercent = org.maxUsers ? Math.round(((userCount?.c ?? 0) / org.maxUsers) * 100) : 0;
 
         if (userUsagePercent >= 80) {
-          const recentUsageNotif = await database
+          const recentUsageNotif = opts?.forceRun ? [] : await database
             .select({ id: notifications.id })
             .from(notifications)
             .where(

@@ -12,7 +12,7 @@ export const runInvoiceOverdueAutomation = async (req: Request, res: Response): 
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleInvoiceOverdue({ organizationId });
+    const result = await automationService.handleInvoiceOverdue({ organizationId, forceRun: true });
     await recordAutomationRun("invoice-overdue", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Invoices found: ${result.invoicesFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

@@ -12,7 +12,7 @@ export const runProjectRiskAutomation = async (req: Request, res: Response): Pro
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleProjectRiskAlerts({ organizationId });
+    const result = await automationService.handleProjectRiskAlerts({ organizationId, forceRun: true });
     await recordAutomationRun("project-risk", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Projects found: ${result.projectsFound}, alerts created: ${result.alertsCreated}, resolved: ${result.alertsResolved}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

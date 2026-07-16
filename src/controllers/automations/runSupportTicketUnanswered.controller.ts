@@ -12,7 +12,7 @@ export const runSupportTicketUnansweredAutomation = async (req: Request, res: Re
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleSupportTicketUnanswered({ organizationId });
+    const result = await automationService.handleSupportTicketUnanswered({ organizationId, forceRun: true });
     await recordAutomationRun("support-ticket-unanswered", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Tickets found: ${result.ticketsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {

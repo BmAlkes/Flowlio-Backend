@@ -12,7 +12,7 @@ export const runTrialAndUsageAutomation = async (req: Request, res: Response): P
       res.status(400).json({ success: false, message: "organizationId is required" });
       return;
     }
-    const result = await automationService.handleTrialAndUsageLimits({ organizationId });
+    const result = await automationService.handleTrialAndUsageLimits({ organizationId, forceRun: true });
     await recordAutomationRun("trial-and-usage", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Organizations found: ${result.organizationsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {
