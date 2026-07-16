@@ -5,9 +5,10 @@ import { logger } from "@/utils/logger.util";
 
 export const runSupportTicketUnansweredAutomation = async (req: Request, res: Response): Promise<void> => {
   try {
-    logger.info("Manual trigger: support ticket unanswered automation");
-    const result = await automationService.handleSupportTicketUnanswered();
-    await recordAutomationRun("support-ticket-unanswered", result, "manual", req.user?.organizationId ?? null);
+    const organizationId: string | undefined = req.body?.organizationId || undefined;
+    logger.info("Manual trigger: support ticket unanswered automation", { organizationId });
+    const result = await automationService.handleSupportTicketUnanswered({ organizationId });
+    await recordAutomationRun("support-ticket-unanswered", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Tickets found: ${result.ticketsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {
     logger.error("Error running support ticket unanswered automation manually:", error);
