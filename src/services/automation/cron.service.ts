@@ -8,6 +8,7 @@ import { connection } from "../../configs/connection.config";
 import { aiTokenLimits, leadWebhookLogs, notifications } from "../../schema/schema";
 import { and, eq, lte, sql } from "drizzle-orm";
 import { nextMonthReset } from "../../utils/aiTokenLimit.util";
+import { recordAutomationRun } from "../../utils/automationRun.util";
 
 /**
  * Initializes and starts all backend cron jobs
@@ -15,53 +16,129 @@ import { nextMonthReset } from "../../utils/aiTokenLimit.util";
 export const initCronJobs = () => {
   logger.info("Initializing scheduled automation jobs...");
 
-  // Daily automation job — runs once per day at 08:00 UTC
+  // Daily: task overdue + project end reminders + recurring invoices @ 08:00 UTC
   cron.schedule("0 8 * * *", async () => {
-    logger.info("Running scheduled automation tasks...");
-
+    logger.info("Running 08:00 daily automation batch...");
     try {
-      // A) Overdue Task Automation
-      await automationService.handleOverdueTasks();
+      const taskResult = await automationService.handleOverdueTasks();
+      await recordAutomationRun("task-overdue", taskResult, "cron");
 
-      // B) Project End Date Reminder
       await automationService.handleProjectEndReminders();
-
-      // C) Recurring Invoice Processing
       await RecurringInvoiceService.processRecurringInvoices();
 
-      logger.info("Scheduled automation tasks completed successfully.");
+      logger.info("08:00 daily automation batch completed.");
     } catch (error) {
-      logger.error("Error running scheduled automation tasks:", error);
+      logger.error("Error in 08:00 daily automation batch:", error);
     }
   });
 
-  // Project risk alert job — runs once per day at 09:00 UTC
+  // Daily: project risk @ 09:00 UTC
   cron.schedule("0 9 * * *", async () => {
     logger.info("Running project risk alert automation...");
     try {
-      await automationService.handleProjectRiskAlerts();
+      const result = await automationService.handleProjectRiskAlerts();
+      await recordAutomationRun("project-risk", result, "cron");
     } catch (error) {
       logger.error("Error running project risk alert automation:", error);
     }
   });
 
-  // Lead follow-up overdue job — runs once per day at 10:00 UTC
+  // Daily: lead follow-up @ 10:00 UTC
   cron.schedule("0 10 * * *", async () => {
     logger.info("Running lead follow-up overdue automation...");
     try {
-      await automationService.handleLeadFollowUpOverdue();
+      const result = await automationService.handleLeadFollowUpOverdue();
+      await recordAutomationRun("lead-followup", result, "cron");
     } catch (error) {
       logger.error("Error running lead follow-up overdue automation:", error);
     }
   });
 
-  // Weekly summary job — every Monday at 08:00 UTC
+  // Weekly summary — every Monday @ 08:00 UTC
   cron.schedule("0 8 * * 1", async () => {
     logger.info("Running weekly summary automation...");
     try {
-      await automationService.handleWeeklySummary();
+      const result = await automationService.handleWeeklySummary();
+      await recordAutomationRun("weekly-summary", result, "cron");
     } catch (error) {
       logger.error("Error running weekly summary automation:", error);
+    }
+  });
+
+  // Daily: invoice overdue @ 11:00 UTC
+  cron.schedule("0 11 * * *", async () => {
+    logger.info("Running invoice overdue automation...");
+    try {
+      const result = await automationService.handleInvoiceOverdue();
+      await recordAutomationRun("invoice-overdue", result, "cron");
+    } catch (error) {
+      logger.error("Error running invoice overdue automation:", error);
+    }
+  });
+
+  // Daily: payment link reminder @ 12:00 UTC
+  cron.schedule("0 12 * * *", async () => {
+    logger.info("Running payment link reminder automation...");
+    try {
+      const result = await automationService.handlePaymentLinkReminder();
+      await recordAutomationRun("payment-link-reminder", result, "cron");
+    } catch (error) {
+      logger.error("Error running payment link reminder automation:", error);
+    }
+  });
+
+  // Daily: webhook issue detection @ 07:00 UTC
+  cron.schedule("0 7 * * *", async () => {
+    logger.info("Running webhook issue automation...");
+    try {
+      const result = await automationService.handleWebhookIssue();
+      await recordAutomationRun("webhook-issue", result, "cron");
+    } catch (error) {
+      logger.error("Error running webhook issue automation:", error);
+    }
+  });
+
+  // Every 6 hours: new lead not contacted
+  cron.schedule("0 */6 * * *", async () => {
+    logger.info("Running new lead not contacted automation...");
+    try {
+      const result = await automationService.handleNewLeadNotContacted();
+      await recordAutomationRun("new-lead-not-contacted", result, "cron");
+    } catch (error) {
+      logger.error("Error running new lead not contacted automation:", error);
+    }
+  });
+
+  // Weekly: client inactivity — every Sunday @ 09:00 UTC
+  cron.schedule("0 9 * * 0", async () => {
+    logger.info("Running client inactivity automation...");
+    try {
+      const result = await automationService.handleClientInactivity();
+      await recordAutomationRun("client-inactivity", result, "cron");
+    } catch (error) {
+      logger.error("Error running client inactivity automation:", error);
+    }
+  });
+
+  // Every 6 hours: support ticket unanswered
+  cron.schedule("0 */6 * * *", async () => {
+    logger.info("Running support ticket unanswered automation...");
+    try {
+      const result = await automationService.handleSupportTicketUnanswered();
+      await recordAutomationRun("support-ticket-unanswered", result, "cron");
+    } catch (error) {
+      logger.error("Error running support ticket unanswered automation:", error);
+    }
+  });
+
+  // Daily: trial ending + usage limits @ 06:00 UTC
+  cron.schedule("0 6 * * *", async () => {
+    logger.info("Running trial and usage limits automation...");
+    try {
+      const result = await automationService.handleTrialAndUsageLimits();
+      await recordAutomationRun("trial-and-usage", result, "cron");
+    } catch (error) {
+      logger.error("Error running trial and usage limits automation:", error);
     }
   });
 

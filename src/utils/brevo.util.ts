@@ -474,3 +474,165 @@ function newsletterTemplate({
 }
 
 export { newsletterTemplate };
+
+// ==================== AUTOMATION TEMPLATES ====================
+
+const automationFooter = (year = new Date().getFullYear()) => `
+  <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
+  <p style="font-size:13px;color:#bbb;text-align:center;">&copy; ${year} Flowlio. All rights reserved.</p>`;
+
+const automationCard = (accentColor: string, icon: string, title: string, body: string, btnLabel?: string, btnHref?: string) => `
+  <div style="font-family:Arial,sans-serif;background:#f7f9fb;padding:32px;">
+    <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);padding:32px;">
+      <div style="background:${accentColor};border-radius:8px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:12px;">
+        <span style="font-size:24px;">${icon}</span>
+        <span style="color:#fff;font-size:18px;font-weight:700;">${title}</span>
+      </div>
+      ${body}
+      ${btnLabel && btnHref ? `<div style="text-align:center;margin:28px 0;"><a href="${btnHref}" style="display:inline-block;background:${accentColor};color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">${btnLabel}</a></div>` : ""}
+      ${automationFooter()}
+    </div>
+  </div>`;
+
+export interface InvoiceOverdueEmailData {
+  recipientName: string;
+  invoiceNumber: string;
+  clientname: string;
+  amount: string;
+  dueDate: string;
+  invoiceUrl?: string;
+}
+
+export function invoiceOverdueTemplate(d: InvoiceOverdueEmailData): string {
+  return automationCard(
+    "#dc2626", "🧾", "Invoice Overdue",
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;">Invoice <b>${d.invoiceNumber}</b> for client <b>${d.clientname}</b> of <b>${d.amount}</b> was due on <b>${d.dueDate}</b> and has not been paid.</p>
+     <p style="color:#555;font-size:14px;">Please follow up with your client or update the invoice status if payment has been received.</p>`,
+    "View Invoice", d.invoiceUrl,
+  );
+}
+
+export interface PaymentLinkReminderEmailData {
+  recipientName: string;
+  clientname: string;
+  amount: string;
+  createdAt: string;
+  paymentUrl?: string;
+}
+
+export function paymentLinkReminderTemplate(d: PaymentLinkReminderEmailData): string {
+  return automationCard(
+    "#d97706", "💳", "Payment Link Reminder",
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;">A payment link for client <b>${d.clientname}</b> of <b>${d.amount}</b> was created on <b>${d.createdAt}</b> and is still unpaid.</p>
+     <p style="color:#555;font-size:14px;">Consider following up with your client to complete the payment.</p>`,
+    "View Payment Link", d.paymentUrl,
+  );
+}
+
+export interface WebhookIssueEmailData {
+  recipientName: string;
+  webhookName: string;
+  issueType: "silent" | "failing";
+  details: string;
+  webhooksUrl?: string;
+}
+
+export function webhookIssueTemplate(d: WebhookIssueEmailData): string {
+  const label = d.issueType === "silent" ? "Webhook Silent" : "Webhook Failing";
+  return automationCard(
+    "#7c3aed", "⚠️", label,
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;">Your webhook <b>${d.webhookName}</b> may have an issue: <b>${d.details}</b>.</p>
+     <p style="color:#555;font-size:14px;">Please check your webhook configuration and confirm it is receiving data correctly.</p>`,
+    "View Webhooks", d.webhooksUrl,
+  );
+}
+
+export interface NewLeadNotContactedEmailData {
+  recipientName: string;
+  leadName: string;
+  hoursAgo: number;
+  leadUrl?: string;
+}
+
+export function newLeadNotContactedTemplate(d: NewLeadNotContactedEmailData): string {
+  return automationCard(
+    "#0891b2", "👤", "New Lead Not Contacted",
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;">Lead <b>${d.leadName}</b> was created <b>${d.hoursAgo} hours ago</b> and has had no interactions yet.</p>
+     <p style="color:#555;font-size:14px;">Reach out soon — first contact significantly improves conversion rates.</p>`,
+    "View Lead", d.leadUrl,
+  );
+}
+
+export interface ClientInactivityEmailData {
+  recipientName: string;
+  clientName: string;
+  daysSinceActivity: number;
+  clientUrl?: string;
+}
+
+export function clientInactivityTemplate(d: ClientInactivityEmailData): string {
+  return automationCard(
+    "#64748b", "🔕", "Client Inactivity Alert",
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;">Client <b>${d.clientName}</b> has had no active projects or tasks in the last <b>${d.daysSinceActivity} days</b>.</p>
+     <p style="color:#555;font-size:14px;">This may be an opportunity to re-engage or close the relationship.</p>`,
+    "View Client", d.clientUrl,
+  );
+}
+
+export interface SupportTicketUnansweredEmailData {
+  recipientName: string;
+  ticketNumber: string;
+  subject: string;
+  hoursOpen: number;
+  ticketUrl?: string;
+}
+
+export function supportTicketUnansweredTemplate(d: SupportTicketUnansweredEmailData): string {
+  return automationCard(
+    "#db2777", "🎫", "Support Ticket Unanswered",
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;">Ticket <b>#${d.ticketNumber}</b> — <b>${d.subject}</b> — has been open for <b>${d.hoursOpen} hours</b> without a response from your team.</p>
+     <p style="color:#555;font-size:14px;">Please reply to avoid leaving your client waiting.</p>`,
+    "View Ticket", d.ticketUrl,
+  );
+}
+
+export interface TrialEndingEmailData {
+  recipientName: string;
+  organizationName: string;
+  daysLeft: number;
+  upgradeUrl?: string;
+}
+
+export function trialEndingTemplate(d: TrialEndingEmailData): string {
+  return automationCard(
+    "#2563eb", "⏳", "Trial Ending Soon",
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;">Your Flowlio trial for <b>${d.organizationName}</b> ends in <b>${d.daysLeft} day${d.daysLeft === 1 ? "" : "s"}</b>.</p>
+     <p style="color:#555;font-size:14px;">Upgrade now to keep uninterrupted access to all your data and features.</p>`,
+    "Upgrade Now", d.upgradeUrl,
+  );
+}
+
+export interface PlanUsageLimitEmailData {
+  recipientName: string;
+  organizationName: string;
+  resourceName: string;
+  usagePercent: number;
+  upgradeUrl?: string;
+}
+
+export function planUsageLimitTemplate(d: PlanUsageLimitEmailData): string {
+  return automationCard(
+    "#ea580c", "📊", "Plan Usage Near Limit",
+    `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
+     <p style="color:#555;font-size:15px;"><b>${d.organizationName}</b> has used <b>${d.usagePercent}%</b> of its <b>${d.resourceName}</b> limit.</p>
+     <p style="color:#555;font-size:14px;">Consider upgrading your plan to avoid disruptions when the limit is reached.</p>`,
+    "Upgrade Plan", d.upgradeUrl,
+  );
+}

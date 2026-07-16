@@ -548,6 +548,7 @@ export const invoices = pgTable(
     pdfUrl: text("pdf_url"), // URL to generated PDF file
     pdfFileName: text("pdf_file_name"), // Original PDF filename
     pdfFileSize: integer("pdf_file_size"), // PDF file size in bytes
+    overdueNotifiedAt: timestamp("overdue_notified_at"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -1453,6 +1454,7 @@ export const paymentLinks = pgTable(
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     externalPaymentUrl: text("external_payment_url"),
     status: text("status").$defaultFn(() => "unpaid"),
+    reminderNotifiedAt: timestamp("reminder_notified_at"),
     paymentLink: text("payment_link").notNull().unique(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
@@ -1689,6 +1691,44 @@ export const webhookSecrets = pgTable(
     organizationIdx: index("webhook_secrets_organization_idx").on(
       table.organizationId,
     ),
+  }),
+);
+
+// ==================== AUTOMATION RUNS ====================
+
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+    automationKey: text("automation_key").notNull(),
+    itemsFound: integer("items_found").$defaultFn(() => 0),
+    emailsSent: integer("emails_sent").$defaultFn(() => 0),
+    emailsFailed: integer("emails_failed").$defaultFn(() => 0),
+    errors: json("errors").$type<string[]>().$defaultFn(() => []),
+    triggeredBy: text("triggered_by").$type<"cron" | "manual">().notNull(),
+    runAt: timestamp("run_at").$defaultFn(() => new Date()).notNull(),
+  },
+  (table) => ({
+    orgKeyIdx: index("automation_runs_org_key_idx").on(table.organizationId, table.automationKey),
+    runAtIdx: index("automation_runs_run_at_idx").on(table.runAt),
+  }),
+);
+
+// ==================== AUTOMATION SETTINGS ====================
+
+export const automationSettings = pgTable(
+  "automation_settings",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    automationKey: text("automation_key").notNull(),
+    enabled: boolean("enabled").$defaultFn(() => true).notNull(),
+    lastScheduledRunAt: timestamp("last_scheduled_run_at"),
+  },
+  (table) => ({
+    uniqueOrgKey: unique("automation_settings_org_key").on(table.organizationId, table.automationKey),
+    orgIdx: index("automation_settings_org_idx").on(table.organizationId),
   }),
 );
 

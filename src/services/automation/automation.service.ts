@@ -1,6 +1,6 @@
 import { database } from "../../configs/connection.config";
-import { tasks, projects, notifications, users, userOrganizations, organizations, projectRiskAlerts, clients } from "../../schema/schema";
-import { eq, and, lt, ne, sql, gte, count, isNull, or, inArray, not } from "drizzle-orm";
+import { tasks, projects, notifications, users, userOrganizations, organizations, projectRiskAlerts, clients, invoices, paymentLinks, leadWebhooks, leadWebhookLogs, supportTickets, supportTicketMessages, automationSettings } from "../../schema/schema";
+import { eq, and, lt, ne, sql, gte, count, isNull, or, inArray, not, desc } from "drizzle-orm";
 import { logger } from "../../utils/logger.util";
 import { computeHighRiskProjects } from "../projectRisk.service";
 import { checkOrgHasWeeklyActivity, generateWeeklySummary } from "../weeklySummary.service";
@@ -828,6 +828,739 @@ export class AutomationService {
       result.errors.push(`Automation error: ${msg}`);
     }
 
+    return result;
+  }
+
+  // A3: returns true if this automation is enabled for the org (default: true when no row exists)
+  async isAutomationEnabled(organizationId: string, automationKey: string): Promise<boolean> {
+    const rows = await database
+      .select({ enabled: automationSettings.enabled })
+      .from(automationSettings)
+      .where(and(eq(automationSettings.organizationId, organizationId), eq(automationSettings.automationKey, automationKey)))
+      .limit(1);
+    return rows.length === 0 || rows[0].enabled;
+  }
+
+  // A3: returns set of org IDs where this automation is disabled
+  private async getDisabledOrgIds(automationKey: string): Promise<Set<string>> {
+    const rows = await database
+      .select({ organizationId: automationSettings.organizationId })
+      .from(automationSettings)
+      .where(and(eq(automationSettings.automationKey, automationKey), eq(automationSettings.enabled, false)));
+    return new Set(rows.map((r) => r.organizationId));
+  }
+
+  // A4: check if email should be sent to this user for this pref key
+  private async userEmailEnabled(userId: string, prefKey: "paymentAlerts" | "invoiceReminders" | "projectActivityUpdates" | "emailNotifications"): Promise<boolean> {
+    const rows = await database
+      .select({ notificationPreferences: users.notificationPreferences })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const prefs = rows[0]?.notificationPreferences;
+    if (!prefs) return true;
+    if (prefs.emailNotifications === false) return false;
+    return prefs[prefKey] !== false;
+  }
+
+  // ==================== NEW AUTOMATIONS ====================
+
+  async handleInvoiceOverdue(): Promise<{
+    invoicesFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const result = { invoicesFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+    const disabledOrgs = await this.getDisabledOrgIds("invoice-overdue");
+
+    try {
+      const overdueInvoices = await database
+        .select({
+          id: invoices.id,
+          invoiceNumber: invoices.invoiceNumber,
+          clientname: invoices.clientname,
+          amount: invoices.amount,
+          dueDate: invoices.dueDate,
+          organizationId: invoices.organizationId,
+          overdueNotifiedAt: invoices.overdueNotifiedAt,
+        })
+        .from(invoices)
+        .where(
+          and(
+            ne(invoices.status, "paid"),
+            ne(invoices.status, "cancelled"),
+            lt(invoices.dueDate, now),
+            or(isNull(invoices.overdueNotifiedAt), lt(invoices.overdueNotifiedAt, sevenDaysAgo)),
+          ),
+        );
+
+      result.invoicesFound = overdueInvoices.length;
+
+      for (const invoice of overdueInvoices) {
+        if (disabledOrgs.has(invoice.organizationId)) continue;
+
+        const recipient = await this.getOrgOwnerUser(invoice.organizationId);
+        if (!recipient) { result.errors.push(`Invoice ${invoice.id}: no org owner`); continue; }
+
+        const dueDateStr = invoice.dueDate
+          ? new Date(invoice.dueDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+          : "unknown";
+        const invoiceUrl = `${frontendUrl}/dashboard/invoices/${invoice.id}`;
+
+        await this.createNotification({
+          userId: recipient.id,
+          organizationId: invoice.organizationId,
+          type: "invoice_overdue",
+          title: "Invoice Overdue",
+          message: `Invoice ${invoice.invoiceNumber} for ${invoice.clientname} of $${invoice.amount} is overdue since ${dueDateStr}.`,
+          data: { invoiceId: invoice.id },
+        });
+
+        const canEmail = await this.userEmailEnabled(recipient.id, "invoiceReminders");
+        if (canEmail) {
+          const emailResult = await sendTransactionalEmail({
+            to: recipient.email,
+            toName: recipient.name ?? undefined,
+            templateKey: "invoice_overdue",
+            data: {
+              recipientName: recipient.name ?? recipient.email,
+              invoiceNumber: invoice.invoiceNumber,
+              clientname: invoice.clientname,
+              amount: `$${invoice.amount}`,
+              dueDate: dueDateStr,
+              invoiceUrl,
+            },
+          });
+          if (emailResult.success) result.emailsSent++;
+          else { result.emailsFailed++; result.errors.push(`Email to ${recipient.email} failed: ${emailResult.error}`); }
+        }
+
+        await database
+          .update(invoices)
+          .set({ overdueNotifiedAt: now, updatedAt: now })
+          .where(eq(invoices.id, invoice.id));
+      }
+      logger.info("Invoice overdue automation completed", result);
+    } catch (error: any) {
+      result.errors.push(error?.message ?? String(error));
+      logger.error("Error in invoice overdue automation:", error);
+    }
+    return result;
+  }
+
+  async handlePaymentLinkReminder(): Promise<{
+    linksFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const result = { linksFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const disabledOrgs = await this.getDisabledOrgIds("payment-link-reminder");
+
+    try {
+      const unpaidLinks = await database
+        .select({
+          id: paymentLinks.id,
+          clientname: paymentLinks.clientname,
+          amount: paymentLinks.amount,
+          organizationId: paymentLinks.organizationId,
+          createdAt: paymentLinks.createdAt,
+          reminderNotifiedAt: paymentLinks.reminderNotifiedAt,
+          paymentLink: paymentLinks.paymentLink,
+        })
+        .from(paymentLinks)
+        .where(
+          and(
+            eq(paymentLinks.status, "unpaid"),
+            lt(paymentLinks.createdAt, sevenDaysAgo),
+            or(isNull(paymentLinks.reminderNotifiedAt), lt(paymentLinks.reminderNotifiedAt, sevenDaysAgo)),
+          ),
+        );
+
+      result.linksFound = unpaidLinks.length;
+
+      for (const link of unpaidLinks) {
+        if (disabledOrgs.has(link.organizationId)) continue;
+
+        const recipient = await this.getOrgOwnerUser(link.organizationId);
+        if (!recipient) { result.errors.push(`Payment link ${link.id}: no org owner`); continue; }
+
+        const createdStr = new Date(link.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+        await this.createNotification({
+          userId: recipient.id,
+          organizationId: link.organizationId,
+          type: "payment_link_reminder",
+          title: "Payment Link Reminder",
+          message: `Payment link for ${link.clientname} ($${link.amount}) created on ${createdStr} is still unpaid.`,
+          data: { paymentLinkId: link.id },
+        });
+
+        const canEmail = await this.userEmailEnabled(recipient.id, "paymentAlerts");
+        if (canEmail) {
+          const emailResult = await sendTransactionalEmail({
+            to: recipient.email,
+            toName: recipient.name ?? undefined,
+            templateKey: "payment_link_reminder",
+            data: {
+              recipientName: recipient.name ?? recipient.email,
+              clientname: link.clientname,
+              amount: `$${link.amount}`,
+              createdAt: createdStr,
+              paymentUrl: link.paymentLink ?? undefined,
+            },
+          });
+          if (emailResult.success) result.emailsSent++;
+          else { result.emailsFailed++; result.errors.push(`Email to ${recipient.email} failed: ${emailResult.error}`); }
+        }
+
+        await database
+          .update(paymentLinks)
+          .set({ reminderNotifiedAt: now, updatedAt: now })
+          .where(eq(paymentLinks.id, link.id));
+      }
+      logger.info("Payment link reminder automation completed", result);
+    } catch (error: any) {
+      result.errors.push(error?.message ?? String(error));
+      logger.error("Error in payment link reminder automation:", error);
+    }
+    return result;
+  }
+
+  async handleWebhookIssue(): Promise<{
+    webhooksFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const result = { webhooksFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+    const disabledOrgs = await this.getDisabledOrgIds("webhook-issue");
+
+    try {
+      const activeWebhooks = await database
+        .select({
+          id: leadWebhooks.id,
+          name: leadWebhooks.name,
+          orgId: leadWebhooks.orgId,
+          createdAt: leadWebhooks.createdAt,
+        })
+        .from(leadWebhooks)
+        .where(eq(leadWebhooks.active, true));
+
+      for (const wh of activeWebhooks) {
+        if (disabledOrgs.has(wh.orgId)) continue;
+
+        // Last 10 logs
+        const recentLogs = await database
+          .select({ status: leadWebhookLogs.status, createdAt: leadWebhookLogs.createdAt })
+          .from(leadWebhookLogs)
+          .where(eq(leadWebhookLogs.webhookId, wh.id))
+          .orderBy(desc(leadWebhookLogs.createdAt))
+          .limit(10);
+
+        let issueType: "silent" | "failing" | null = null;
+        let details = "";
+
+        if (recentLogs.length === 0) {
+          // No logs at all and webhook is at least 7 days old
+          if (new Date(wh.createdAt) < sevenDaysAgo) {
+            issueType = "silent";
+            details = "No webhook calls received in the past 7 days";
+          }
+        } else {
+          // Check if most recent call was >7 days ago
+          const lastCallAt = new Date(recentLogs[0].createdAt);
+          if (lastCallAt < sevenDaysAgo) {
+            issueType = "silent";
+            details = `Last call was on ${lastCallAt.toLocaleDateString("en-US")}`;
+          } else {
+            // Check error rate in last 10 calls
+            const errorCount = recentLogs.filter((l) =>
+              l.status === "error" || l.status === "permanently_failed"
+            ).length;
+            if (errorCount / recentLogs.length > 0.5) {
+              issueType = "failing";
+              details = `${errorCount} of last ${recentLogs.length} calls failed`;
+            }
+          }
+        }
+
+        if (!issueType) continue;
+        result.webhooksFound++;
+
+        const recipient = await this.getOrgOwnerUser(wh.orgId);
+        if (!recipient) { result.errors.push(`Webhook ${wh.id}: no org owner`); continue; }
+
+        await this.createNotification({
+          userId: recipient.id,
+          organizationId: wh.orgId,
+          type: "webhook_issue",
+          title: issueType === "silent" ? "Webhook Silent" : "Webhook Failing",
+          message: `Webhook "${wh.name}": ${details}.`,
+          data: { webhookId: wh.id },
+        });
+
+        const canEmail = await this.userEmailEnabled(recipient.id, "emailNotifications");
+        if (canEmail) {
+          const emailResult = await sendTransactionalEmail({
+            to: recipient.email,
+            toName: recipient.name ?? undefined,
+            templateKey: "webhook_issue",
+            data: {
+              recipientName: recipient.name ?? recipient.email,
+              webhookName: wh.name,
+              issueType,
+              details,
+              webhooksUrl: `${frontendUrl}/dashboard/integrations/webhooks`,
+            },
+          });
+          if (emailResult.success) result.emailsSent++;
+          else { result.emailsFailed++; result.errors.push(`Email to ${recipient.email} failed: ${emailResult.error}`); }
+        }
+      }
+      logger.info("Webhook issue automation completed", result);
+    } catch (error: any) {
+      result.errors.push(error?.message ?? String(error));
+      logger.error("Error in webhook issue automation:", error);
+    }
+    return result;
+  }
+
+  async handleNewLeadNotContacted(): Promise<{
+    leadsFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const result = { leadsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+    const disabledOrgs = await this.getDisabledOrgIds("new-lead-not-contacted");
+
+    try {
+      const newLeads = await database
+        .select({
+          id: clients.id,
+          name: clients.name,
+          organizationId: clients.organizationId,
+          assignedTo: clients.assignedTo,
+          createdAt: clients.createdAt,
+        })
+        .from(clients)
+        .where(
+          and(
+            eq(clients.clientType, "lead"),
+            eq(clients.status, "New Lead"),
+            lt(clients.createdAt, twentyFourHoursAgo),
+          ),
+        );
+
+      for (const lead of newLeads) {
+        if (disabledOrgs.has(lead.organizationId)) continue;
+
+        // Skip if already notified recently (check notifications table)
+        const recentNotif = await database
+          .select({ id: notifications.id })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.organizationId, lead.organizationId),
+              eq(notifications.type, "lead_not_contacted"),
+              sql`${notifications.data}->>'leadId' = ${lead.id}`,
+              gte(notifications.createdAt, twentyFourHoursAgo),
+            ),
+          )
+          .limit(1);
+        if (recentNotif.length > 0) continue;
+
+        result.leadsFound++;
+
+        let recipient: { id: string; name: string | null; email: string } | null = null;
+        if (lead.assignedTo) {
+          const rows = await database.select({ id: users.id, name: users.name, email: users.email }).from(users).where(eq(users.id, lead.assignedTo)).limit(1);
+          recipient = rows[0] ?? null;
+        }
+        if (!recipient) recipient = await this.getOrgOwnerUser(lead.organizationId);
+        if (!recipient) { result.errors.push(`Lead ${lead.id}: no recipient`); continue; }
+
+        const hoursAgo = Math.floor((now.getTime() - new Date(lead.createdAt).getTime()) / 3_600_000);
+
+        await this.createNotification({
+          userId: recipient.id,
+          organizationId: lead.organizationId,
+          type: "lead_not_contacted",
+          title: "New Lead Not Contacted",
+          message: `Lead "${lead.name}" was created ${hoursAgo}h ago with no interactions.`,
+          data: { leadId: lead.id },
+        });
+
+        const canEmail = await this.userEmailEnabled(recipient.id, "emailNotifications");
+        if (canEmail) {
+          const emailResult = await sendTransactionalEmail({
+            to: recipient.email,
+            toName: recipient.name ?? undefined,
+            templateKey: "new_lead_not_contacted",
+            data: {
+              recipientName: recipient.name ?? recipient.email,
+              leadName: lead.name,
+              hoursAgo,
+              leadUrl: `${frontendUrl}/dashboard/leads/${lead.id}`,
+            },
+          });
+          if (emailResult.success) result.emailsSent++;
+          else { result.emailsFailed++; result.errors.push(`Email to ${recipient.email} failed: ${emailResult.error}`); }
+        }
+      }
+      logger.info("New lead not contacted automation completed", result);
+    } catch (error: any) {
+      result.errors.push(error?.message ?? String(error));
+      logger.error("Error in new-lead-not-contacted automation:", error);
+    }
+    return result;
+  }
+
+  async handleClientInactivity(): Promise<{
+    clientsFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const result = { clientsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+    const disabledOrgs = await this.getDisabledOrgIds("client-inactivity");
+
+    try {
+      const allClients = await database
+        .select({
+          id: clients.id,
+          name: clients.name,
+          organizationId: clients.organizationId,
+        })
+        .from(clients)
+        .where(eq(clients.clientType, "client"));
+
+      for (const client of allClients) {
+        if (disabledOrgs.has(client.organizationId)) continue;
+
+        // Check active projects in last 30 days
+        const [activeProjects] = await database
+          .select({ c: count() })
+          .from(projects)
+          .where(
+            and(
+              eq(projects.clientId, client.id),
+              ne(projects.status, "completed"),
+              gte(projects.updatedAt, thirtyDaysAgo),
+            ),
+          );
+        if ((activeProjects?.c ?? 0) > 0) continue;
+
+        // Check notification guard — already notified in last 7 days?
+        const recentNotif = await database
+          .select({ id: notifications.id })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.organizationId, client.organizationId),
+              eq(notifications.type, "client_inactive"),
+              sql`${notifications.data}->>'clientId' = ${client.id}`,
+              gte(notifications.createdAt, sevenDaysAgo),
+            ),
+          )
+          .limit(1);
+        if (recentNotif.length > 0) continue;
+
+        result.clientsFound++;
+
+        const recipient = await this.getOrgOwnerUser(client.organizationId);
+        if (!recipient) { result.errors.push(`Client ${client.id}: no org owner`); continue; }
+
+        await this.createNotification({
+          userId: recipient.id,
+          organizationId: client.organizationId,
+          type: "client_inactive",
+          title: "Client Inactivity",
+          message: `Client "${client.name}" has no active projects or tasks in the last 30 days.`,
+          data: { clientId: client.id },
+        });
+
+        const canEmail = await this.userEmailEnabled(recipient.id, "projectActivityUpdates");
+        if (canEmail) {
+          const emailResult = await sendTransactionalEmail({
+            to: recipient.email,
+            toName: recipient.name ?? undefined,
+            templateKey: "client_inactivity",
+            data: {
+              recipientName: recipient.name ?? recipient.email,
+              clientName: client.name,
+              daysSinceActivity: 30,
+              clientUrl: `${frontendUrl}/dashboard/clients/${client.id}`,
+            },
+          });
+          if (emailResult.success) result.emailsSent++;
+          else { result.emailsFailed++; result.errors.push(`Email to ${recipient.email} failed: ${emailResult.error}`); }
+        }
+      }
+      logger.info("Client inactivity automation completed", result);
+    } catch (error: any) {
+      result.errors.push(error?.message ?? String(error));
+      logger.error("Error in client inactivity automation:", error);
+    }
+    return result;
+  }
+
+  async handleSupportTicketUnanswered(): Promise<{
+    ticketsFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const result = { ticketsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+    const disabledOrgs = await this.getDisabledOrgIds("support-ticket-unanswered");
+
+    try {
+      const openTickets = await database
+        .select({
+          id: supportTickets.id,
+          ticketNumber: supportTickets.ticketNumber,
+          subject: supportTickets.subject,
+          submittedby: supportTickets.submittedby,
+          createdon: supportTickets.createdon,
+        })
+        .from(supportTickets)
+        .where(
+          and(
+            eq(supportTickets.status, "open"),
+            lt(supportTickets.createdon, twentyFourHoursAgo),
+          ),
+        );
+
+      for (const ticket of openTickets) {
+        // Check if any response message exists (besides submitter's initial message)
+        const [responseCount] = await database
+          .select({ c: count() })
+          .from(supportTicketMessages)
+          .where(
+            and(
+              eq(supportTicketMessages.ticketId, ticket.id),
+              ne(supportTicketMessages.senderId, ticket.submittedby),
+            ),
+          );
+        if ((responseCount?.c ?? 0) > 0) continue;
+
+        // Resolve submitter's org to notify the owner
+        const orgRows = await database
+          .select({ organizationId: userOrganizations.organizationId })
+          .from(userOrganizations)
+          .where(eq(userOrganizations.userId, ticket.submittedby))
+          .limit(1);
+        const orgId = orgRows[0]?.organizationId;
+        if (!orgId || disabledOrgs.has(orgId)) continue;
+
+        // 24h guard via notifications table
+        const recentNotif = await database
+          .select({ id: notifications.id })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.organizationId, orgId),
+              eq(notifications.type, "support_ticket_unanswered"),
+              sql`${notifications.data}->>'ticketId' = ${ticket.id}`,
+              gte(notifications.createdAt, twentyFourHoursAgo),
+            ),
+          )
+          .limit(1);
+        if (recentNotif.length > 0) continue;
+
+        result.ticketsFound++;
+
+        const recipient = await this.getOrgOwnerUser(orgId);
+        if (!recipient) { result.errors.push(`Ticket ${ticket.id}: no org owner`); continue; }
+
+        const hoursOpen = Math.floor((now.getTime() - new Date(ticket.createdon).getTime()) / 3_600_000);
+
+        await this.createNotification({
+          userId: recipient.id,
+          organizationId: orgId,
+          type: "support_ticket_unanswered",
+          title: "Support Ticket Unanswered",
+          message: `Ticket #${ticket.ticketNumber} "${ticket.subject}" has been open ${hoursOpen}h with no response.`,
+          data: { ticketId: ticket.id },
+        });
+
+        const canEmail = await this.userEmailEnabled(recipient.id, "emailNotifications");
+        if (canEmail) {
+          const emailResult = await sendTransactionalEmail({
+            to: recipient.email,
+            toName: recipient.name ?? undefined,
+            templateKey: "support_ticket_unanswered",
+            data: {
+              recipientName: recipient.name ?? recipient.email,
+              ticketNumber: ticket.ticketNumber,
+              subject: ticket.subject,
+              hoursOpen,
+              ticketUrl: `${frontendUrl}/dashboard/support/${ticket.id}`,
+            },
+          });
+          if (emailResult.success) result.emailsSent++;
+          else { result.emailsFailed++; result.errors.push(`Email to ${recipient.email} failed: ${emailResult.error}`); }
+        }
+      }
+      logger.info("Support ticket unanswered automation completed", result);
+    } catch (error: any) {
+      result.errors.push(error?.message ?? String(error));
+      logger.error("Error in support ticket unanswered automation:", error);
+    }
+    return result;
+  }
+
+  async handleTrialAndUsageLimits(): Promise<{
+    organizationsFound: number;
+    emailsSent: number;
+    emailsFailed: number;
+    errors: string[];
+  }> {
+    const now = new Date();
+    const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const result = { organizationsFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
+    const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
+    const disabledOrgs = await this.getDisabledOrgIds("trial-and-usage");
+
+    try {
+      const allOrgs = await database
+        .select({
+          id: organizations.id,
+          name: organizations.name,
+          trialEndsAt: organizations.trialEndsAt,
+          subscriptionStatus: organizations.subscriptionStatus,
+          maxUsers: organizations.maxUsers,
+          maxProjects: organizations.maxProjects,
+        })
+        .from(organizations)
+        .where(ne(organizations.status, "inactive"));
+
+      for (const org of allOrgs) {
+        if (disabledOrgs.has(org.id)) continue;
+
+        const recipient = await this.getOrgOwnerUser(org.id);
+        if (!recipient) continue;
+
+        const upgradeUrl = `${frontendUrl}/dashboard/billing`;
+        let notified = false;
+
+        // Trial ending check
+        if (
+          org.subscriptionStatus === "trial" &&
+          org.trialEndsAt &&
+          new Date(org.trialEndsAt) <= threeDaysFromNow &&
+          new Date(org.trialEndsAt) > now
+        ) {
+          const recentTrialNotif = await database
+            .select({ id: notifications.id })
+            .from(notifications)
+            .where(
+              and(
+                eq(notifications.userId, recipient.id),
+                eq(notifications.type, "trial_ending"),
+                gte(notifications.createdAt, sevenDaysAgo),
+              ),
+            )
+            .limit(1);
+
+          if (recentTrialNotif.length === 0) {
+            const daysLeft = Math.ceil((new Date(org.trialEndsAt).getTime() - now.getTime()) / 86_400_000);
+            result.organizationsFound++;
+            notified = true;
+
+            await this.createNotification({
+              userId: recipient.id,
+              organizationId: org.id,
+              type: "trial_ending",
+              title: "Trial Ending Soon",
+              message: `Your trial ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}. Upgrade to keep access.`,
+              data: {},
+            });
+
+            const canEmail = await this.userEmailEnabled(recipient.id, "emailNotifications");
+            if (canEmail) {
+              const emailResult = await sendTransactionalEmail({
+                to: recipient.email,
+                toName: recipient.name ?? undefined,
+                templateKey: "trial_ending",
+                data: { recipientName: recipient.name ?? recipient.email, organizationName: org.name, daysLeft, upgradeUrl },
+              });
+              if (emailResult.success) result.emailsSent++;
+              else { result.emailsFailed++; result.errors.push(`Trial email to ${recipient.email} failed: ${emailResult.error}`); }
+            }
+          }
+        }
+
+        // Usage limit check — users
+        const [userCount] = await database.select({ c: count() }).from(userOrganizations).where(eq(userOrganizations.organizationId, org.id));
+        const userUsagePercent = org.maxUsers ? Math.round(((userCount?.c ?? 0) / org.maxUsers) * 100) : 0;
+
+        if (userUsagePercent >= 80) {
+          const recentUsageNotif = await database
+            .select({ id: notifications.id })
+            .from(notifications)
+            .where(
+              and(
+                eq(notifications.userId, recipient.id),
+                eq(notifications.type, "plan_usage_limit"),
+                gte(notifications.createdAt, sevenDaysAgo),
+              ),
+            )
+            .limit(1);
+
+          if (recentUsageNotif.length === 0) {
+            if (!notified) result.organizationsFound++;
+            notified = true;
+
+            await this.createNotification({
+              userId: recipient.id,
+              organizationId: org.id,
+              type: "plan_usage_limit",
+              title: "Plan Usage Near Limit",
+              message: `You've used ${userUsagePercent}% of your user slots (${userCount?.c ?? 0}/${org.maxUsers}).`,
+              data: {},
+            });
+
+            const canEmail = await this.userEmailEnabled(recipient.id, "emailNotifications");
+            if (canEmail) {
+              const emailResult = await sendTransactionalEmail({
+                to: recipient.email,
+                toName: recipient.name ?? undefined,
+                templateKey: "plan_usage_limit",
+                data: { recipientName: recipient.name ?? recipient.email, organizationName: org.name, resourceName: "user seats", usagePercent: userUsagePercent, upgradeUrl },
+              });
+              if (emailResult.success) result.emailsSent++;
+              else { result.emailsFailed++; result.errors.push(`Usage email to ${recipient.email} failed: ${emailResult.error}`); }
+            }
+          }
+        }
+      }
+      logger.info("Trial and usage limits automation completed", result);
+    } catch (error: any) {
+      result.errors.push(error?.message ?? String(error));
+      logger.error("Error in trial and usage limits automation:", error);
+    }
     return result;
   }
 
