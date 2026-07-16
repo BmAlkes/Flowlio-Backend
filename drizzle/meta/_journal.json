@@ -116,6 +116,13 @@
       "when": 1777504550774,
       "tag": "0012_modern_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1752677400000,
+      "tag": "0030_automation_tables",
+      "breakpoints": true
     }
   ]
 }
