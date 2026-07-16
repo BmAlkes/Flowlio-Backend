@@ -176,7 +176,6 @@ export const taskOverdueTemplate = ({
   taskTitle,
   projectName,
   endDate,
-  taskUrl,
   fallbackNote,
 }: {
   assigneeName: string;
@@ -206,13 +205,11 @@ export const taskOverdueTemplate = ({
         <p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Project: <b>${projectName}</b></p>
         <p style="margin: 0; font-size: 14px; color: #dc2626;">Due date: <b>${endDate}</b></p>
       </div>
-      ${taskUrl ? `
       <div style="text-align: center; margin: 28px 0;">
-        <a href="${taskUrl}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-          View Task
+        <a href="${LOGIN_URL}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          Open Flowlio
         </a>
       </div>
-      ` : ""}
       <p style="font-size: 14px; color: #6b7280;">
         Please update the task status or reschedule it as soon as possible to keep the project on track.
       </p>
@@ -230,7 +227,6 @@ export const projectRiskTemplate = ({
   projectNumber,
   riskScore,
   reasons,
-  projectUrl,
 }: {
   recipientName: string;
   projectName: string;
@@ -262,13 +258,11 @@ export const projectRiskTemplate = ({
         </ul>
         ` : ""}
       </div>
-      ${projectUrl ? `
       <div style="text-align: center; margin: 28px 0;">
-        <a href="${projectUrl}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-          View Project
+        <a href="${LOGIN_URL}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          Open Flowlio
         </a>
       </div>
-      ` : ""}
       <p style="font-size: 14px; color: #6b7280;">
         Please review the project and take action to reduce the risk before it impacts the delivery timeline.
       </p>
@@ -285,7 +279,6 @@ export const leadFollowUpTemplate = ({
   leadName,
   followUpAt,
   businessIndustry,
-  leadUrl,
 }: {
   recipientName: string;
   leadName: string;
@@ -308,13 +301,11 @@ export const leadFollowUpTemplate = ({
         ${businessIndustry ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Industry: <b>${businessIndustry}</b></p>` : ""}
         <p style="margin: 0; font-size: 14px; color: #d97706;">Follow-up was due: <b>${followUpAt}</b></p>
       </div>
-      ${leadUrl ? `
       <div style="text-align: center; margin: 28px 0;">
-        <a href="${leadUrl}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
-          View Lead
+        <a href="${LOGIN_URL}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          Open Flowlio
         </a>
       </div>
-      ` : ""}
       <p style="font-size: 14px; color: #6b7280;">
         Reach out to ${leadName} as soon as possible to keep the conversation moving forward.
       </p>
@@ -424,6 +415,12 @@ export const weeklySummaryTemplate = ({
       </ul>
       ` : ""}
 
+      <div style="text-align: center; margin: 32px 0;">
+        <a href="${LOGIN_URL}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 16px; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: bold;">
+          Open Flowlio
+        </a>
+      </div>
+
       <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;" />
       <p style="font-size: 13px; color: #bbb; text-align: center;">
         &copy; ${new Date().getFullYear()} Flowlio. All rights reserved.
@@ -477,6 +474,8 @@ export { newsletterTemplate };
 
 // ==================== AUTOMATION TEMPLATES ====================
 
+const LOGIN_URL = "https://flowlioapp.com/auth/signin";
+
 const automationFooter = (year = new Date().getFullYear()) => `
   <hr style="border:none;border-top:1px solid #eee;margin:24px 0;" />
   <p style="font-size:13px;color:#bbb;text-align:center;">&copy; ${year} Flowlio. All rights reserved.</p>`;
@@ -509,7 +508,7 @@ export function invoiceOverdueTemplate(d: InvoiceOverdueEmailData): string {
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;">Invoice <b>${d.invoiceNumber}</b> for client <b>${d.clientname}</b> of <b>${d.amount}</b> was due on <b>${d.dueDate}</b> and has not been paid.</p>
      <p style="color:#555;font-size:14px;">Please follow up with your client or update the invoice status if payment has been received.</p>`,
-    "View Invoice", d.invoiceUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
 
@@ -527,7 +526,7 @@ export function paymentLinkReminderTemplate(d: PaymentLinkReminderEmailData): st
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;">A payment link for client <b>${d.clientname}</b> of <b>${d.amount}</b> was created on <b>${d.createdAt}</b> and is still unpaid.</p>
      <p style="color:#555;font-size:14px;">Consider following up with your client to complete the payment.</p>`,
-    "View Payment Link", d.paymentUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
 
@@ -546,7 +545,7 @@ export function webhookIssueTemplate(d: WebhookIssueEmailData): string {
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;">Your webhook <b>${d.webhookName}</b> may have an issue: <b>${d.details}</b>.</p>
      <p style="color:#555;font-size:14px;">Please check your webhook configuration and confirm it is receiving data correctly.</p>`,
-    "View Webhooks", d.webhooksUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
 
@@ -563,7 +562,7 @@ export function newLeadNotContactedTemplate(d: NewLeadNotContactedEmailData): st
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;">Lead <b>${d.leadName}</b> was created <b>${d.hoursAgo} hours ago</b> and has had no interactions yet.</p>
      <p style="color:#555;font-size:14px;">Reach out soon — first contact significantly improves conversion rates.</p>`,
-    "View Lead", d.leadUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
 
@@ -580,7 +579,7 @@ export function clientInactivityTemplate(d: ClientInactivityEmailData): string {
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;">Client <b>${d.clientName}</b> has had no active projects or tasks in the last <b>${d.daysSinceActivity} days</b>.</p>
      <p style="color:#555;font-size:14px;">This may be an opportunity to re-engage or close the relationship.</p>`,
-    "View Client", d.clientUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
 
@@ -598,7 +597,7 @@ export function supportTicketUnansweredTemplate(d: SupportTicketUnansweredEmailD
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;">Ticket <b>#${d.ticketNumber}</b> — <b>${d.subject}</b> — has been open for <b>${d.hoursOpen} hours</b> without a response from your team.</p>
      <p style="color:#555;font-size:14px;">Please reply to avoid leaving your client waiting.</p>`,
-    "View Ticket", d.ticketUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
 
@@ -615,7 +614,7 @@ export function trialEndingTemplate(d: TrialEndingEmailData): string {
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;">Your Flowlio trial for <b>${d.organizationName}</b> ends in <b>${d.daysLeft} day${d.daysLeft === 1 ? "" : "s"}</b>.</p>
      <p style="color:#555;font-size:14px;">Upgrade now to keep uninterrupted access to all your data and features.</p>`,
-    "Upgrade Now", d.upgradeUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
 
@@ -633,6 +632,6 @@ export function planUsageLimitTemplate(d: PlanUsageLimitEmailData): string {
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
      <p style="color:#555;font-size:15px;"><b>${d.organizationName}</b> has used <b>${d.usagePercent}%</b> of its <b>${d.resourceName}</b> limit.</p>
      <p style="color:#555;font-size:14px;">Consider upgrading your plan to avoid disruptions when the limit is reached.</p>`,
-    "Upgrade Plan", d.upgradeUrl,
+    "Open Flowlio", LOGIN_URL,
   );
 }
