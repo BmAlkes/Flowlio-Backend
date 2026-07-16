@@ -5,9 +5,10 @@ import { logger } from "@/utils/logger.util";
 
 export const runPaymentLinkReminderAutomation = async (req: Request, res: Response): Promise<void> => {
   try {
-    logger.info("Manual trigger: payment link reminder automation");
-    const result = await automationService.handlePaymentLinkReminder();
-    await recordAutomationRun("payment-link-reminder", result, "manual", req.user?.organizationId ?? null);
+    const organizationId: string | undefined = req.body?.organizationId || undefined;
+    logger.info("Manual trigger: payment link reminder automation", { organizationId });
+    const result = await automationService.handlePaymentLinkReminder({ organizationId });
+    await recordAutomationRun("payment-link-reminder", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Links found: ${result.linksFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {
     logger.error("Error running payment link reminder automation manually:", error);

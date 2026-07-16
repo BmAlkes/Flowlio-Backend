@@ -103,7 +103,7 @@ export class AutomationService {
    * a one-time email to the assignee and the project manager.
    * Runs daily via cron. Returns a result object for observability.
    */
-  async handleOverdueTasks(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handleOverdueTasks(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     tasksFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -116,6 +116,7 @@ export class AutomationService {
     logger.info("Running overdue task automation check...");
 
     try {
+      const orgFilter = opts?.organizationId ? eq(projects.organizationId, opts.organizationId) : undefined;
       const overdueTasks = await database
         .select({
           id: tasks.id,
@@ -140,6 +141,7 @@ export class AutomationService {
                 sql`now() - interval '${sql.raw(String(OVERDUE_REMINDER_INTERVAL_DAYS))} days'`,
               ),
             ),
+            orgFilter,
           ),
         );
 
@@ -380,7 +382,7 @@ export class AutomationService {
    * sends email notifications, and auto-resolves projects that are no longer at risk.
    * Runs daily via cron.
    */
-  async handleProjectRiskAlerts(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handleProjectRiskAlerts(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     projectsFound: number;
     alertsCreated: number;
     alertsResolved: number;
@@ -404,10 +406,10 @@ export class AutomationService {
     try {
       const frontendUrl = env.FRONTEND_DOMAIN || "https://flowlioapp.com";
 
-      // Fetch all active organizations
-      const allOrgs = await database
-        .select({ id: organizations.id })
-        .from(organizations);
+      // Fetch organizations (scoped to one org when organizationId is provided)
+      const allOrgs = opts?.organizationId
+        ? [{ id: opts.organizationId }]
+        : await database.select({ id: organizations.id }).from(organizations);
 
       logger.info(`Project risk automation: found ${allOrgs.length} org(s) to evaluate`);
 
@@ -584,7 +586,7 @@ export class AutomationService {
    * Finds leads whose follow-up date has passed and sends an email reminder.
    * Re-alerts every 7 days while the follow-up remains overdue.
    */
-  async handleLeadFollowUpOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handleLeadFollowUpOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     leadsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -599,6 +601,7 @@ export class AutomationService {
     logger.info("Running lead follow-up overdue automation...");
 
     try {
+      const orgFilter = opts?.organizationId ? eq(clients.organizationId, opts.organizationId) : undefined;
       const overdueLeads = await database
         .select({
           id: clients.id,
@@ -620,6 +623,7 @@ export class AutomationService {
               isNull(clients.followupNotifiedAt),
               lt(clients.followupNotifiedAt, sevenDaysAgo),
             ),
+            orgFilter,
           ),
         );
 
@@ -712,7 +716,7 @@ export class AutomationService {
    * activity during the past 7 days. Powered by the same OpenAI call as the
    * on-demand /ai/weekly-summary endpoint.
    */
-  async handleWeeklySummary(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handleWeeklySummary(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     organizationsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -728,9 +732,9 @@ export class AutomationService {
     logger.info(`Running weekly summary automation for week ${weekLabel}...`);
 
     try {
-      const allOrgs = await database
-        .select({ id: organizations.id, name: organizations.name })
-        .from(organizations);
+      const allOrgs = opts?.organizationId
+        ? await database.select({ id: organizations.id, name: organizations.name }).from(organizations).where(eq(organizations.id, opts.organizationId))
+        : await database.select({ id: organizations.id, name: organizations.name }).from(organizations);
 
       for (const org of allOrgs) {
         if (excludedOrgs.has(org.id)) continue;
@@ -908,7 +912,7 @@ export class AutomationService {
 
   // ==================== NEW AUTOMATIONS ====================
 
-  async handleInvoiceOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handleInvoiceOverdue(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     invoicesFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -938,6 +942,7 @@ export class AutomationService {
             ne(invoices.status, "cancelled"),
             lt(invoices.dueDate, now),
             or(isNull(invoices.overdueNotifiedAt), lt(invoices.overdueNotifiedAt, sevenDaysAgo)),
+            opts?.organizationId ? eq(invoices.organizationId, opts.organizationId) : undefined,
           ),
         );
 
@@ -995,7 +1000,7 @@ export class AutomationService {
     return result;
   }
 
-  async handlePaymentLinkReminder(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handlePaymentLinkReminder(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     linksFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1023,6 +1028,7 @@ export class AutomationService {
             eq(paymentLinks.status, "unpaid"),
             lt(paymentLinks.createdAt, sevenDaysAgo),
             or(isNull(paymentLinks.reminderNotifiedAt), lt(paymentLinks.reminderNotifiedAt, sevenDaysAgo)),
+            opts?.organizationId ? eq(paymentLinks.organizationId, opts.organizationId) : undefined,
           ),
         );
 
@@ -1076,7 +1082,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleWebhookIssue(): Promise<{
+  async handleWebhookIssue(opts?: { organizationId?: string }): Promise<{
     webhooksFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1097,7 +1103,12 @@ export class AutomationService {
           createdAt: leadWebhooks.createdAt,
         })
         .from(leadWebhooks)
-        .where(eq(leadWebhooks.active, true));
+        .where(
+          and(
+            eq(leadWebhooks.active, true),
+            opts?.organizationId ? eq(leadWebhooks.orgId, opts.organizationId) : undefined,
+          ),
+        );
 
       for (const wh of activeWebhooks) {
         if (disabledOrgs.has(wh.orgId)) continue;
@@ -1178,7 +1189,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleNewLeadNotContacted(): Promise<{
+  async handleNewLeadNotContacted(opts?: { organizationId?: string }): Promise<{
     leadsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1205,6 +1216,7 @@ export class AutomationService {
             eq(clients.clientType, "lead"),
             eq(clients.status, "New Lead"),
             lt(clients.createdAt, twentyFourHoursAgo),
+            opts?.organizationId ? eq(clients.organizationId, opts.organizationId) : undefined,
           ),
         );
 
@@ -1272,7 +1284,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleClientInactivity(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handleClientInactivity(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     clientsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1293,7 +1305,12 @@ export class AutomationService {
           organizationId: clients.organizationId,
         })
         .from(clients)
-        .where(eq(clients.clientType, "client"));
+        .where(
+          and(
+            eq(clients.clientType, "client"),
+            opts?.organizationId ? eq(clients.organizationId, opts.organizationId) : undefined,
+          ),
+        );
 
       for (const client of allClients) {
         if (disabledOrgs.has(client.organizationId)) continue;
@@ -1365,7 +1382,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleSupportTicketUnanswered(): Promise<{
+  async handleSupportTicketUnanswered(opts?: { organizationId?: string }): Promise<{
     ticketsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1415,6 +1432,7 @@ export class AutomationService {
           .limit(1);
         const orgId = orgRows[0]?.organizationId;
         if (!orgId || disabledOrgs.has(orgId)) continue;
+        if (opts?.organizationId && orgId !== opts.organizationId) continue;
 
         // 24h guard via notifications table
         const recentNotif = await database
@@ -1473,7 +1491,7 @@ export class AutomationService {
     return result;
   }
 
-  async handleTrialAndUsageLimits(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number } }): Promise<{
+  async handleTrialAndUsageLimits(opts?: { scheduleFilter?: { currentHour: number; defaultHour: number }; organizationId?: string }): Promise<{
     organizationsFound: number;
     emailsSent: number;
     emailsFailed: number;
@@ -1497,7 +1515,12 @@ export class AutomationService {
           maxProjects: organizations.maxProjects,
         })
         .from(organizations)
-        .where(ne(organizations.status, "inactive"));
+        .where(
+          and(
+            ne(organizations.status, "inactive"),
+            opts?.organizationId ? eq(organizations.id, opts.organizationId) : undefined,
+          ),
+        );
 
       for (const org of allOrgs) {
         if (disabledOrgs.has(org.id)) continue;

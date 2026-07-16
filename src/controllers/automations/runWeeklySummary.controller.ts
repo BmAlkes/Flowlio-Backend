@@ -5,9 +5,10 @@ import { logger } from "@/utils/logger.util";
 
 export const runWeeklySummaryAutomation = async (req: Request, res: Response): Promise<void> => {
   try {
-    logger.info("Manual trigger: weekly summary automation");
-    const result = await automationService.handleWeeklySummary();
-    await recordAutomationRun("weekly-summary", result, "manual", req.user?.organizationId ?? null);
+    const organizationId: string | undefined = req.body?.organizationId || undefined;
+    logger.info("Manual trigger: weekly summary automation", { organizationId });
+    const result = await automationService.handleWeeklySummary({ organizationId });
+    await recordAutomationRun("weekly-summary", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Organizations with activity: ${result.organizationsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {
     logger.error("Error running weekly summary automation manually:", error);

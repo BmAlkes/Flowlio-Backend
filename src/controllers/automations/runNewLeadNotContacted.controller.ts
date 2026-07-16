@@ -5,9 +5,10 @@ import { logger } from "@/utils/logger.util";
 
 export const runNewLeadNotContactedAutomation = async (req: Request, res: Response): Promise<void> => {
   try {
-    logger.info("Manual trigger: new lead not contacted automation");
-    const result = await automationService.handleNewLeadNotContacted();
-    await recordAutomationRun("new-lead-not-contacted", result, "manual", req.user?.organizationId ?? null);
+    const organizationId: string | undefined = req.body?.organizationId || undefined;
+    logger.info("Manual trigger: new lead not contacted automation", { organizationId });
+    const result = await automationService.handleNewLeadNotContacted({ organizationId });
+    await recordAutomationRun("new-lead-not-contacted", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Leads found: ${result.leadsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
   } catch (error) {
     logger.error("Error running new lead not contacted automation manually:", error);
