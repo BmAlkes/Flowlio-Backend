@@ -4,6 +4,22 @@ import {
   projectRiskTemplate,
   leadFollowUpTemplate,
   weeklySummaryTemplate,
+  invoiceOverdueTemplate,
+  paymentLinkReminderTemplate,
+  webhookIssueTemplate,
+  newLeadNotContactedTemplate,
+  clientInactivityTemplate,
+  supportTicketUnansweredTemplate,
+  trialEndingTemplate,
+  planUsageLimitTemplate,
+  type InvoiceOverdueEmailData,
+  type PaymentLinkReminderEmailData,
+  type WebhookIssueEmailData,
+  type NewLeadNotContactedEmailData,
+  type ClientInactivityEmailData,
+  type SupportTicketUnansweredEmailData,
+  type TrialEndingEmailData,
+  type PlanUsageLimitEmailData,
 } from "@/utils/brevo.util";
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
@@ -12,7 +28,15 @@ export type TransactionalTemplateKey =
   | "task_overdue"
   | "project_risk"
   | "lead_follow_up"
-  | "weekly_summary";
+  | "weekly_summary"
+  | "invoice_overdue"
+  | "payment_link_reminder"
+  | "webhook_issue"
+  | "new_lead_not_contacted"
+  | "client_inactivity"
+  | "support_ticket_unanswered"
+  | "trial_ending"
+  | "plan_usage_limit";
 
 interface TaskOverdueData {
   assigneeName: string;
@@ -69,6 +93,14 @@ type TemplateDataMap = {
   project_risk: ProjectRiskData;
   lead_follow_up: LeadFollowUpData;
   weekly_summary: WeeklySummaryData;
+  invoice_overdue: InvoiceOverdueEmailData;
+  payment_link_reminder: PaymentLinkReminderEmailData;
+  webhook_issue: WebhookIssueEmailData;
+  new_lead_not_contacted: NewLeadNotContactedEmailData;
+  client_inactivity: ClientInactivityEmailData;
+  support_ticket_unanswered: SupportTicketUnansweredEmailData;
+  trial_ending: TrialEndingEmailData;
+  plan_usage_limit: PlanUsageLimitEmailData;
 };
 
 export interface EmailResult {
@@ -91,6 +123,22 @@ function buildHtml<K extends TransactionalTemplateKey>(
       return leadFollowUpTemplate(data as LeadFollowUpData);
     case "weekly_summary":
       return weeklySummaryTemplate(data as WeeklySummaryData);
+    case "invoice_overdue":
+      return invoiceOverdueTemplate(data as InvoiceOverdueEmailData);
+    case "payment_link_reminder":
+      return paymentLinkReminderTemplate(data as PaymentLinkReminderEmailData);
+    case "webhook_issue":
+      return webhookIssueTemplate(data as WebhookIssueEmailData);
+    case "new_lead_not_contacted":
+      return newLeadNotContactedTemplate(data as NewLeadNotContactedEmailData);
+    case "client_inactivity":
+      return clientInactivityTemplate(data as ClientInactivityEmailData);
+    case "support_ticket_unanswered":
+      return supportTicketUnansweredTemplate(data as SupportTicketUnansweredEmailData);
+    case "trial_ending":
+      return trialEndingTemplate(data as TrialEndingEmailData);
+    case "plan_usage_limit":
+      return planUsageLimitTemplate(data as PlanUsageLimitEmailData);
     default:
       throw new Error(`Unknown email template: ${templateKey}`);
   }
@@ -106,6 +154,22 @@ function buildSubject(templateKey: TransactionalTemplateKey, data: any): string 
       return `[Flowlio] Overdue follow-up: ${data.leadName}`;
     case "weekly_summary":
       return `[Flowlio] Weekly summary: ${data.weekLabel}`;
+    case "invoice_overdue":
+      return `[Flowlio] Invoice overdue: ${data.invoiceNumber} — ${data.clientname}`;
+    case "payment_link_reminder":
+      return `[Flowlio] Payment link reminder: ${data.clientname}`;
+    case "webhook_issue":
+      return `[Flowlio] Webhook issue detected: ${data.webhookName}`;
+    case "new_lead_not_contacted":
+      return `[Flowlio] New lead not contacted: ${data.leadName}`;
+    case "client_inactivity":
+      return `[Flowlio] Client inactivity: ${data.clientName}`;
+    case "support_ticket_unanswered":
+      return `[Flowlio] Support ticket unanswered: #${data.ticketNumber}`;
+    case "trial_ending":
+      return `[Flowlio] Your trial ends in ${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"}`;
+    case "plan_usage_limit":
+      return `[Flowlio] Plan usage alert: ${data.resourceName} at ${data.usagePercent}%`;
     default:
       return "Flowlio Notification";
   }
