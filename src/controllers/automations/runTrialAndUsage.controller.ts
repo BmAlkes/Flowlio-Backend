@@ -5,8 +5,13 @@ import { logger } from "@/utils/logger.util";
 
 export const runTrialAndUsageAutomation = async (req: Request, res: Response): Promise<void> => {
   try {
-    const organizationId: string | undefined = req.body?.organizationId || undefined;
-    logger.info("Manual trigger: trial and usage limits automation", { organizationId });
+    const organizationId: string | undefined = (req.body?.organizationId as string)?.trim() || undefined;
+    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
+    logger.info("Manual trigger: trial and usage limits automation", { organizationId, isSuperAdmin });
+    if (!organizationId && !isSuperAdmin) {
+      res.status(400).json({ success: false, message: "organizationId is required" });
+      return;
+    }
     const result = await automationService.handleTrialAndUsageLimits({ organizationId });
     await recordAutomationRun("trial-and-usage", result, "manual", organizationId ?? null);
     res.status(200).json({ success: true, message: `Organizations found: ${result.organizationsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
