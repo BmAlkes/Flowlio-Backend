@@ -56,3 +56,39 @@ export const notifyProjectComment = async (params: {
     logger.error("Error in notifyProjectComment:", error);
   }
 };
+
+export const notifyCommentMentions = async (params: {
+  commentId: string;
+  projectId: string;
+  taskId?: string | null;
+  mentions: string[];
+  actor: { id: string; name: string };
+  organizationId: string;
+}) => {
+  const { commentId, projectId, taskId, mentions, actor, organizationId } = params;
+
+  if (!mentions || mentions.length === 0) return;
+
+  try {
+    const uniqueMentions = [...new Set(mentions)].filter((id) => id !== actor.id);
+    if (uniqueMentions.length === 0) return;
+
+    await Promise.allSettled(
+      uniqueMentions.map((userId) =>
+        database.insert(notifications).values({
+          id: crypto.randomUUID(),
+          userId,
+          organizationId,
+          type: "comment_mention",
+          title: `${actor.name} mentioned you in a comment`,
+          message: `You were mentioned in a comment`,
+          data: { projectId, taskId: taskId ?? null, commentId },
+          read: false,
+          createdAt: new Date(),
+        })
+      )
+    );
+  } catch (error) {
+    logger.error("Error in notifyCommentMentions:", error);
+  }
+};

@@ -183,10 +183,12 @@ export const createProjectCommentSchema = z.object({
   content: z.string().min(1, "Comment content is required"),
   parentId: z.string().optional(),
   taskId: z.string().optional(),
+  mentions: z.array(z.string()).optional(),
 });
 
 export const updateProjectCommentSchema = z.object({
   content: z.string().min(1, "Comment content is required"),
+  mentions: z.array(z.string()).optional(),
 });
 
 export const createCalendarEventSchema = z

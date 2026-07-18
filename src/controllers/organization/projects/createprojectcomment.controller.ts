@@ -5,7 +5,7 @@ import { z } from "zod";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 import { randomUUID } from "crypto";
-import { notifyProjectComment } from "@/utils/comment-notification.util";
+import { notifyProjectComment, notifyCommentMentions } from "@/utils/comment-notification.util";
 
 interface CreateProjectCommentRequest extends Request {
   body: z.infer<typeof createProjectCommentSchema>;
@@ -118,6 +118,17 @@ export const createProjectComment = async (
         actor: { id: req.user.id, name: req.user.name },
         organizationId,
       }).catch((err) => logger.error("Background comment notification failed:", err));
+
+      if (validatedData.mentions && validatedData.mentions.length > 0) {
+        notifyCommentMentions({
+          commentId: id,
+          projectId: validatedData.projectId,
+          taskId: validatedData.taskId ?? null,
+          mentions: validatedData.mentions,
+          actor: { id: req.user.id, name: req.user.name },
+          organizationId,
+        }).catch((err) => logger.error("Background mention notification failed:", err));
+      }
     }
   } catch (error: any) {
     logger.error("Error creating project comment:", {

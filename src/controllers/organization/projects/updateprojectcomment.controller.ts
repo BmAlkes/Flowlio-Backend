@@ -3,6 +3,7 @@ import { connection } from "@/configs/connection.config";
 import { updateProjectCommentSchema } from "@/schema/validation";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
+import { notifyCommentMentions } from "@/utils/comment-notification.util";
 
 function toUUID(id: string): string {
   if (id.includes("-")) return id;
@@ -49,6 +50,7 @@ export const updateProjectComment = async (req: Request, res: Response) => {
       id: string;
       projectId: string;
       parentId: string | null;
+      taskId: string | null;
       userId: string;
       content: string;
       createdAt: string;
@@ -62,6 +64,7 @@ export const updateProjectComment = async (req: Request, res: Response) => {
           id,
           project_id  AS "projectId",
           parent_id   AS "parentId",
+          task_id     AS "taskId",
           user_id     AS "userId",
           content,
           created_at  AS "createdAt",
@@ -92,6 +95,18 @@ export const updateProjectComment = async (req: Request, res: Response) => {
         updatedAt: comment.updatedAt,
       },
     });
+
+    const organizationId = (req.user as any)?.organizationId as string | undefined;
+    if (organizationId && parsed.data.mentions && parsed.data.mentions.length > 0) {
+      notifyCommentMentions({
+        commentId,
+        projectId: comment.projectId,
+        taskId: comment.taskId ?? null,
+        mentions: parsed.data.mentions,
+        actor: { id: req.user.id, name: userRow.rows[0]?.name ?? req.user.id },
+        organizationId,
+      }).catch((err) => logger.error("Background mention notification failed:", err));
+    }
   } catch (error: any) {
     logger.error("Error updating project comment:", {
       message: error?.message,
