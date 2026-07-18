@@ -2,7 +2,7 @@ import { database } from "@/configs/connection.config";
 import { clients } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import status from "http-status";
 
 export const getOrganizationTotalClients = async (
@@ -28,7 +28,7 @@ export const getOrganizationTotalClients = async (
         totalClients: sql<number>`COUNT(*)`,
       })
       .from(clients)
-      .where(eq(clients.organizationId, organizationId));
+      .where(and(eq(clients.organizationId, organizationId), eq(clients.clientType, "client")));
 
     const totalClients = result[0]?.totalClients || 0;
 
