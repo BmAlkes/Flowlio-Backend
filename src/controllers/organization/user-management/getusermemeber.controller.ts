@@ -83,8 +83,6 @@ export const getAllUserMembers = async (req: Request, res: Response) => {
         createdAt: userManagement.createdAt,
         updatedAt: userManagement.updatedAt,
         lastLoginAt: userManagement.lastLoginAt,
-        loginAttempts: userManagement.loginAttempts,
-        lockedUntil: userManagement.lockedUntil,
         position: userManagement.position,
       })
       .from(userManagement)
@@ -289,8 +287,6 @@ export const getCurrentOrgUserMembers = async (req: Request, res: Response) => {
         createdAt: userManagement.createdAt,
         updatedAt: userManagement.updatedAt,
         lastLoginAt: userManagement.lastLoginAt,
-        loginAttempts: userManagement.loginAttempts,
-        lockedUntil: userManagement.lockedUntil,
         position: userManagement.position,
       })
       .from(userManagement)

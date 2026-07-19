@@ -59,7 +59,11 @@ export const requirePlanFeature = (featureName: string) => {
       next();
     } catch (error) {
       logger.error(`Error checking plan feature ${featureName}:`, error);
-      next();
+      res.status(503).json({
+        success: false,
+        error: "SERVICE_UNAVAILABLE",
+        message: "Unable to verify plan access. Please try again.",
+      });
     }
   };
 };

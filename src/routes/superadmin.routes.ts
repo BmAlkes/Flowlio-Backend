@@ -154,16 +154,17 @@ router.put(
   updateDemoAccount,
 );
 
-// SUB ADMIN ROUTES - require sub admin role
-router.post("/create-subadmin", isAuthenticated, createSubAdmin as any);
-router.get("/fetch-subadmins", isAuthenticated, fetchSubAdmins);
-router.put("/update-subadmin/:id", isAuthenticated, updateSubAdmin as any);
+// SUB ADMIN ROUTES - require super admin role
+router.post("/create-subadmin", isAuthenticated, requireSuperAdmin as any, createSubAdmin as any);
+router.get("/fetch-subadmins", isAuthenticated, requireSuperAdmin as any, fetchSubAdmins);
+router.put("/update-subadmin/:id", isAuthenticated, requireSuperAdmin as any, updateSubAdmin as any);
 router.put(
   "/update-subadmin-permission/:id",
   isAuthenticated,
+  requireSuperAdmin as any,
   updateSubAdminPermission as any,
 );
-router.delete("/delete-subadmin/:id", isAuthenticated, deleteSubAdmin);
+router.delete("/delete-subadmin/:id", isAuthenticated, requireSuperAdmin as any, deleteSubAdmin);
 
 router.use("/plans", isAuthenticated, plansRoutes);
 

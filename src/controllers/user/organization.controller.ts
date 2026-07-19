@@ -18,20 +18,20 @@ export const createOrganizationWithPlan = async (
   res: Response
 ) => {
   try {
+    const userId = req.user?.id;
     const {
-      userId,
       organizationName,
       organizationWebsite,
       organizationIndustry,
       organizationSize,
       planId,
-    }: CreateOrganizationWithPlanRequest = req.body;
+    }: Omit<CreateOrganizationWithPlanRequest, "userId"> = req.body;
 
     // Validate required fields
     if (!userId || !organizationName || !planId) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: userId, organizationName, planId",
+        message: "Missing required fields: organizationName, planId",
       });
     }
 

@@ -76,9 +76,11 @@ const corsOptions: CorsOptions = {
         ? frontendDomain.slice(0, -1)
         : frontendDomain,
       frontendDomain.endsWith("/") ? frontendDomain : frontendDomain + "/",
-      "http://localhost:3000",
-      "http://localhost:4000",
-      "http://localhost:4001",
+      ...((!isProduction && !isRailway) ? [
+        "http://localhost:3000",
+        "http://localhost:4000",
+        "http://localhost:4001",
+      ] : []),
       "https://flowlioapp.com",
       "https://flowlioapp.com/",
     ];
@@ -208,7 +210,8 @@ app.use("/api/auth/sign-up", (_req, res, next) => {
 });
 
 // Mount better-auth handler with activity logging wrapper
-app.all("/api/auth/*splat", (req, res) => {
+// throttle is applied inline because the auth handler terminates before the global throttle middleware
+app.all("/api/auth/*splat", throttle("default"), (req, res) => {
   // Wrap the response to intercept successful auth operations
   authActivityMiddleware(req, res, () => {
     // After middleware sets up interceptors, call the auth handler

@@ -18,8 +18,6 @@ export const getSubscriptionStatus = async (
 ): Promise<void> => {
   try {
     logger.info("Subscription status request received");
-    logger.info("Request headers:", req.headers);
-    logger.info("Request user:", req.user);
 
     const userId = req.user?.id;
     logger.info("User ID:", userId);

@@ -143,7 +143,7 @@ export const auth = betterAuth({
       session_token: {
         attributes: {
           sameSite: isProduction ? "none" : "lax", // 'lax' for dev, 'none' for prod
-          httpOnly: false, // Allow JavaScript access for better debugging
+          httpOnly: true,
           secure: isProduction, // false for dev, true for prod
         },
       },

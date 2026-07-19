@@ -258,13 +258,13 @@ export const capturePayPalOrder = async (
   try {
     const {
       orderId,
-      userId,
       organizationName,
       organizationWebsite,
       organizationIndustry,
       organizationSize,
       planId,
-    }: CapturePayPalOrderRequest = req.body;
+    }: Omit<CapturePayPalOrderRequest, "userId"> = req.body;
+    const userId = req.user?.id;
 
     // Validate required fields
     if (!orderId) {

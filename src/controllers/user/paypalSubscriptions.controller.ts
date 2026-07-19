@@ -221,13 +221,13 @@ export const activatePayPalSubscription = async (
 ): Promise<void> => {
   const {
     subscriptionId,
-    userId,
     organizationName,
     organizationWebsite,
     organizationIndustry,
     organizationSize,
     planId: bodyPlanId,
-  } = req.body as ActivateSubscriptionBody;
+  } = req.body as Omit<ActivateSubscriptionBody, "userId">;
+  const userId = req.user?.id;
 
   if (!subscriptionId) {
     res.status(400).json({ success: false, message: "subscriptionId is required" });
@@ -251,8 +251,7 @@ export const activatePayPalSubscription = async (
       `PayPal subscription ${subscriptionId} status: ${paypalStatus}, plan: ${paypalPlanId}`
     );
 
-    // Accept ACTIVE or APPROVAL_PENDING (webhook confirms later)
-    if (paypalStatus !== "ACTIVE" && paypalStatus !== "APPROVAL_PENDING") {
+    if (paypalStatus !== "ACTIVE") {
       res.status(400).json({
         success: false,
         message: `PayPal subscription is not active. Status: ${paypalStatus}`,
@@ -527,8 +526,8 @@ async function verifyPayPalWebhookSignature(
   try {
     const webhookId = env.PAYPAL_WEBHOOK_ID;
     if (!webhookId) {
-      logger.warn("PAYPAL_WEBHOOK_ID not set — skipping signature verification");
-      return true; // allow through if not configured yet
+      logger.error("PAYPAL_WEBHOOK_ID not configured — rejecting webhook");
+      return false;
     }
 
     const accessToken = await getPayPalAccessToken();

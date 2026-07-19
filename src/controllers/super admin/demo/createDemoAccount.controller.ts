@@ -166,7 +166,6 @@ export const createDemoAccount = async (req: Request, res: Response) => {
         trialEndsAt,
         userId: createdUserId,
         email,
-        password, // Return password so super admin can share it (this is for demo accounts only)
         role: role === "viewer" ? "viewer" : "user",
       },
     });

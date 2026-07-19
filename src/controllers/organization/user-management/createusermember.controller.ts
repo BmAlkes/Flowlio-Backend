@@ -86,14 +86,9 @@ export const createUserMember = async (req: Request, res: Response) => {
       extractedKeys: Object.keys(extractedFields),
     });
 
-    // Log the request user information for debugging
     logger.info("🔍 CreateUserMember - Request user data:", {
       userId: req.user?.id,
-      userEmail: req.user?.email,
       organizationId: req.user?.organizationId,
-      userRole: req.user?.role,
-      isSuperAdmin: req.user?.isSuperAdmin,
-      fullUserObject: JSON.stringify(req.user, null, 2),
     });
 
     // Validate extracted fields

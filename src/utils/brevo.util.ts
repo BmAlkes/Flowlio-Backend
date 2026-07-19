@@ -1,5 +1,13 @@
 import { env } from "./env.util";
 
+const escapeHtml = (str: string): string =>
+  str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+
 // Helper function to ensure URL has protocol
 const getBaseURL = (domain: string) => {
   const isProduction = process.env.NODE_ENV === "production";
@@ -201,8 +209,8 @@ export const taskOverdueTemplate = ({
         The following task is past its due date and has been marked as delayed:
       </p>
       <div style="background: #fef2f2; border-left: 4px solid #dc2626; border-radius: 8px; padding: 16px 20px; margin: 24px 0;">
-        <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${taskTitle}</p>
-        <p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Project: <b>${projectName}</b></p>
+        <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${escapeHtml(taskTitle)}</p>
+        <p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Project: <b>${escapeHtml(projectName)}</b></p>
         <p style="margin: 0; font-size: 14px; color: #dc2626;">Due date: <b>${endDate}</b></p>
       </div>
       <div style="text-align: center; margin: 28px 0;">
@@ -246,7 +254,7 @@ export const projectRiskTemplate = ({
         The following project has been flagged as high risk and requires your attention:
       </p>
       <div style="background: #fffbeb; border-left: 4px solid #d97706; border-radius: 8px; padding: 16px 20px; margin: 24px 0;">
-        <p style="margin: 0 0 6px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${projectName}</p>
+        <p style="margin: 0 0 6px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${escapeHtml(projectName)}</p>
         <p style="margin: 0 0 10px 0; font-size: 13px; color: #6b7280;">#${projectNumber}</p>
         <p style="margin: 0 0 12px 0; font-size: 14px; color: #d97706;">
           Risk Score: <b>${riskScore}/100</b>
@@ -297,8 +305,8 @@ export const leadFollowUpTemplate = ({
         A scheduled follow-up with one of your leads is overdue:
       </p>
       <div style="background: #fffbeb; border-left: 4px solid #d97706; border-radius: 8px; padding: 16px 20px; margin: 24px 0;">
-        <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${leadName}</p>
-        ${businessIndustry ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Industry: <b>${businessIndustry}</b></p>` : ""}
+        <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold; color: #1a202c;">${escapeHtml(leadName)}</p>
+        ${businessIndustry ? `<p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280;">Industry: <b>${escapeHtml(businessIndustry)}</b></p>` : ""}
         <p style="margin: 0; font-size: 14px; color: #d97706;">Follow-up was due: <b>${followUpAt}</b></p>
       </div>
       <div style="text-align: center; margin: 28px 0;">
@@ -543,7 +551,7 @@ export function webhookIssueTemplate(d: WebhookIssueEmailData): string {
   return automationCard(
     "#7c3aed", "⚠️", label,
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
-     <p style="color:#555;font-size:15px;">Your webhook <b>${d.webhookName}</b> may have an issue: <b>${d.details}</b>.</p>
+     <p style="color:#555;font-size:15px;">Your webhook <b>${escapeHtml(d.webhookName)}</b> may have an issue: <b>${escapeHtml(d.details)}</b>.</p>
      <p style="color:#555;font-size:14px;">Please check your webhook configuration and confirm it is receiving data correctly.</p>`,
     "Open Flowlio", LOGIN_URL,
   );
@@ -560,7 +568,7 @@ export function newLeadNotContactedTemplate(d: NewLeadNotContactedEmailData): st
   return automationCard(
     "#0891b2", "👤", "New Lead Not Contacted",
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
-     <p style="color:#555;font-size:15px;">Lead <b>${d.leadName}</b> was created <b>${d.hoursAgo} hours ago</b> and has had no interactions yet.</p>
+     <p style="color:#555;font-size:15px;">Lead <b>${escapeHtml(d.leadName)}</b> was created <b>${d.hoursAgo} hours ago</b> and has had no interactions yet.</p>
      <p style="color:#555;font-size:14px;">Reach out soon — first contact significantly improves conversion rates.</p>`,
     "Open Flowlio", LOGIN_URL,
   );
@@ -577,7 +585,7 @@ export function clientInactivityTemplate(d: ClientInactivityEmailData): string {
   return automationCard(
     "#64748b", "🔕", "Client Inactivity Alert",
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
-     <p style="color:#555;font-size:15px;">Client <b>${d.clientName}</b> has had no active projects or tasks in the last <b>${d.daysSinceActivity} days</b>.</p>
+     <p style="color:#555;font-size:15px;">Client <b>${escapeHtml(d.clientName)}</b> has had no active projects or tasks in the last <b>${d.daysSinceActivity} days</b>.</p>
      <p style="color:#555;font-size:14px;">This may be an opportunity to re-engage or close the relationship.</p>`,
     "Open Flowlio", LOGIN_URL,
   );
@@ -595,7 +603,7 @@ export function supportTicketUnansweredTemplate(d: SupportTicketUnansweredEmailD
   return automationCard(
     "#db2777", "🎫", "Support Ticket Unanswered",
     `<p style="color:#333;font-size:15px;">Hi <b>${d.recipientName}</b>,</p>
-     <p style="color:#555;font-size:15px;">Ticket <b>#${d.ticketNumber}</b> — <b>${d.subject}</b> — has been open for <b>${d.hoursOpen} hours</b> without a response from your team.</p>
+     <p style="color:#555;font-size:15px;">Ticket <b>#${d.ticketNumber}</b> — <b>${escapeHtml(d.subject)}</b> — has been open for <b>${d.hoursOpen} hours</b> without a response from your team.</p>
      <p style="color:#555;font-size:14px;">Please reply to avoid leaving your client waiting.</p>`,
     "Open Flowlio", LOGIN_URL,
   );

@@ -38,7 +38,7 @@ const router = Router();
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 
-router.post("/create-with-plan", createOrganizationWithPlan as any);
+router.post("/create-with-plan", isAuthenticated, createOrganizationWithPlan as any);
 router.get("/user-organizations", isAuthenticated, getUserOrganizations as any);
 router.get("/user-subscriptions", isAuthenticated, getUserSubscriptions as any);
 router.get("/all-organizations", isAuthenticated, requireSuperAdmin, getAllOrganizations as any);

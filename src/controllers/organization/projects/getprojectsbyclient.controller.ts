@@ -16,7 +16,7 @@ export const getProjectsByClient = async (
 ): Promise<void> => {
   try {
     const { clientId } = req.params;
-    const { organizationId } = req.body; // Get organizationId from request body
+    const organizationId = req.user?.organizationId;
 
     // Validate inputs
     if (!clientId) {
@@ -28,12 +28,10 @@ export const getProjectsByClient = async (
       return;
     }
 
-    // Validate organizationId from body
     if (!organizationId) {
-      logger.error("❌ Organization ID is required in request body");
-      res.status(status.BAD_REQUEST).json({
+      res.status(status.UNAUTHORIZED).json({
         success: false,
-        message: "Organization ID is required in request body",
+        message: "Organization context is required",
       });
       return;
     }
