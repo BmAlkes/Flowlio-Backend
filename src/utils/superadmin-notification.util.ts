@@ -3,6 +3,7 @@ import { users, notifications } from "@/schema/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.util";
 import { sendEmail } from "@/configs/brevo.config";
+import { sendPushToUser } from "./web-push.util";
 import crypto from "crypto";
 
 interface NotificationData {
@@ -188,6 +189,7 @@ export const notifySuperAdmins = async (data: NotificationData) => {
           createdAt: new Date(),
         });
         logger.info(`In-app notification created for super admin: ${admin.id}`);
+        sendPushToUser(admin.id, { title: data.title, body: data.message }).catch(() => {});
       } catch (error) {
         logger.error(
           `Failed to create in-app notification for super admin ${admin.id}:`,

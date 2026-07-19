@@ -13,6 +13,7 @@ const OVERDUE_REMINDER_INTERVAL_DAYS = 7;
 // Future: make this configurable per organization.
 const PROJECT_RISK_ALERT_INTERVAL_DAYS = 7;
 import { sendTransactionalEmail, EmailResult } from "../email/transactional.service";
+import { sendPushToUser } from "../../utils/web-push.util";
 import { env } from "../../utils/env.util";
 import crypto from "crypto";
 
@@ -1666,6 +1667,7 @@ export class AutomationService {
         read: false,
         createdAt: new Date(),
       });
+      sendPushToUser(params.userId, { title: params.title, body: params.message }).catch(() => {});
     } catch (error) {
       logger.error("Error creating notification:", error);
     }

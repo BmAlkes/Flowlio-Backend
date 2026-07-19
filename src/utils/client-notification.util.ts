@@ -3,6 +3,7 @@ import { users, notifications, userOrganizations, clients } from "@/schema/schem
 import { eq, and, inArray } from "drizzle-orm";
 import { logger } from "./logger.util";
 import { sendEmail } from "@/configs/brevo.config";
+import { sendPushToUser } from "./web-push.util";
 import crypto from "crypto";
 import { logActivity } from "./activity.util";
 
@@ -107,6 +108,7 @@ export const notifyClientInteraction = async (params: {
           createdAt: new Date(),
         });
         logger.info(`In-app notification created for user ${targetUser.id} regarding client ${client.name}`);
+        sendPushToUser(targetUser.id, { title: notifTitle, body: notifMessage }).catch(() => {});
       } catch (notifError) {
         logger.error(`Failed to create in-app notification for user ${targetUser.id}:`, notifError);
       }
