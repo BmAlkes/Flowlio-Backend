@@ -123,6 +123,13 @@
       "when": 1752677400000,
       "tag": "0030_automation_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784505600000,
+      "tag": "0031_push_subscriptions",
+      "breakpoints": true
     }
   ]
 }

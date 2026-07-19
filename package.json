@@ -34,6 +34,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.15.4",
     "@types/swagger-ui-express": "^4.1.8",
+    "@types/web-push": "^3.6.4",
     "drizzle-kit": "^0.31.6",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
@@ -85,6 +86,7 @@
     "swagger-ui-express": "^5.0.0",
     "tailwindcss": "^4.1.11",
     "tesseract.js": "^6.0.1",
-    "tsc-alias": "^1.8.8"
+    "tsc-alias": "^1.8.8",
+    "web-push": "^3.6.7"
   }
 }

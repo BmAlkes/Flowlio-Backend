@@ -2,6 +2,7 @@ import { database } from "@/configs/connection.config";
 import { users, notifications, userOrganizations } from "@/schema/schema";
 import { eq, inArray } from "drizzle-orm";
 import { logger } from "./logger.util";
+import { sendPushToUser } from "./web-push.util";
 import crypto from "crypto";
 
 export const notifyProjectComment = async (params: {
@@ -38,8 +39,8 @@ export const notifyProjectComment = async (params: {
     const message = `${actor.name}: ${preview}`;
 
     await Promise.allSettled(
-      targetUsers.map((user) =>
-        database.insert(notifications).values({
+      targetUsers.map(async (user) => {
+        await database.insert(notifications).values({
           id: crypto.randomUUID(),
           userId: user.id,
           organizationId,
@@ -49,8 +50,9 @@ export const notifyProjectComment = async (params: {
           data: { projectId, commentId, isReply },
           read: false,
           createdAt: new Date(),
-        })
-      )
+        });
+        sendPushToUser(user.id, { title, body: message }).catch(() => {});
+      })
     );
   } catch (error) {
     logger.error("Error in notifyProjectComment:", error);
@@ -74,19 +76,22 @@ export const notifyCommentMentions = async (params: {
     if (uniqueMentions.length === 0) return;
 
     await Promise.allSettled(
-      uniqueMentions.map((userId) =>
-        database.insert(notifications).values({
+      uniqueMentions.map(async (userId) => {
+        const mentionTitle = `${actor.name} mentioned you in a comment`;
+        const mentionMessage = `You were mentioned in a comment`;
+        await database.insert(notifications).values({
           id: crypto.randomUUID(),
           userId,
           organizationId,
           type: "comment_mention",
-          title: `${actor.name} mentioned you in a comment`,
-          message: `You were mentioned in a comment`,
+          title: mentionTitle,
+          message: mentionMessage,
           data: { projectId, taskId: taskId ?? null, commentId },
           read: false,
           createdAt: new Date(),
-        })
-      )
+        });
+        sendPushToUser(userId, { title: mentionTitle, body: mentionMessage }).catch(() => {});
+      })
     );
   } catch (error) {
     logger.error("Error in notifyCommentMentions:", error);
