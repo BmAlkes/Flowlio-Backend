@@ -68,6 +68,7 @@ export const createClient = async (
       status = "Active",
       image,
       customFields,
+      portalAccessEnabled = true,
     } = req.body;
 
     // Validate required fields
@@ -178,6 +179,7 @@ export const createClient = async (
           customFields: parsedCustomFields,
           status: clientStatus,
           clientType: "client",
+          portalAccessEnabled: Boolean(portalAccessEnabled),
           createdBy: userReq.user!.id,
           createdAt: now,
           updatedAt: now,

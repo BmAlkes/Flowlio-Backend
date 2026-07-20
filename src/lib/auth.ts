@@ -51,6 +51,7 @@ export const auth = betterAuth({
         const [user] = await database
           .select({
             id: schema.users.id,
+            role: schema.users.role,
             isSuperAdmin: schema.users.isSuperAdmin,
             twoFactorEnabled: schema.users.twoFactorEnabled,
           })
@@ -66,8 +67,22 @@ export const auth = betterAuth({
           return;
         }
 
-        // If user doesn't have 2FA enabled, they should not be required to provide OTP
-        // The emailOTP plugin will check twoFactorEnabled before sending OTP
+        // Portal access check for client users
+        if (user.role === "client") {
+          const [clientRecord] = await database
+            .select({ portalAccessEnabled: schema.clients.portalAccessEnabled })
+            .from(schema.clients)
+            .where(eq(schema.clients.userId, user.id))
+            .limit(1);
+
+          if (clientRecord && clientRecord.portalAccessEnabled === false) {
+            const error = new Error("Portal access has been disabled for this account.");
+            (error as any).code = "PORTAL_ACCESS_DISABLED";
+            (error as any).statusCode = 403;
+            throw error;
+          }
+          return; // Clients have no org memberships — skip org status checks
+        }
 
         // Check organization status
         const userOrg = await database
