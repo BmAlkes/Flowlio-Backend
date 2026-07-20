@@ -70,11 +70,13 @@ async function ensurePayPalBillingPlan(
   }
 
   // Create billing plan
+  const planName = plan.name ? `Flowlio – ${plan.name}` : "Flowlio Subscription";
   const billingRes = await axios.post(
     `${baseURL}/v1/billing/plans`,
     {
       product_id: productId,
-      name: `Flowlio – ${plan.name}`,
+      name: planName,
+      description: plan.name || "Flowlio project management platform subscription",
       status: "ACTIVE",
       billing_cycles: [
         {
@@ -153,6 +155,17 @@ export const createPayPalSubscription = async (
 
     const paypalPlanId = await ensurePayPalBillingPlan(plan);
 
+    // Fetch subscriber info to populate PayPal's "Payments from" fields
+    const currentUser = await database.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, req.user!.id),
+      columns: { name: true, email: true },
+    });
+
+    // Split full name into given/surname for PayPal
+    const nameParts = (currentUser?.name || "").trim().split(/\s+/);
+    const givenName = nameParts[0] || currentUser?.email?.split("@")[0] || "User";
+    const surname = nameParts.length > 1 ? nameParts.slice(1).join(" ") : givenName;
+
     const accessToken = await getPayPalAccessToken();
     const baseURL = getPayPalBaseURL();
 
@@ -160,6 +173,13 @@ export const createPayPalSubscription = async (
       `${baseURL}/v1/billing/subscriptions`,
       {
         plan_id: paypalPlanId,
+        subscriber: {
+          name: {
+            given_name: givenName,
+            surname,
+          },
+          email_address: currentUser?.email || req.user!.email,
+        },
         application_context: {
           brand_name: "Flowlio",
           locale: "en-US",
