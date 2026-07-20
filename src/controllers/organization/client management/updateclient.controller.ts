@@ -131,35 +131,44 @@ export const updateClient = async (
       }
 
       // 2. Update (or create) credential account password — handles both new and legacy clients
-      if (hashedPassword && currentClient.userId) {
-        const existingAccount = await tx
-          .select({ id: account.id })
-          .from(account)
-          .where(
-            and(
-              eq(account.userId, currentClient.userId as string),
-              eq(account.providerId, "credential"),
-            ),
-          )
-          .limit(1);
-
-        if (existingAccount.length > 0) {
-          await tx
-            .update(account)
-            .set({ password: hashedPassword, updatedAt: new Date() })
-            .where(eq(account.id, existingAccount[0].id));
+      if (hashedPassword) {
+        if (!currentClient.userId) {
+          logger.warn(`[updateClient] client ${clientId} has no userId — password update skipped`);
         } else {
-          // Client has a userId but no credential account (created before auth system)
-          // Create the account row so they can log in with this password
-          await tx.insert(account).values({
-            id: crypto.randomUUID().replace(/-/g, ""),
-            accountId: currentClient.userId as string,
-            providerId: "credential",
-            userId: currentClient.userId as string,
-            password: hashedPassword,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
+          const existingAccount = await tx
+            .select({ id: account.id })
+            .from(account)
+            .where(
+              and(
+                eq(account.userId, currentClient.userId as string),
+                eq(account.providerId, "credential"),
+              ),
+            )
+            .limit(1);
+
+          logger.info(`[updateClient] clientId=${clientId} userId=${currentClient.userId} existingCredentialAccounts=${existingAccount.length} hashLen=${hashedPassword.length}`);
+
+          if (existingAccount.length > 0) {
+            await tx
+              .update(account)
+              .set({ password: hashedPassword, updatedAt: new Date() })
+              .where(eq(account.id, existingAccount[0].id));
+            logger.info(`[updateClient] password updated on account.id=${existingAccount[0].id}`);
+          } else {
+            // Client has a userId but no credential account (created before auth system)
+            // Create the account row so they can log in with this password
+            const newAccountId = crypto.randomUUID().replace(/-/g, "");
+            await tx.insert(account).values({
+              id: newAccountId,
+              accountId: currentClient.userId as string,
+              providerId: "credential",
+              userId: currentClient.userId as string,
+              password: hashedPassword,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            logger.info(`[updateClient] credential account created account.id=${newAccountId}`);
+          }
         }
       }
 
