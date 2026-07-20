@@ -164,6 +164,13 @@ export const updateClient = async (
       }
 
       // 3. Update client record
+      // portalAccessEnabled is only added to SET if a value is available — guards against
+      // the column not yet existing in the DB (migration pending) so basic edits never break
+      const portalAccessValue =
+        portalAccessEnabled !== undefined
+          ? Boolean(portalAccessEnabled)
+          : currentClient.portalAccessEnabled;
+
       const [updatedClient] = await tx
         .update(clients)
         .set({
@@ -179,10 +186,7 @@ export const updateClient = async (
           status: status || currentClient.status,
           image: imageUrl,
           imagePublicId,
-          portalAccessEnabled:
-            portalAccessEnabled !== undefined
-              ? Boolean(portalAccessEnabled)
-              : currentClient.portalAccessEnabled,
+          ...(portalAccessValue !== undefined ? { portalAccessEnabled: portalAccessValue } : {}),
           updatedAt: new Date(),
         })
         .where(eq(clients.id, clientId))
