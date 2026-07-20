@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { database } from "../../../configs/connection.config";
-import { clients, users } from "../../../schema/schema";
+import { clients, users, account } from "../../../schema/schema";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { eq, and } from "drizzle-orm";
 import { logActivity } from "@/utils/activity.util";
@@ -37,6 +37,7 @@ export const updateClient = async (
     const {
       name,
       email,
+      password,
       phone,
       cpfcnpj,
       businessIndustry,
@@ -45,6 +46,7 @@ export const updateClient = async (
       status,
       image,
       customFields,
+      portalAccessEnabled,
     } = req.body;
 
     // Check if client exists
@@ -117,6 +119,14 @@ export const updateClient = async (
           : customFields
         : currentClient.customFields;
 
+    // Hash new password if provided (≥8 chars required)
+    let hashedPassword: string | null = null;
+    if (password && typeof password === "string" && password.length >= 8) {
+      const { auth } = await import("@/lib/auth");
+      const authContext = await auth.$context;
+      hashedPassword = await authContext.password.hash(password);
+    }
+
     // Update client and associated user in a transaction
     const result = await database.transaction(async (tx) => {
       // 1. Update user if name or email changed
@@ -134,7 +144,20 @@ export const updateClient = async (
           .where(eq(users.id, currentClient.userId as string));
       }
 
-      // 2. Update client
+      // 2. Update password in account table if a new one was provided
+      if (hashedPassword && currentClient.userId) {
+        await tx
+          .update(account)
+          .set({ password: hashedPassword, updatedAt: new Date() })
+          .where(
+            and(
+              eq(account.userId, currentClient.userId as string),
+              eq(account.providerId, "credential"),
+            ),
+          );
+      }
+
+      // 3. Update client
       const [updatedClient] = await tx
         .update(clients)
         .set({
@@ -152,6 +175,10 @@ export const updateClient = async (
           status: status || currentClient.status,
           image: imageUrl,
           imagePublicId,
+          portalAccessEnabled:
+            portalAccessEnabled !== undefined
+              ? Boolean(portalAccessEnabled)
+              : currentClient.portalAccessEnabled,
           updatedAt: new Date(),
         })
         .where(eq(clients.id, clientId))
@@ -194,6 +221,7 @@ export const updateClient = async (
         socialMediaLinks: result.socialMediaLinks,
         status: result.status,
         customFields: result.customFields,
+        portalAccessEnabled: result.portalAccessEnabled,
         createdAt: result.createdAt,
         updatedAt: result.updatedAt,
       },

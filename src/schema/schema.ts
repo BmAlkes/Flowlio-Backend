@@ -948,6 +948,7 @@ export const clients = pgTable(
     assignedTo: text("assigned_to").references(() => users.id),
     assignedAt: timestamp("assigned_at"),
     followupNotifiedAt: timestamp("followup_notified_at"),
+    portalAccessEnabled: boolean("portal_access_enabled").notNull().$defaultFn(() => true),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
