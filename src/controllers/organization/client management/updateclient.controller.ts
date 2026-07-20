@@ -4,6 +4,9 @@ import { clients, users, account } from "../../../schema/schema";
 import { uploadToCloudinary } from "../../../utils/cloudinary.util";
 import { eq, and } from "drizzle-orm";
 import { logActivity } from "@/utils/activity.util";
+import { logger } from "@/utils/logger.util";
+import { auth } from "@/lib/auth";
+import crypto from "crypto";
 
 export const updateClient = async (
   req: Request,
@@ -11,29 +14,23 @@ export const updateClient = async (
 ): Promise<void> => {
   try {
     const userReq = req as any;
-    // Check if user is authenticated and has organization ID
     if (!userReq.user) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
     const { id: clientId } = req.params;
-
     if (!clientId) {
-      res.status(400).json({
-        error: "Client ID is required",
-      });
+      res.status(400).json({ error: "Client ID is required" });
       return;
     }
 
     const organizationId = userReq.user.organizationId;
-
     if (!organizationId) {
       res.status(400).json({ error: "Organization ID is required" });
       return;
     }
 
-    // Extract update data
     const {
       name,
       email,
@@ -49,28 +46,19 @@ export const updateClient = async (
       portalAccessEnabled,
     } = req.body;
 
-    // Check if client exists
     const existingClient = await database
       .select()
       .from(clients)
-      .where(
-        and(
-          eq(clients.id, clientId),
-          eq(clients.organizationId, organizationId),
-        ),
-      )
+      .where(and(eq(clients.id, clientId), eq(clients.organizationId, organizationId)))
       .limit(1);
 
     if (existingClient.length === 0) {
-      res.status(404).json({
-        error: "Client not found or access denied",
-      });
+      res.status(404).json({ error: "Client not found or access denied" });
       return;
     }
 
     const currentClient = existingClient[0];
 
-    // Check email conflicts in users table (auth identity)
     if (email && email !== currentClient.email) {
       const emailConflict = await database
         .select()
@@ -79,9 +67,7 @@ export const updateClient = async (
         .limit(1);
 
       if (emailConflict.length > 0) {
-        res.status(409).json({
-          error: "Another user with this email already exists",
-        });
+        res.status(409).json({ error: "Another user with this email already exists" });
         return;
       }
     }
@@ -89,22 +75,18 @@ export const updateClient = async (
     let imageUrl = currentClient.image || null;
     let imagePublicId = currentClient.imagePublicId || null;
 
-    // Handle image if provided
     if (image && typeof image === "string" && image.startsWith("data:image")) {
       try {
         const uploadResult = await uploadToCloudinary(image, "clients");
         imageUrl = uploadResult.secure_url;
         imagePublicId = uploadResult.public_id;
       } catch (uploadError) {
-        console.error("Image upload failed:", uploadError);
-        res.status(500).json({
-          error: "Failed to upload client image",
-        });
+        logger.error("Image upload failed:", uploadError);
+        res.status(500).json({ error: "Failed to upload client image" });
         return;
       }
     }
 
-    // Parse social media links and custom fields
     const parsedSocialMediaLinks =
       socialMediaLinks !== undefined
         ? typeof socialMediaLinks === "string"
@@ -122,17 +104,21 @@ export const updateClient = async (
     // Hash new password if provided (≥8 chars required)
     let hashedPassword: string | null = null;
     if (password && typeof password === "string" && password.length >= 8) {
-      const { auth } = await import("@/lib/auth");
-      const authContext = await auth.$context;
-      hashedPassword = await authContext.password.hash(password);
+      try {
+        const authContext = await auth.$context;
+        hashedPassword = await authContext.password.hash(password);
+      } catch (hashError) {
+        logger.error("Failed to hash client password:", hashError);
+        res.status(500).json({ error: "Failed to process the new password" });
+        return;
+      }
     }
 
-    // Update client and associated user in a transaction
     const result = await database.transaction(async (tx) => {
-      // 1. Update user if name or email changed
+      // 1. Update user record if name or email changed
       if (
-        (name && name !== currentClient.name) ||
-        (email && email !== currentClient.email)
+        currentClient.userId &&
+        ((name && name !== currentClient.name) || (email && email !== currentClient.email))
       ) {
         await tx
           .update(users)
@@ -144,20 +130,40 @@ export const updateClient = async (
           .where(eq(users.id, currentClient.userId as string));
       }
 
-      // 2. Update password in account table if a new one was provided
+      // 2. Update (or create) credential account password — handles both new and legacy clients
       if (hashedPassword && currentClient.userId) {
-        await tx
-          .update(account)
-          .set({ password: hashedPassword, updatedAt: new Date() })
+        const existingAccount = await tx
+          .select({ id: account.id })
+          .from(account)
           .where(
             and(
               eq(account.userId, currentClient.userId as string),
               eq(account.providerId, "credential"),
             ),
-          );
+          )
+          .limit(1);
+
+        if (existingAccount.length > 0) {
+          await tx
+            .update(account)
+            .set({ password: hashedPassword, updatedAt: new Date() })
+            .where(eq(account.id, existingAccount[0].id));
+        } else {
+          // Client has a userId but no credential account (created before auth system)
+          // Create the account row so they can log in with this password
+          await tx.insert(account).values({
+            id: crypto.randomUUID().replace(/-/g, ""),
+            accountId: currentClient.userId as string,
+            providerId: "credential",
+            userId: currentClient.userId as string,
+            password: hashedPassword,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
       }
 
-      // 3. Update client
+      // 3. Update client record
       const [updatedClient] = await tx
         .update(clients)
         .set({
@@ -166,9 +172,7 @@ export const updateClient = async (
           phone: phone !== undefined ? phone : currentClient.phone,
           cpfcnpj: cpfcnpj !== undefined ? cpfcnpj : currentClient.cpfcnpj,
           businessIndustry:
-            businessIndustry !== undefined
-              ? businessIndustry
-              : currentClient.businessIndustry,
+            businessIndustry !== undefined ? businessIndustry : currentClient.businessIndustry,
           address: address !== undefined ? address : currentClient.address,
           socialMediaLinks: parsedSocialMediaLinks,
           customFields: parsedCustomFields,
@@ -188,13 +192,10 @@ export const updateClient = async (
     });
 
     if (!result) {
-      res.status(500).json({
-        error: "Failed to update client",
-      });
+      res.status(500).json({ error: "Failed to update client" });
       return;
     }
 
-    // Log activity
     await logActivity({
       organizationId,
       actorId: userReq.user.id,
@@ -227,9 +228,7 @@ export const updateClient = async (
       },
     });
   } catch (error) {
-    console.error("Error updating client:", error);
-    res.status(500).json({
-      error: "Internal server error while updating client",
-    });
+    logger.error("Error updating client:", error);
+    res.status(500).json({ error: "Internal server error while updating client" });
   }
 };
