@@ -312,6 +312,21 @@ export const approveProposal = async (
     }
 
     const { id } = req.params;
+    const { signedName, signatureImage } = req.body as {
+      signedName?: string;
+      signatureImage?: string;
+    };
+
+    if (!signedName || typeof signedName !== "string" || !signedName.trim()) {
+      res.status(400).json({ success: false, message: "signedName is required to approve a proposal" });
+      return;
+    }
+
+    // Capture real client IP — never trust the body
+    const signedIp =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      "unknown";
 
     // Find the client linked to this user
     const [client] = await database
@@ -345,9 +360,33 @@ export const approveProposal = async (
       return;
     }
 
+    // Upload signature image to Cloudinary if provided (base64 PNG)
+    let signatureUrl: string | null = null;
+    if (signatureImage && typeof signatureImage === "string" && signatureImage.length > 0) {
+      try {
+        const uploadResult = await uploadToCloudinary(
+          signatureImage,
+          `proposal-signatures/${proposal.organizationId}`,
+          `sig_${id}`,
+        );
+        signatureUrl = uploadResult.secure_url;
+      } catch (uploadErr) {
+        logger.error("Failed to upload signature image:", uploadErr);
+        res.status(500).json({ success: false, message: "Failed to upload signature image" });
+        return;
+      }
+    }
+
     const [updated] = await database
       .update(proposals)
-      .set({ status: "approved", approvedAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: "approved",
+        approvedAt: new Date(),
+        signedName: signedName.trim(),
+        signatureImage: signatureUrl,
+        signedIp,
+        updatedAt: new Date(),
+      })
       .where(eq(proposals.id, id))
       .returning();
 

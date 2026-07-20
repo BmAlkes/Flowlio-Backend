@@ -2290,6 +2290,9 @@ export const proposals = pgTable(
     approvedAt: timestamp("approved_at"),
     rejectedAt: timestamp("rejected_at"),
     rejectionReason: text("rejection_reason"),
+    signedName: text("signed_name"),
+    signatureImage: text("signature_image"),
+    signedIp: text("signed_ip"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
