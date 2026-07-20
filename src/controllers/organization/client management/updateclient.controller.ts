@@ -232,7 +232,9 @@ export const updateClient = async (
       },
     });
   } catch (error) {
-    logger.error("Error updating client:", error);
-    res.status(500).json({ error: "Internal server error while updating client" });
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errStack = error instanceof Error ? error.stack : undefined;
+    logger.error("Error updating client:", { message: errMsg, stack: errStack });
+    res.status(500).json({ error: "Internal server error while updating client", detail: errMsg });
   }
 };
