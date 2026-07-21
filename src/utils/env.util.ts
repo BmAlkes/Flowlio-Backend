@@ -28,6 +28,9 @@ const schemaObject = z.object({
   PAYPAL_WEBHOOK_ID: z.string().optional(),
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
+  // Set to root domain (e.g. ".flowlioapp.com") when backend runs on a subdomain of the frontend.
+  // Enables same-site cookie sharing and removes the need for SameSite=None.
+  COOKIE_DOMAIN: z.string().optional(),
   // database: z.string(),
 });
 

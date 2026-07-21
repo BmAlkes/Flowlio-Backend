@@ -157,20 +157,29 @@ export const auth = betterAuth({
   ],
   advanced: {
     useSecureCookies: isProduction,
-    crossSubdomainCookies: {
-      enabled: false,
-    },
+    // When COOKIE_DOMAIN is set (e.g. ".flowlioapp.com"), the backend runs on a subdomain
+    // of the frontend — browsers treat this as same-site, so SameSite=Lax is sufficient
+    // and Safari/iOS ITP no longer blocks the cookie.
+    // Without COOKIE_DOMAIN we fall back to SameSite=None for the cross-site Railway domain.
+    ...(env.COOKIE_DOMAIN
+      ? {
+          crossSubdomainCookies: {
+            enabled: true,
+            domain: env.COOKIE_DOMAIN,
+          },
+        }
+      : {}),
     cookies: {
       session_token: {
         attributes: {
-          sameSite: isProduction ? "none" : "lax",
+          sameSite: isProduction ? (env.COOKIE_DOMAIN ? "lax" : "none") : "lax",
           httpOnly: true,
           secure: isProduction,
         },
       },
       session_data: {
         attributes: {
-          sameSite: isProduction ? "none" : "lax",
+          sameSite: isProduction ? (env.COOKIE_DOMAIN ? "lax" : "none") : "lax",
           httpOnly: true,
           secure: isProduction,
         },
