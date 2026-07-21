@@ -15,7 +15,10 @@ import { ac, roles } from "./permission";
 import { eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
-const isProduction = process.env.NODE_ENV === "production";
+const isProduction =
+  process.env.NODE_ENV === "production" ||
+  process.env.RAILWAY_ENVIRONMENT === "production" ||
+  !!process.env.RAILWAY_PROJECT_ID;
 
 // Ensure BACKEND_DOMAIN has protocol
 const getBaseURL = () => {
@@ -153,13 +156,23 @@ export const auth = betterAuth({
     "https://localhost:3000",
   ],
   advanced: {
-    useSecureCookies: isProduction, // required for HTTPS domains
+    useSecureCookies: isProduction,
+    crossSubdomainCookies: {
+      enabled: false,
+    },
     cookies: {
       session_token: {
         attributes: {
-          sameSite: isProduction ? "none" : "lax", // 'lax' for dev, 'none' for prod
+          sameSite: isProduction ? "none" : "lax",
           httpOnly: true,
-          secure: isProduction, // false for dev, true for prod
+          secure: isProduction,
+        },
+      },
+      session_data: {
+        attributes: {
+          sameSite: isProduction ? "none" : "lax",
+          httpOnly: true,
+          secure: isProduction,
         },
       },
     },
