@@ -671,13 +671,14 @@ export class AutomationService {
 
         const leadUrl = `${frontendUrl}/leads/${lead.id}`;
 
+        const noteSuffix = (lead as any).followUpNote ? ` — ${(lead as any).followUpNote}` : "";
         // In-app notification — independent of email outcome
         await this.createNotification({
           userId: recipient.id,
           organizationId: lead.organizationId,
           type: "lead_followup_overdue",
           title: "Lead Follow-up Overdue",
-          message: `Follow-up for "${lead.name}" was due on ${followUpLabel}.`,
+          message: `Follow-up for "${lead.name}" was due on ${followUpLabel}.${noteSuffix}`,
           data: { leadId: lead.id },
         });
 

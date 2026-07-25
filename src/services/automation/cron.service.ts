@@ -261,9 +261,9 @@ export const initCronJobs = () => {
       const rows = await connection.query({
         text: `
           SELECT c.id, c.name, c.assigned_to, c.organization_id, c.follow_up_at,
-                 c.followup_notified_at
+                 c.followup_notified_at, c.follow_up_note
           FROM clients c
-          WHERE c.type = 'lead'
+          WHERE c.type IN ('lead', 'client')
             AND c.follow_up_at IS NOT NULL
             AND c.follow_up_at <= $1
             AND c.status NOT IN ('lost', 'Completed', 'Inactive')
@@ -289,6 +289,7 @@ export const initCronJobs = () => {
         const hoursOverdue = (now.getTime() - new Date(lead.follow_up_at).getTime()) / 3_600_000;
         const isOverdue = hoursOverdue > 24;
 
+        const noteSuffix = lead.follow_up_note ? ` — ${lead.follow_up_note}` : "";
         await database.insert(notifications).values({
           id: crypto.randomUUID(),
           userId: notifyUserId,
@@ -296,8 +297,8 @@ export const initCronJobs = () => {
           type: isOverdue ? "lead_followup_overdue" : "lead_followup_due",
           title: isOverdue ? `Overdue follow-up: ${lead.name}` : `Follow-up due: ${lead.name}`,
           message: isOverdue
-            ? `Follow-up with ${lead.name} was due ${Math.floor(hoursOverdue / 24)} days ago.`
-            : `Your follow-up with ${lead.name} is due today.`,
+            ? `Follow-up with ${lead.name} was due ${Math.floor(hoursOverdue / 24)} days ago.${noteSuffix}`
+            : `Your follow-up with ${lead.name} is due today.${noteSuffix}`,
           read: false,
         });
 
