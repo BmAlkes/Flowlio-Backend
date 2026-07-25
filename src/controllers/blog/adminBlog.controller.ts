@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { blogPosts, blogPostViews } from "@/schema/schema";
-import { eq, desc, ilike, and, sql, gte, lte } from "drizzle-orm";
+import { eq, desc, ilike, and, sql, gte } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import crypto from "crypto";
 

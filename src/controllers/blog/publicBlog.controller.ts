@@ -12,7 +12,7 @@ function hashIp(ip: string): string {
 // GET /blog/posts — list published posts
 export const listPublicPosts = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { category, tag, page = "1", limit = "12", featured } = req.query as Record<string, string>;
+    const { category, page = "1", limit = "12", featured } = req.query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const offset = (pageNum - 1) * limitNum;
