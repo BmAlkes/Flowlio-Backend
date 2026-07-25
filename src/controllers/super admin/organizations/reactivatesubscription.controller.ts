@@ -14,7 +14,7 @@ export const reactivateSubscription = async (
 ): Promise<void> => {
   try {
     const { subscriptionId } = req.params;
-    const { paymentCollected, paymentMethod, paymentAmount, notes } = req.body;
+    const { paymentCollected, paymentMethod, paymentAmount, notes, newPeriodEnd } = req.body;
 
     if (!subscriptionId) {
       res.status(400).json({
@@ -31,6 +31,7 @@ export const reactivateSubscription = async (
     // Find the subscription
     const subscription = await database.query.subscriptions.findFirst({
       where: (subs, { eq }) => eq(subs.id, subscriptionId),
+      with: { plan: true },
     });
 
     if (!subscription) {
@@ -57,11 +58,33 @@ export const reactivateSubscription = async (
     const now = new Date();
     const metadata = (subscription.metadata as any) || {};
 
-    // Update subscription to active
+    // Compute the new period end: use provided date, or extend from now by the plan's duration.
+    // This is required because the middleware blocks access when currentPeriodEnd is in the past.
+    let periodEnd: Date;
+    if (newPeriodEnd) {
+      periodEnd = new Date(newPeriodEnd);
+    } else {
+      const plan = (subscription as any).plan;
+      const durationValue = Number(plan?.durationValue) || 1;
+      const durationType = String(plan?.durationType || "monthly").toLowerCase();
+      let periodMs = 30 * 24 * 60 * 60 * 1000;
+      if (durationType === "days") {
+        periodMs = durationValue * 24 * 60 * 60 * 1000;
+      } else if (durationType === "yearly" || durationType === "year") {
+        periodMs = durationValue * 365 * 24 * 60 * 60 * 1000;
+      } else {
+        periodMs = durationValue * 30 * 24 * 60 * 60 * 1000;
+      }
+      periodEnd = new Date(now.getTime() + periodMs);
+    }
+
+    // Update subscription to active with an extended period
     await database
       .update(subscriptions)
       .set({
         status: "active",
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
         updatedAt: now,
         metadata: {
           ...metadata,
@@ -71,17 +94,19 @@ export const reactivateSubscription = async (
           manualPaymentMethod: paymentMethod || "Manual",
           manualPaymentAmount: paymentAmount || null,
           manualPaymentNotes: notes || null,
-          flaggedForReview: false, // Clear review flag
-          auditFlagged: false, // Clear audit flag
+          flaggedForReview: false,
+          auditFlagged: false,
         },
       })
       .where(eq(subscriptions.id, subscriptionId));
 
-    // Update organization status
+    // Update organization status and dates
     await database
       .update(organizations)
       .set({
         subscriptionStatus: "active",
+        subscriptionStartDate: now,
+        subscriptionEndDate: periodEnd,
         updatedAt: now,
       })
       .where(eq(organizations.id, organization.id));
@@ -98,6 +123,8 @@ export const reactivateSubscription = async (
         organizationId: organization.id,
         organizationName: organization.name,
         status: "active",
+        currentPeriodStart: now.toISOString(),
+        currentPeriodEnd: periodEnd.toISOString(),
       },
     });
   } catch (error: any) {

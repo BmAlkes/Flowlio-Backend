@@ -940,6 +940,7 @@ export const clients = pgTable(
     lastInteractionAt: timestamp("last_interaction_at"),
     leadTemperature: text("lead_temperature").$type<"Hot" | "Warm" | "Cold" | "Lost">(),
     followUpAt: timestamp("follow_up_at"),
+    followUpNote: text("follow_up_note"),
     clientType: text("type")
       .$type<"lead" | "client">()
       .$defaultFn(() => "lead"),
@@ -1790,6 +1791,53 @@ export const usersRelations = relations(users, ({ many }) => ({
   aiUsageAlerts: many(aiUsageAlerts),
   webhookSecrets: many(webhookSecrets),
 }));
+
+// ── Blog ─────────────────────────────────────────────────────────────────────
+
+export const blogPosts = pgTable("blog_posts", {
+  id:              text("id").primaryKey().$defaultFn(() => crypto.randomUUID().replace(/-/g, "")),
+  slug:            text("slug").notNull().unique(),
+  title:           text("title").notNull(),
+  excerpt:         text("excerpt"),
+  content:         text("content").notNull().default(""),
+  coverImage:      text("cover_image"),
+  authorId:        text("author_id").references(() => users.id, { onDelete: "set null" }),
+  authorName:      text("author_name"),
+  status:          text("status").$type<"draft" | "published" | "archived">().notNull().default("draft"),
+  category:        text("category"),
+  tags:            json("tags").$type<string[]>().default([]),
+  // SEO / GEO / AEO
+  metaTitle:       text("meta_title"),
+  metaDescription: text("meta_description"),
+  metaKeywords:    text("meta_keywords"),
+  canonicalUrl:    text("canonical_url"),
+  ogImage:         text("og_image"),
+  schemaMarkup:    json("schema_markup"),   // JSON-LD structured data
+  faq:             json("faq").$type<Array<{ question: string; answer: string }>>(),
+  // Stats
+  viewCount:       integer("view_count").notNull().default(0),
+  readingTimeMin:  integer("reading_time_min"),
+  featured:        boolean("featured").notNull().default(false),
+  publishedAt:     timestamp("published_at"),
+  createdAt:       timestamp("created_at").notNull().$defaultFn(() => new Date()),
+  updatedAt:       timestamp("updated_at").notNull().$defaultFn(() => new Date()),
+});
+
+export const blogPostViews = pgTable("blog_post_views", {
+  id:        text("id").primaryKey().$defaultFn(() => crypto.randomUUID().replace(/-/g, "")),
+  postId:    text("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
+  ipHash:    text("ip_hash"),
+  referrer:  text("referrer"),
+  userAgent: text("user_agent"),
+  country:   text("country"),
+  createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
+});
+
+export const blogPostsRelations = relations(blogPosts, ({ one }) => ({
+  author: one(users, { fields: [blogPosts.authorId], references: [users.id] }),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const organizationsRelations = relations(
   organizations,

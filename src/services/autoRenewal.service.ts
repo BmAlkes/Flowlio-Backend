@@ -217,55 +217,77 @@ export class AutoRenewalService {
 
       // ── New flow: subscription created via PayPal Subscriptions API ──────────
       if (paypalSubscriptionId) {
-        try {
-          const accessToken = await getPayPalAccessToken();
-          const baseURL = getPayPalBaseURL();
+        const MAX_ATTEMPTS = 3;
+        const RETRY_DELAYS_MS = [10_000, 30_000, 60_000]; // 10s, 30s, 1min
+        let lastError: any;
 
-          const subDetails = await axios.get(
-            `${baseURL}/v1/billing/subscriptions/${paypalSubscriptionId}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+          try {
+            const accessToken = await getPayPalAccessToken();
+            const baseURL = getPayPalBaseURL();
 
-          const paypalStatus: string = subDetails.data.status;
-          const nextBillingTimeStr: string | undefined =
-            subDetails.data.billing_info?.next_billing_time;
+            const subDetails = await axios.get(
+              `${baseURL}/v1/billing/subscriptions/${paypalSubscriptionId}`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
 
-          logger.info(
-            `PayPal subscription ${paypalSubscriptionId} status: ${paypalStatus}, ` +
-              `next billing: ${nextBillingTimeStr ?? "unknown"}`
-          );
+            const paypalStatus: string = subDetails.data.status;
+            const nextBillingTimeStr: string | undefined =
+              subDetails.data.billing_info?.next_billing_time;
 
-          if (paypalStatus === "ACTIVE") {
-            const nextPeriodEnd = nextBillingTimeStr
-              ? new Date(nextBillingTimeStr)
-              : undefined;
+            logger.info(
+              `PayPal subscription ${paypalSubscriptionId} status: ${paypalStatus}, ` +
+                `next billing: ${nextBillingTimeStr ?? "unknown"} (attempt ${attempt}/${MAX_ATTEMPTS})`
+            );
 
+            if (paypalStatus === "ACTIVE") {
+              const nextPeriodEnd = nextBillingTimeStr
+                ? new Date(nextBillingTimeStr)
+                : undefined;
+
+              return {
+                success: true,
+                orderId: paypalSubscriptionId,
+                nextPeriodEnd,
+              };
+            }
+
+            // SUSPENDED or CANCELLED — PayPal stopped billing, no point retrying
+            logger.warn(
+              `PayPal subscription ${paypalSubscriptionId} is ${paypalStatus}. ` +
+                `Marking subscription ${subscription.id} as past_due.`
+            );
             return {
-              success: true,
-              orderId: paypalSubscriptionId,
-              nextPeriodEnd,
+              success: false,
+              error: `PayPal subscription is ${paypalStatus}. Customer must resubscribe.`,
             };
-          }
+          } catch (apiError: any) {
+            lastError = apiError;
+            const status = apiError.response?.status;
+            const isTransient = !status || status === 404 || status >= 500;
 
-          // SUSPENDED or CANCELLED — PayPal stopped billing
-          logger.warn(
-            `PayPal subscription ${paypalSubscriptionId} is ${paypalStatus}. ` +
-              `Marking subscription ${subscription.id} as past_due.`
-          );
-          return {
-            success: false,
-            error: `PayPal subscription is ${paypalStatus}. Customer must resubscribe.`,
-          };
-        } catch (apiError: any) {
-          logger.error(
-            `Failed to verify PayPal subscription ${paypalSubscriptionId}:`,
-            apiError
-          );
-          return {
-            success: false,
-            error: `PayPal API error during renewal verification: ${apiError.message}`,
-          };
+            if (!isTransient || attempt === MAX_ATTEMPTS) {
+              logger.error(
+                `Failed to verify PayPal subscription ${paypalSubscriptionId} after ${attempt} attempt(s):`,
+                apiError
+              );
+              break;
+            }
+
+            const delayMs = RETRY_DELAYS_MS[attempt - 1] ?? 60_000;
+            logger.warn(
+              `PayPal API returned ${status ?? "network error"} for subscription ` +
+                `${paypalSubscriptionId} (attempt ${attempt}/${MAX_ATTEMPTS}). ` +
+                `Retrying in ${delayMs / 1000}s...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
         }
+
+        return {
+          success: false,
+          error: `PayPal API error during renewal verification: ${lastError?.message}`,
+        };
       }
 
       // ── Legacy flow: one-time order (pre-subscriptions-API) ─────────────────

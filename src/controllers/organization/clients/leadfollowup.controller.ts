@@ -17,7 +17,7 @@ export const updateLeadFollowUp = async (req: Request, res: Response): Promise<v
     if (!organizationId) return;
 
     const { clientId } = req.params;
-    const { followUpAt } = req.body;
+    const { followUpAt, followUpNote } = req.body;
 
     if (!clientId) {
       res.status(status.BAD_REQUEST).json({ success: false, message: "Client ID is required" });
@@ -33,7 +33,11 @@ export const updateLeadFollowUp = async (req: Request, res: Response): Promise<v
 
     const updated = await database
       .update(clients)
-      .set({ followUpAt: followUpDate, updatedAt: new Date() })
+      .set({
+        followUpAt: followUpDate,
+        followUpNote: followUpNote !== undefined ? (followUpNote || null) : undefined,
+        updatedAt: new Date(),
+      })
       .where(and(eq(clients.id, clientId), eq(clients.organizationId, organizationId)))
       .returning();
 
@@ -79,8 +83,10 @@ const FOLLOW_UP_SELECT = `
   email,
   phone,
   status,
+  type              AS "clientType",
   lead_temperature  AS "leadTemperature",
   follow_up_at      AS "followUpAt",
+  follow_up_note    AS "followUpNote",
   last_interaction_at AS "lastInteractionAt",
   webhook_id        AS "webhookId",
   webhook_name      AS "webhookName"
@@ -130,7 +136,7 @@ export const getFollowUpsDashboard = async (req: Request, res: Response): Promis
     const BASE = `
       FROM clients
       WHERE organization_id = $1
-        AND type = 'lead'
+        AND type IN ('lead', 'client')
         AND follow_up_at IS NOT NULL
     `;
 
