@@ -228,7 +228,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 app.use("/api/superadmin", superAdminRoutes);
-app.use("/blog", blogRoutes);
+app.use("/api/blog", blogRoutes);
 app.use("/api/user", userProfileRoutes);
 app.use("/api/organizations", organizationRoutes);
 app.use("/api/payments", paymentRoutes);
