@@ -290,7 +290,7 @@ export const getBlogPostAnalytics = async (req: Request, res: Response): Promise
   }
 };
 
-// GET /api/superadmin/blog/stats
+// GET /api/blog/admin/stats
 export const getBlogStats = async (_req: Request, res: Response): Promise<void> => {
   try {
     const [counts, topPosts] = await Promise.all([
@@ -298,7 +298,7 @@ export const getBlogStats = async (_req: Request, res: Response): Promise<void> 
         .select({
           status: blogPosts.status,
           count: sql<number>`count(*)::int`,
-          totalViews: sql<number>`sum(view_count)::int`,
+          totalViews: sql<number>`coalesce(sum(view_count), 0)::int`,
         })
         .from(blogPosts)
         .groupBy(blogPosts.status),
@@ -317,7 +317,20 @@ export const getBlogStats = async (_req: Request, res: Response): Promise<void> 
         .limit(5),
     ]);
 
-    res.status(200).json({ success: true, data: { counts, topPosts } });
+    const byStatus = { draft: 0, published: 0, archived: 0 };
+    let totalPosts = 0;
+    let totalViews = 0;
+    for (const row of counts) {
+      const s = row.status as keyof typeof byStatus;
+      if (s in byStatus) byStatus[s] = row.count;
+      totalPosts += row.count;
+      totalViews += row.totalViews ?? 0;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { totalPosts, totalViews, byStatus, topPosts },
+    });
   } catch (error) {
     logger.error("Error fetching blog stats:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
