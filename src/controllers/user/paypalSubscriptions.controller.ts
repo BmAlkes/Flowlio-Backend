@@ -232,6 +232,7 @@ interface ActivateSubscriptionBody {
   organizationWebsite?: string;
   organizationIndustry?: string;
   organizationSize?: string;
+  country?: string;
   planId?: string;
 }
 
@@ -245,6 +246,7 @@ export const activatePayPalSubscription = async (
     organizationWebsite,
     organizationIndustry,
     organizationSize,
+    country,
     planId: bodyPlanId,
   } = req.body as Omit<ActivateSubscriptionBody, "userId">;
   const userId = req.user?.id;
@@ -418,6 +420,7 @@ export const activatePayPalSubscription = async (
           subscriptionEndDate,
           settings: updatedSettings,
           updatedAt: now,
+          ...(country && { country }),
         })
         .where(eq(organizations.id, orgId));
     } else {
@@ -450,6 +453,7 @@ export const activatePayPalSubscription = async (
         website: organizationWebsite || pendingData?.organizationWebsite,
         industry: organizationIndustry || pendingData?.organizationIndustry,
         size: organizationSize || pendingData?.organizationSize,
+        country: country || null,
       });
 
       await database.insert(userOrganizations).values({

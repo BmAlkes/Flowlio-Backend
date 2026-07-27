@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { subscriptionPlans, users } from "@/schema/schema";
+import { subscriptionPlans, users, organizations } from "@/schema/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import { activatePlanForOrg } from "@/utils/planActivation.util";
@@ -11,7 +11,7 @@ import { activatePlanForOrg } from "@/utils/planActivation.util";
  */
 export const activateFreePlan = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { planId } = req.body;
+    const { planId, country, organizationName } = req.body;
     const userId = (req as any).user?.id;
     const organizationId = (req as any).user?.organizationId;
 
@@ -82,6 +82,14 @@ export const activateFreePlan = async (req: Request, res: Response): Promise<voi
       notes: "Free plan — no payment required",
       assignedBy: userId,
     });
+
+    // Apply country and/or organizationName if provided
+    const orgUpdates: Record<string, any> = { updatedAt: now };
+    if (country) orgUpdates.country = country;
+    if (organizationName) orgUpdates.name = organizationName;
+    if (Object.keys(orgUpdates).length > 1) {
+      await database.update(organizations).set(orgUpdates).where(eq(organizations.id, orgId));
+    }
 
     // Activate user if pending
     if (userId) {
