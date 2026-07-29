@@ -1,5 +1,5 @@
 import { database } from "@/configs/connection.config";
-import { users, userOrganizations, organizations } from "@/schema/schema";
+import { users, userOrganizations, organizations, clients } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
 import status from "http-status";
@@ -58,23 +58,54 @@ export const getAllUsers = async (
     // Get organization info for each user
     const usersWithOrganizations = await Promise.all(
       paginatedUsers.map(async (user) => {
-        const userOrgs = await database
-          .select({
-            organizationId: userOrganizations.organizationId,
-            role: userOrganizations.role,
-            status: userOrganizations.status,
-            organization: {
-              id: organizations.id,
-              name: organizations.name,
-              slug: organizations.slug,
-            },
-          })
-          .from(userOrganizations)
-          .innerJoin(
-            organizations,
-            eq(userOrganizations.organizationId, organizations.id)
-          )
-          .where(eq(userOrganizations.userId, user.id));
+        // Users with role "client" are linked via the clients table (clients.userId),
+        // not via userOrganizations. Build the same shape for both paths.
+        let userOrgs: {
+          organizationId: string;
+          role: string;
+          status: string | null;
+          organization: { id: string; name: string; slug: string };
+        }[];
+
+        if (user.role === "client") {
+          const clientRows = await database
+            .select({
+              organizationId: clients.organizationId,
+              organization: {
+                id: organizations.id,
+                name: organizations.name,
+                slug: organizations.slug,
+              },
+            })
+            .from(clients)
+            .innerJoin(organizations, eq(clients.organizationId, organizations.id))
+            .where(eq(clients.userId, user.id));
+
+          userOrgs = clientRows.map((r) => ({
+            organizationId: r.organizationId,
+            role: "client",
+            status: "active",
+            organization: r.organization,
+          }));
+        } else {
+          userOrgs = await database
+            .select({
+              organizationId: userOrganizations.organizationId,
+              role: userOrganizations.role,
+              status: userOrganizations.status,
+              organization: {
+                id: organizations.id,
+                name: organizations.name,
+                slug: organizations.slug,
+              },
+            })
+            .from(userOrganizations)
+            .innerJoin(
+              organizations,
+              eq(userOrganizations.organizationId, organizations.id)
+            )
+            .where(eq(userOrganizations.userId, user.id));
+        }
 
         return {
           ...user,
