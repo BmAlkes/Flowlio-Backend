@@ -194,6 +194,7 @@ export const organizations = pgTable(
     website: text("website"),
     industry: text("industry"),
     size: text("size"), // "1-10", "11-50", "51-200", "200+"
+    country: text("country"),
     status: text("status").$defaultFn(() => "active"),
     subscriptionPlanId: text("subscription_plan_id").references(
       () => subscriptionPlans.id,

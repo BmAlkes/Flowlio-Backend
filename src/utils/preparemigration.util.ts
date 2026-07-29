@@ -54,6 +54,9 @@ const applySchemaPatches = async () => {
       -- follow-up note
       ALTER TABLE "clients" ADD COLUMN IF NOT EXISTS "follow_up_note" text;
 
+      -- organization country
+      ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "country" text;
+
       -- blog
       CREATE TABLE IF NOT EXISTS "blog_posts" (
         "id"               text PRIMARY KEY NOT NULL,
