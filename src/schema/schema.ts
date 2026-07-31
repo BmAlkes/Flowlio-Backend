@@ -29,6 +29,7 @@ export const users = pgTable(
     image: text("image"),
     phone: text("phone"),
     address: text("address"),
+    billingEmail: text("billing_email"),
     role: text("role").$defaultFn(() => "user"), // Required by Better Auth admin plugin
     status: text("status").$defaultFn(() => "pending"),
     isOrganizationOwner: boolean("is_organization_owner").$defaultFn(
@@ -57,6 +58,7 @@ export const users = pgTable(
         paymentAlerts: boolean;
         invoiceReminders: boolean;
         projectActivityUpdates: boolean;
+        proposalNotifications: boolean;
         emailNotifications: boolean;
         pushNotifications: boolean;
         smsNotifications: boolean;
@@ -549,6 +551,7 @@ export const invoices = pgTable(
     pdfUrl: text("pdf_url"), // URL to generated PDF file
     pdfFileName: text("pdf_file_name"), // Original PDF filename
     pdfFileSize: integer("pdf_file_size"), // PDF file size in bytes
+    paymentUrl: text("payment_url"), // External payment link for this invoice
     overdueNotifiedAt: timestamp("overdue_notified_at"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())

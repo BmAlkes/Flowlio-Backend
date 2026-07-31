@@ -44,6 +44,15 @@ export const deleteMedia = async (req: Request, res: Response): Promise<void> =>
     });
 
     if (fileRecord) {
+      // Enforce ownership: only the uploader (or superadmin) may delete
+      if (!user.isSuperAdmin && fileRecord.uploadedBy !== user.id) {
+        res.status(status.FORBIDDEN).json({
+          success: false,
+          message: "You can only delete files you uploaded",
+        });
+        return;
+      }
+
       // Find all versions to delete from Cloudinary
       const versions = await database.select().from(fileVersions).where(eq(fileVersions.fileId, fileId));
       for (const v of versions) {

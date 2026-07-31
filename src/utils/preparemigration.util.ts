@@ -57,6 +57,12 @@ const applySchemaPatches = async () => {
       -- organization country
       ALTER TABLE "organizations" ADD COLUMN IF NOT EXISTS "country" text;
 
+      -- invoice payment url
+      ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "payment_url" text;
+
+      -- user billing email
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "billing_email" text;
+
       -- blog
       CREATE TABLE IF NOT EXISTS "blog_posts" (
         "id"               text PRIMARY KEY NOT NULL,

@@ -115,6 +115,7 @@ export const createInvoice = async (
       pdfUrl: pdfUrl,
       pdfFileName: pdfFileName,
       pdfFileSize: pdfFileSize,
+      paymentUrl: validatedData.paymentUrl || null,
     };
 
     const [newInvoice] = await database

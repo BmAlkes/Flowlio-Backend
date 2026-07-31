@@ -28,6 +28,7 @@ export const patchUserProfile = async (
       notificationPreferences,
       phone,
       address,
+      billingEmail,
       name,
       email,
       selectedPlanId,
@@ -122,6 +123,10 @@ export const patchUserProfile = async (
     if (typeof address === "string") {
       updateData.address = address === "" ? null : address;
       logger.info(`🏠 Updating address: ${address || "null"}`);
+    }
+
+    if (typeof billingEmail === "string") {
+      updateData.billingEmail = billingEmail === "" ? null : billingEmail.trim();
     }
 
     if (typeof name === "string" && name.trim().length > 0) {

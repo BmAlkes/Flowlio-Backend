@@ -274,6 +274,7 @@ export const createInvoiceSchema = z.object({
   dueDate: z.string().optional(),
   pdfFile: z.string().optional(), // Base64 encoded PDF file
   pdfFileName: z.string().optional(), // Original filename
+  paymentUrl: z.string().url("Must be a valid URL").optional().or(z.literal("")),
 });
 
 export const updateInvoiceSchema = createInvoiceSchema.partial();
