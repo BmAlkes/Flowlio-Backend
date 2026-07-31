@@ -68,6 +68,7 @@ export const users = pgTable(
         paymentAlerts: true,
         invoiceReminders: true,
         projectActivityUpdates: true,
+        proposalNotifications: true,
         emailNotifications: true,
         pushNotifications: true,
         smsNotifications: true,
