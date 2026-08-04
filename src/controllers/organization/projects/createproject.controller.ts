@@ -2,6 +2,7 @@ import { Response } from "express";
 import { database } from "../../../configs/connection.config";
 import { createProjectSchema } from "../../../schema/validation";
 import { projects, tasks, projectTemplateTasks } from "../../../schema/schema";
+import { seedDefaultMilestones } from "./milestones.controller";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { eq, and } from "drizzle-orm";
@@ -353,6 +354,9 @@ export const createProject = async (
     }
 
     const createdProject = newProject[0];
+
+    // Seed default milestones (fire-and-forget — non-blocking)
+    seedDefaultMilestones(createdProject.id, organizationId).catch(() => {});
 
     // Handle template-based task creation
     if (validatedData.templateId) {

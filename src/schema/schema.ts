@@ -2377,6 +2377,46 @@ export const proposalsRelations = relations(proposals, ({ one }) => ({
   }),
 }));
 
+// ==================== PROJECT MILESTONES ====================
+
+export const projectMilestones = pgTable(
+  "project_milestones",
+  {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    status: text("status")
+      .$type<"pending" | "in_progress" | "completed">()
+      .notNull()
+      .$defaultFn(() => "pending"),
+    position: integer("position").notNull().default(0),
+    completedAt: timestamp("completed_at"),
+    dueDate: timestamp("due_date"),
+    createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
+    updatedAt: timestamp("updated_at").notNull().$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    projectIdx: index("project_milestones_project_idx").on(table.projectId),
+    orgIdx: index("project_milestones_org_idx").on(table.organizationId),
+  })
+);
+
+export const projectMilestonesRelations = relations(projectMilestones, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectMilestones.projectId],
+    references: [projects.id],
+  }),
+  organization: one(organizations, {
+    fields: [projectMilestones.organizationId],
+    references: [organizations.id],
+  }),
+}));
+
 // ==================== PROJECT & TASK TEMPLATES ====================
 
 export const projectTemplates = pgTable(

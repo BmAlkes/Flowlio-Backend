@@ -63,6 +63,22 @@ const applySchemaPatches = async () => {
       -- user billing email
       ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "billing_email" text;
 
+      -- project milestones
+      CREATE TABLE IF NOT EXISTS "project_milestones" (
+        "id" text PRIMARY KEY NOT NULL,
+        "project_id" text NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
+        "organization_id" text NOT NULL REFERENCES "organizations"("id") ON DELETE CASCADE,
+        "title" text NOT NULL,
+        "status" text NOT NULL DEFAULT 'pending',
+        "position" integer NOT NULL DEFAULT 0,
+        "completed_at" timestamp,
+        "due_date" timestamp,
+        "created_at" timestamp NOT NULL DEFAULT now(),
+        "updated_at" timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS "project_milestones_project_idx" ON "project_milestones"("project_id");
+      CREATE INDEX IF NOT EXISTS "project_milestones_org_idx" ON "project_milestones"("organization_id");
+
       -- blog
       CREATE TABLE IF NOT EXISTS "blog_posts" (
         "id"               text PRIMARY KEY NOT NULL,
