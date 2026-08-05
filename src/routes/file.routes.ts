@@ -4,6 +4,7 @@ import { uploadVersion } from "../controllers/organization/files/uploadversion.c
 import { getVersionHistory } from "../controllers/organization/files/getversions.controller";
 import { getMedia } from "../controllers/organization/files/getmedia.controller";
 import { deleteMedia } from "../controllers/organization/files/deletemedia.controller";
+import { uploadClientMedia } from "../controllers/organization/files/uploadclientmedia.controller";
 import { uploadEditorImage } from "../controllers/organization/files/editorupload.controller";
 import { upload } from "../controllers/ai/aiAssistant.controller";
 
@@ -52,6 +53,18 @@ router.delete("/media/:fileId", isAuthenticated, deleteMedia as any);
  * @access  Private (Authenticated)
  */
 router.get("/clients/:clientId/media", isAuthenticated, getMedia as any);
+
+/**
+ * @route   POST /api/clients/:clientId/media
+ * @desc    Upload a file directly into a client's Media Center (no task required)
+ * @access  Private (Authenticated)
+ */
+router.post(
+  "/clients/:clientId/media",
+  isAuthenticated,
+  upload.single("file"),
+  uploadClientMedia as any,
+);
 
 /**
  * @route   POST /api/editor/upload
