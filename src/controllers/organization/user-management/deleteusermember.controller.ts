@@ -8,6 +8,7 @@ import {
   account,
   files,
   fileVersions,
+  recentActivities,
 } from "@/schema/schema";
 import { eq, and, ne, count } from "drizzle-orm";
 import { logActivity } from "@/utils/activity.util";
@@ -23,10 +24,23 @@ type PgError = {
   message?: string;
 };
 
-const isForeignKeyViolation = (error: unknown): error is PgError =>
-  !!error &&
-  typeof error === "object" &&
-  (error as PgError).code === FK_VIOLATION_CODE;
+// drizzle-orm wraps the raw `pg` driver error in a DrizzleQueryError, so the
+// actual Postgres error (with .code/.detail/.constraint) lives on `.cause`,
+// not on the error itself. Unwrap both shapes.
+const getPgError = (error: unknown): PgError | undefined => {
+  if (!error || typeof error !== "object") return undefined;
+  if ("code" in error) return error as PgError;
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause && typeof cause === "object" && "code" in cause) {
+    return cause as PgError;
+  }
+  return undefined;
+};
+
+const getForeignKeyViolation = (error: unknown): PgError | undefined => {
+  const pgError = getPgError(error);
+  return pgError?.code === FK_VIOLATION_CODE ? pgError : undefined;
+};
 
 export const deleteUserMember = async (req: Request, res: Response) => {
   try {
@@ -196,6 +210,21 @@ export const deleteUserMember = async (req: Request, res: Response) => {
               )
             );
           await tx.delete(account).where(eq(account.userId, userDetails.id));
+
+          // recentActivities.userId/actorId are nullable but still RESTRICT
+          // (no onDelete rule), and every past activity by/about this user
+          // — including the "Deleted user: ..." entry logActivity() just
+          // inserted above — references them. Detach instead of blocking
+          // the delete; the activity message already contains their name.
+          await tx
+            .update(recentActivities)
+            .set({ userId: null })
+            .where(eq(recentActivities.userId, userDetails.id));
+          await tx
+            .update(recentActivities)
+            .set({ actorId: null })
+            .where(eq(recentActivities.actorId, userDetails.id));
+
           await tx.delete(users).where(eq(users.id, userDetails.id));
         }
 
@@ -211,13 +240,14 @@ export const deleteUserMember = async (req: Request, res: Response) => {
       // pointing at this user (e.g. invoices, proposals, clients created by
       // them). Surface a clear 409 instead of falling through to the
       // generic 500 handler.
-      if (isForeignKeyViolation(deleteError)) {
+      const fkError = getForeignKeyViolation(deleteError);
+      if (fkError) {
         console.error("[DeleteUserMember] Foreign key violation:", {
           userMemberId: id,
           userId: userDetails?.id,
-          table: deleteError.table,
-          constraint: deleteError.constraint,
-          detail: deleteError.detail,
+          table: fkError.table,
+          constraint: fkError.constraint,
+          detail: fkError.detail,
         });
         logger.error(
           { err: deleteError },
