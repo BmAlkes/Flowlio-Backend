@@ -9,7 +9,7 @@ import {
   files,
   fileVersions,
 } from "@/schema/schema";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, ne, count } from "drizzle-orm";
 import { logActivity } from "@/utils/activity.util";
 
 // Postgres foreign key violation error code
@@ -124,12 +124,27 @@ export const deleteUserMember = async (req: Request, res: Response) => {
         .from(fileVersions)
         .where(eq(fileVersions.uploadedBy, userDetails.id));
 
+      // userManagement.createdBy is NOT NULL / RESTRICT too — blocks deleting
+      // whoever onboarded other team members (very common for owners/admins).
+      const [membersCreated] = await database
+        .select({ total: count() })
+        .from(userManagement)
+        .where(
+          and(
+            eq(userManagement.createdBy, userDetails.id),
+            ne(userManagement.id, id)
+          )
+        );
+
       const blockers: string[] = [];
       if (uploadedFiles.total > 0) {
         blockers.push(`${uploadedFiles.total} uploaded file(s)`);
       }
       if (uploadedFileVersions.total > 0) {
         blockers.push(`${uploadedFileVersions.total} file version(s)`);
+      }
+      if (membersCreated.total > 0) {
+        blockers.push(`${membersCreated.total} team member(s) they onboarded`);
       }
 
       if (blockers.length > 0) {
