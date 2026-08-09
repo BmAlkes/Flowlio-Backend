@@ -3,6 +3,11 @@ import { tasks, projects, notifications, users, userOrganizations, organizations
 import { eq, and, lt, ne, sql, gte, count, isNull, or, inArray, not, desc } from "drizzle-orm";
 import { logger } from "../../utils/logger.util";
 import { computeHighRiskProjects } from "../projectRisk.service";
+import {
+  computeProjectStatus,
+  isAutoManagedProjectStatus,
+  ProjectStatus,
+} from "../projectStatus.service";
 import { checkOrgHasWeeklyActivity, generateWeeklySummary } from "../weeklySummary.service";
 
 // How often to re-send overdue reminders for tasks that remain unresolved.
@@ -100,6 +105,58 @@ export class AutomationService {
   }
 
   /**
+   * Recalculates a project's status from its tasks (computeProjectStatus)
+   * and persists it if it changed. No-ops if the project's current status
+   * isn't one of the 4 auto-managed values (pending/ongoing/delayed/completed)
+   * — a manually-set status like "on-hold" is left untouched.
+   */
+  async recalculateProjectStatus(
+    projectId: string,
+  ): Promise<ProjectStatus | null> {
+    try {
+      return await database.transaction(async (tx) => {
+        const projectRows = await tx
+          .select({ id: projects.id, status: projects.status })
+          .from(projects)
+          .where(eq(projects.id, projectId))
+          .limit(1);
+
+        const project = projectRows[0];
+        if (!project) return null;
+
+        if (!isAutoManagedProjectStatus(project.status)) {
+          logger.info(
+            `Project ${projectId}: status "${project.status}" is not auto-managed — skipping status recalculation`,
+          );
+          return null;
+        }
+
+        const projectTasks = await tx
+          .select({ status: tasks.status, endDate: tasks.endDate })
+          .from(tasks)
+          .where(eq(tasks.projectId, projectId));
+
+        const computedStatus = computeProjectStatus(projectTasks);
+
+        if (computedStatus !== project.status) {
+          await tx
+            .update(projects)
+            .set({ status: computedStatus, updatedAt: new Date() })
+            .where(eq(projects.id, projectId));
+          logger.info(
+            `Project ${projectId}: status auto-updated "${project.status}" -> "${computedStatus}"`,
+          );
+        }
+
+        return computedStatus;
+      });
+    } catch (error) {
+      logger.error(`Error recalculating status for project ${projectId}:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Marks overdue tasks as 'delay', creates in-app notifications, and sends
    * a one-time email to the assignee and the project manager.
    * Runs daily via cron. Returns a result object for observability.
@@ -113,6 +170,7 @@ export class AutomationService {
     const now = new Date();
     const result = { tasksFound: 0, emailsSent: 0, emailsFailed: 0, errors: [] as string[] };
     const excludedOrgs = await this.getExcludedOrgIds("task-overdue", opts?.scheduleFilter);
+    const touchedProjectIds = new Set<string>();
 
     logger.info("Running overdue task automation check...");
 
@@ -168,6 +226,8 @@ export class AutomationService {
           .update(tasks)
           .set({ status: "delay", updatedAt: now })
           .where(eq(tasks.id, task.id));
+
+        if (task.projectId) touchedProjectIds.add(task.projectId);
 
         const endDateFormatted = task.endDate
           ? new Date(task.endDate).toLocaleDateString("en-US", {
@@ -280,6 +340,15 @@ export class AutomationService {
         } else {
           logger.warn(`Task "${task.title}" (${task.id}): all emails failed — overdueNotifiedAt NOT set, will retry next run`);
         }
+      }
+
+      // Tasks just flipped to 'delay' (or were already overdue before this
+      // run) can push their project into "delayed" even if every other task
+      // is completed — recalculate once per touched project.
+      for (const projectId of touchedProjectIds) {
+        await this.recalculateProjectStatus(projectId).catch((err) => {
+          logger.error(`Failed to recalculate status for project ${projectId}:`, err);
+        });
       }
 
       logger.info("Overdue task automation completed", result);

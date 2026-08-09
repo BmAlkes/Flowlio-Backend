@@ -80,7 +80,7 @@ export const deleteTask = async (
       message: "Task deleted successfully",
     });
 
-    // Recalculate project progress after response is sent
+    // Recalculate project progress/status after response is sent
     const projectId = existingTask[0].projectId;
     if (projectId) {
       await automationService
@@ -88,6 +88,15 @@ export const deleteTask = async (
         .catch((err) => {
           logger.error(
             `Failed to recalculate progress for project ${projectId}:`,
+            err,
+          );
+        });
+
+      await automationService
+        .recalculateProjectStatus(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate status for project ${projectId}:`,
             err,
           );
         });

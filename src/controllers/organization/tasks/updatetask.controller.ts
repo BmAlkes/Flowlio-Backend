@@ -245,6 +245,16 @@ export const updateTask = async (
           );
         });
 
+      // Recalculate derived project status (pending/ongoing/delayed/completed)
+      await automationService
+        .recalculateProjectStatus(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate status for project ${projectId}:`,
+            err,
+          );
+        });
+
       // If project was changed, also recalculate for the old project
       if (
         updateFields.projectId &&
@@ -255,6 +265,15 @@ export const updateTask = async (
           .catch((err) => {
             logger.error(
               `Failed to recalculate progress for old project ${existingTask[0].projectId}:`,
+              err,
+            );
+          });
+
+        await automationService
+          .recalculateProjectStatus(existingTask[0].projectId)
+          .catch((err) => {
+            logger.error(
+              `Failed to recalculate status for old project ${existingTask[0].projectId}:`,
               err,
             );
           });
@@ -426,6 +445,16 @@ export const updateTaskStatus = async (
         .catch((err) => {
           logger.error(
             `Failed to recalculate progress for project ${projectId}:`,
+            err,
+          );
+        });
+
+      // Recalculate derived project status (pending/ongoing/delayed/completed)
+      await automationService
+        .recalculateProjectStatus(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate status for project ${projectId}:`,
             err,
           );
         });

@@ -211,6 +211,16 @@ export const createTask = async (
           );
         });
 
+      // Recalculate derived project status (pending/ongoing/delayed/completed)
+      await automationService
+        .recalculateProjectStatus(projectId)
+        .catch((err) => {
+          logger.error(
+            `Failed to recalculate status for project ${projectId}:`,
+            err,
+          );
+        });
+
       // Handle Auto Assign Task if enabled
       await automationService
         .handleAutoAssignTask(projectId, newTask[0].id)
