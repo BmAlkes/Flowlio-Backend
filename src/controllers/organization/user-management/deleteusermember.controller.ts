@@ -6,9 +6,27 @@ import {
   users,
   userOrganizations,
   account,
+  files,
+  fileVersions,
 } from "@/schema/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, count } from "drizzle-orm";
 import { logActivity } from "@/utils/activity.util";
+
+// Postgres foreign key violation error code
+const FK_VIOLATION_CODE = "23503";
+
+type PgError = {
+  code?: string;
+  detail?: string;
+  table?: string;
+  constraint?: string;
+  message?: string;
+};
+
+const isForeignKeyViolation = (error: unknown): error is PgError =>
+  !!error &&
+  typeof error === "object" &&
+  (error as PgError).code === FK_VIOLATION_CODE;
 
 export const deleteUserMember = async (req: Request, res: Response) => {
   try {
@@ -90,6 +108,46 @@ export const deleteUserMember = async (req: Request, res: Response) => {
       });
     }
 
+    // Pre-flight check: some relations reference users.id with a NOT NULL,
+    // RESTRICT (no onDelete) foreign key — e.g. files.uploadedBy and
+    // fileVersions.uploadedBy — so deleting the user would otherwise fail
+    // with a raw Postgres FK violation (500). Detect those up front and
+    // return a clear, actionable error instead of letting the delete blow up.
+    if (userDetails) {
+      const [uploadedFiles] = await database
+        .select({ total: count() })
+        .from(files)
+        .where(eq(files.uploadedBy, userDetails.id));
+
+      const [uploadedFileVersions] = await database
+        .select({ total: count() })
+        .from(fileVersions)
+        .where(eq(fileVersions.uploadedBy, userDetails.id));
+
+      const blockers: string[] = [];
+      if (uploadedFiles.total > 0) {
+        blockers.push(`${uploadedFiles.total} uploaded file(s)`);
+      }
+      if (uploadedFileVersions.total > 0) {
+        blockers.push(`${uploadedFileVersions.total} file version(s)`);
+      }
+
+      if (blockers.length > 0) {
+        logger.warn("⚠️ DeleteUserMember - Blocked by related records:", {
+          userMemberId: id,
+          userId: userDetails.id,
+          blockers,
+        });
+
+        return res.status(409).json({
+          success: false,
+          message: `Cannot delete user: they have ${blockers.join(
+            " and "
+          )}. Reassign or delete these first.`,
+        });
+      }
+    }
+
     // Log activity before deletion
     const actorId = req.user?.id;
     if (organizationId && actorId && memberToDelete) {
@@ -106,32 +164,60 @@ export const deleteUserMember = async (req: Request, res: Response) => {
       });
     }
 
-    // Start transaction for cascade deletion
-    await database.transaction(async (tx) => {
-      // 1. Delete from userManagement table
-      await tx.delete(userManagement).where(eq(userManagement.id, id));
+    try {
+      // Start transaction for cascade deletion
+      await database.transaction(async (tx) => {
+        // 1. Delete from userManagement table
+        await tx.delete(userManagement).where(eq(userManagement.id, id));
 
-      // 2-4. Only cascade to users/account/userOrganizations if the users record exists
-      if (userDetails) {
-        await tx
-          .delete(userOrganizations)
-          .where(
-            and(
-              eq(userOrganizations.userId, userDetails.id),
-              eq(userOrganizations.organizationId, organizationId)
-            )
-          );
-        await tx.delete(account).where(eq(account.userId, userDetails.id));
-        await tx.delete(users).where(eq(users.id, userDetails.id));
+        // 2-4. Only cascade to users/account/userOrganizations if the users record exists
+        if (userDetails) {
+          await tx
+            .delete(userOrganizations)
+            .where(
+              and(
+                eq(userOrganizations.userId, userDetails.id),
+                eq(userOrganizations.organizationId, organizationId)
+              )
+            );
+          await tx.delete(account).where(eq(account.userId, userDetails.id));
+          await tx.delete(users).where(eq(users.id, userDetails.id));
+        }
+
+        logger.info("🗑️ User member deleted successfully:", {
+          userMemberId: id,
+          userId: userDetails?.id ?? "(no users record)",
+          userEmail: memberToDelete.email,
+          organizationId,
+        });
+      });
+    } catch (deleteError) {
+      // Known cause: a foreign key we didn't pre-check still has rows
+      // pointing at this user (e.g. invoices, proposals, clients created by
+      // them). Surface a clear 409 instead of falling through to the
+      // generic 500 handler.
+      if (isForeignKeyViolation(deleteError)) {
+        console.error("[DeleteUserMember] Foreign key violation:", {
+          userMemberId: id,
+          userId: userDetails?.id,
+          table: deleteError.table,
+          constraint: deleteError.constraint,
+          detail: deleteError.detail,
+        });
+        logger.error(
+          { err: deleteError },
+          "DeleteUserMember - foreign key violation while deleting user"
+        );
+
+        return res.status(409).json({
+          success: false,
+          message:
+            "Cannot delete user: they still have related records (e.g. invoices, proposals, clients, or projects) referencing their account. Reassign or remove those first.",
+        });
       }
 
-      logger.info("🗑️ User member deleted successfully:", {
-        userMemberId: id,
-        userId: userDetails?.id ?? "(no users record)",
-        userEmail: memberToDelete.email,
-        organizationId,
-      });
-    });
+      throw deleteError;
+    }
 
     return res.status(200).json({
       success: true,
@@ -156,11 +242,20 @@ export const deleteUserMember = async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error("Error deleting user member:", error);
+    // Log the real error before falling back to the generic message —
+    // `logger.error("msg", error)` (string first) does NOT merge `error`
+    // into the pino log, it silently swallows the cause. Log it explicitly.
+    console.error("[DeleteUserMember] Unexpected error:", error);
+    logger.error({ err: error }, "Error deleting user member");
+
     return res.status(500).json({
       success: false,
       message: "Internal server error while deleting user member",
-      error: process.env.NODE_ENV === "development" ? error : undefined,
+      error: process.env.NODE_ENV === "development"
+        ? error instanceof Error
+          ? error.message
+          : error
+        : undefined,
     });
   }
 };
