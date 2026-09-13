@@ -1,3 +1,4 @@
+import { projectBudget } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { projects, clients, users } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -53,7 +54,7 @@ export const getViewerProjectById = async (
         endDate: projects.endDate,
         assignedTo: projects.assignedTo,
         address: projects.address,
-        budget: projects.budget,
+        budget: sql<string | null>`case when ${projectBudget(req.user!, "allowed") !== null} then ${projects.budget} else null end`,
         contractfile: projects.contractfile,
         projectFiles: projects.projectFiles,
         visibility: projects.visibility,

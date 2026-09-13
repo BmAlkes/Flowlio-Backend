@@ -15,7 +15,9 @@
     "dbintrospect": "drizzle-kit introspect",
     "swagger": "ts-node ./src/configs/swagger.config.ts",
     "tailwind": "npx @tailwindcss/cli -i ./public/input.css -o ./public/output.css --watch",
-    "better-auth-generate": "npx @better-auth/cli@latest generate"
+    "better-auth-generate": "npx @better-auth/cli@latest generate",
+    "test": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/*.test.cjs",
+    "typecheck": "tsc --noEmit"
   },
   "license": "ISC",
   "_moduleAliases": {

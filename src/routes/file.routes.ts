@@ -1,3 +1,4 @@
+import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { uploadVersion } from "../controllers/organization/files/uploadversion.controller";
@@ -18,6 +19,7 @@ const router = Router();
 router.post(
   "/attachments/:id/versions",
   isAuthenticated,
+  resourceAccess.file(req => req.params.id, "create"),
   upload.single("file"),
   uploadVersion as any,
 );
@@ -30,6 +32,7 @@ router.post(
 router.get(
   "/attachments/:id/versions",
   isAuthenticated,
+  resourceAccess.file(req => req.params.id),
   getVersionHistory as any,
 );
 
@@ -38,21 +41,21 @@ router.get(
  * @desc    Get all media for the organization (Client Media Center)
  * @access  Private (Authenticated)
  */
-router.get("/media", isAuthenticated, getMedia as any);
+router.get("/media", isAuthenticated, resourceAccess.action("read"), getMedia as any);
 
 /**
  * @route   DELETE /api/media/:fileId
  * @desc    Delete a media file (Client Media Center)
  * @access  Private (Authenticated)
  */
-router.delete("/media/:fileId", isAuthenticated, deleteMedia as any);
+router.delete("/media/:fileId", isAuthenticated, resourceAccess.file(req => req.params.fileId, "delete"), deleteMedia as any);
 
 /**
  * @route   GET /api/clients/:clientId/media
  * @desc    Get all media for a specific client
  * @access  Private (Authenticated)
  */
-router.get("/clients/:clientId/media", isAuthenticated, getMedia as any);
+router.get("/clients/:clientId/media", isAuthenticated, resourceAccess.client(req => req.params.clientId), getMedia as any);
 
 /**
  * @route   POST /api/clients/:clientId/media
@@ -62,7 +65,10 @@ router.get("/clients/:clientId/media", isAuthenticated, getMedia as any);
 router.post(
   "/clients/:clientId/media",
   isAuthenticated,
+  resourceAccess.client(req => req.params.clientId, true),
+  resourceAccess.action("comment"),
   upload.single("file"),
+  resourceAccess.clientFileReferences,
   uploadClientMedia as any,
 );
 

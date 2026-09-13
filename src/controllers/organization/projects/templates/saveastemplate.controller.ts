@@ -1,8 +1,9 @@
+import { taskReadScope } from "@/security/resource-access";
 import { Response } from "express";
 import { database } from "../../../../configs/connection.config";
-import { projectTemplates, projectTemplateTasks, tasks } from "../../../../schema/schema";
+import { projectTemplates, projectTemplateTasks, tasks, projects } from "../../../../schema/schema";
 import { saveProjectAsTemplateSchema } from "../../../../schema/validation";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 import { requireOrganizationId } from "@/utils/organization.util";
@@ -31,9 +32,10 @@ export const saveProjectAsTemplate = async (req: any, res: Response): Promise<vo
 
     // 2. Fetch all tasks for this project
     const projectTasks = await database
-      .select()
+      .select({ title: tasks.title, description: tasks.description, estimatedHours: tasks.estimatedHours })
       .from(tasks)
-      .where(eq(tasks.projectId, projectId));
+      .innerJoin(projects, eq(tasks.projectId, projects.id))
+      .where(and(eq(tasks.projectId, projectId), taskReadScope(req.user)));
 
     // 3. Create the template
     const templateId = randomUUID();

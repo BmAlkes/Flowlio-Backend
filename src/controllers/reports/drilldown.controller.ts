@@ -1,6 +1,7 @@
+import { projectReadScope, taskReadScope } from "@/security/resource-access";
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { users, tasks, projects, timeEntries, clients, invoices, projectExpenses } from "@/schema/schema";
+import { users, tasks, projects, timeEntries, clients, invoices, projectExpenses, userOrganizations } from "@/schema/schema";
 import { eq, and, sql, gte, lte, inArray } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import { resolveDateRange } from "@/utils/dateRange.util";
@@ -19,14 +20,15 @@ export const getMemberTasks = async (req: Request, res: Response) => {
     const [member] = await database
       .select({ id: users.id, name: users.name, email: users.email, image: users.image })
       .from(users)
-      .where(eq(users.id, userId))
+      .where(and(eq(users.id, userId), sql`exists (select 1 from ${userOrganizations} where ${userOrganizations.userId} = ${users.id} and ${userOrganizations.organizationId} = ${orgId} and ${userOrganizations.status} = 'active')`))
       .limit(1);
 
     if (!member) return res.status(404).json({ success: false, message: "User not found" });
 
     const conditions: any[] = [
       eq(tasks.assignedTo, userId),
-      eq(projects.organizationId, orgId),
+      taskReadScope(req.user!),
+      projectReadScope(req.user!),
       gte(tasks.createdAt, range.from),
       lte(tasks.createdAt, range.to),
     ];
@@ -111,7 +113,7 @@ export const getClientProjects = async (req: Request, res: Response) => {
       })
       .from(projects)
       .leftJoin(projectExpenses, eq(projects.id, projectExpenses.projectId))
-      .where(and(eq(projects.clientId, clientId), eq(projects.organizationId, orgId)))
+      .where(and(eq(projects.clientId, clientId), projectReadScope(req.user!)))
       .groupBy(projects.id);
 
     // Task counts per project
@@ -199,7 +201,7 @@ export const getProjectBreakdown = async (req: Request, res: Response) => {
     const [project] = await database
       .select({ id: projects.id, name: projects.name, status: projects.status, budget: projects.budget })
       .from(projects)
-      .where(and(eq(projects.id, projectId), eq(projects.organizationId, orgId)))
+      .where(and(eq(projects.id, projectId), projectReadScope(req.user!)))
       .limit(1);
 
     if (!project) return res.status(404).json({ success: false, message: "Project not found" });

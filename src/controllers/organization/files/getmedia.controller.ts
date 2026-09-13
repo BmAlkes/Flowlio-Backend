@@ -1,7 +1,9 @@
+import { projectReadScope, taskReadScope } from "@/security/resource-access";
+import { canManageClients } from "@/security/resource-policy";
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { files, fileVersions, tasks, projects, clients } from "@/schema/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, or, isNull, sql } from "drizzle-orm";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 
@@ -63,6 +65,12 @@ export const getMedia = async (req: Request, res: Response): Promise<void> => {
     if (startDate) filesConditions.push(gte(fileVersions.createdAt, new Date(startDate as string)));
     if (endDate) filesConditions.push(lte(fileVersions.createdAt, new Date(endDate as string)));
 
+    filesConditions.push(or(
+      and(isNull(files.projectId), isNull(files.taskId), user.role === "client"
+        ? sql`exists (select 1 from ${clients} where ${clients.id} = ${files.clientId} and ${clients.userId} = ${user.id} and ${clients.organizationId} = ${organizationId})`
+        : canManageClients(user) ? sql`true` : eq(files.uploadedBy, user.id)),
+      and(projectReadScope(user), or(isNull(files.taskId), and(eq(tasks.projectId, files.projectId), taskReadScope(user))))
+    )!);
     const allStructuredFiles = await database.select({
       fileId: files.id,
       fileName: fileVersions.name, // Show specific version name
@@ -80,6 +88,7 @@ export const getMedia = async (req: Request, res: Response): Promise<void> => {
     .from(files)
     .innerJoin(fileVersions, eq(files.id, fileVersions.fileId))
     .leftJoin(projects, eq(files.projectId, projects.id))
+    .leftJoin(tasks, eq(files.taskId, tasks.id))
     .leftJoin(clients, eq(files.clientId, clients.id))
     .where(and(...filesConditions));
 
@@ -107,7 +116,7 @@ export const getMedia = async (req: Request, res: Response): Promise<void> => {
     }
 
     // 2. Fetch from legacy 'tasks.attachments' (JSONB)
-    const taskConditions = [eq(projects.organizationId, organizationId)];
+    const taskConditions = [taskReadScope(user)];
     if (projectId) taskConditions.push(eq(tasks.projectId, projectId as string));
     if (taskId) taskConditions.push(eq(tasks.id, taskId as string));
     if (clientId) taskConditions.push(eq(projects.clientId, clientId as string));
@@ -155,7 +164,7 @@ export const getMedia = async (req: Request, res: Response): Promise<void> => {
     });
 
     // 3. Fetch from legacy 'projects' (projectFiles and contractfile)
-    const projectConditions = [eq(projects.organizationId, organizationId)];
+    const projectConditions = [projectReadScope(user)];
     if (projectId) projectConditions.push(eq(projects.id, projectId as string));
     if (clientId) projectConditions.push(eq(projects.clientId, clientId as string));
     if (startDate) projectConditions.push(gte(projects.createdAt, new Date(startDate as string)));

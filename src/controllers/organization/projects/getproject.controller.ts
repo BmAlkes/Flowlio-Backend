@@ -1,8 +1,9 @@
+import { projectReadScope, projectBudget } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { projects, clients, users, userOrganizations, userManagement } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { eq, desc, and, or } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import status from "http-status";
 
@@ -31,35 +32,7 @@ export const getAllProjects = async (
 
     logger.info("🔍 About to execute database query with joins...");
 
-    const whereConditions = [eq(projects.organizationId, organizationId)];
-
-    // SECURITY: If user is a client, strictly enforce their own projects
-    if (req.user?.role === "client") {
-      const clientRecord = await database.query.clients.findFirst({
-        where: (clients, { eq }) => eq(clients.userId, req.user!.id),
-      });
-
-      if (clientRecord) {
-        whereConditions.push(eq(projects.clientId, clientRecord.id));
-      } else {
-        // If client record not found, return empty set for security
-        res.status(200).json({
-          success: true,
-          message: "Projects fetched successfully",
-          data: [],
-        });
-        return;
-      }
-    } else {
-      // For non-clients (admins/users), apply original visibility/assignment filters
-      whereConditions.push(
-        or(
-          eq(projects.createdBy, req.user?.id as string),
-          eq(projects.assignedTo, req.user?.id as string),
-          eq(projects.visibility, "public"),
-        ) as any,
-      );
-    }
+    const whereConditions = [projectReadScope(req.user!)];
 
     const projectsData = await database
       .select({
@@ -114,7 +87,7 @@ export const getAllProjects = async (
       endDate: project.endDate ? new Date(project.endDate) : null,
       assignedProject: project.assignedUserName || "Unassigned",
       address: project.address || "",
-      budget: project.budget,
+      budget: projectBudget(req.user!, project.budget),
       status: project.status || "pending",
       progress: project.progress || 0,
       createdBy: project.createdByName || "Unknown",
@@ -173,40 +146,9 @@ export const getProjectById = async (
     }
 
     const organizationId = req.user.organizationId as string;
-    const userRole = req.user.role;
-
-    // Security check for clients: They can only see their own projects
-    let clientCondition = undefined;
-    if (userRole === "client") {
-      // Find the client record associated with this user ID
-      const clientRecord = await database.query.clients.findFirst({
-        where: (clients, { eq }) => eq(clients.userId, req.user!.id),
-      });
-
-      if (!clientRecord) {
-        res.status(403).json({
-          success: false,
-          message: "Client profile not found for this user",
-        });
-        return;
-      }
-
-      clientCondition = eq(projects.clientId, clientRecord.id);
-    }
-
     // Create aliases for users table to avoid conflicts
     const assignedUsers = alias(users, "assigned_users");
     const createdByUsers = alias(users, "created_by_users");
-
-    const visibilityConditions = [
-      eq(projects.createdBy, req.user!.id),
-      eq(projects.assignedTo, req.user!.id),
-      eq(projects.visibility, "public"),
-    ];
-
-    if (clientCondition) {
-      visibilityConditions.push(clientCondition);
-    }
 
     const project = await database
       .select({
@@ -249,7 +191,7 @@ export const getProjectById = async (
         and(
           eq(projects.id, id),
           eq(projects.organizationId, organizationId),
-          or(...visibilityConditions),
+          projectReadScope(req.user!),
         ),
       )
       .limit(1);
@@ -275,7 +217,7 @@ export const getProjectById = async (
       endDate: projectData.endDate ? new Date(projectData.endDate) : null,
       assignedProject: projectData.assignedUserName || "Unassigned",
       address: projectData.address || "",
-      budget: projectData.budget,
+      budget: projectBudget(req.user!, projectData.budget),
       status: projectData.status || "pending",
       progress: projectData.progress || 0,
       createdBy: projectData.createdByName || "Unknown",

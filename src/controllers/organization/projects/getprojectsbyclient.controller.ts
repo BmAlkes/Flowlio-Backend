@@ -1,3 +1,4 @@
+import { projectReadScope, projectBudget } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { projects, clients, users } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -113,7 +114,8 @@ export const getProjectsByClient = async (
       .where(
         and(
           eq(projects.clientId, clientId),
-          eq(projects.organizationId, organizationId)
+          eq(projects.organizationId, organizationId),
+          projectReadScope(req.user!)
         )
       )
       .orderBy(desc(projects.createdAt));
@@ -134,7 +136,7 @@ export const getProjectsByClient = async (
       endDate: project.endDate ? new Date(project.endDate) : null,
       assignedProject: project.assignedUserName || "Unassigned",
       address: project.address || "",
-      budget: project.budget,
+      budget: projectBudget(req.user!, project.budget),
       status: project.status || "pending",
       progress: project.progress || 0,
       createdBy: project.createdByName || "Unknown",

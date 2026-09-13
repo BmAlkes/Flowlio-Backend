@@ -1,3 +1,4 @@
+import { taskReadScope } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { tasks, projects, clients, users } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -15,7 +16,7 @@ export const getTasksByClient = async (
 ): Promise<void> => {
   try {
     const { clientId } = req.params;
-    const { organizationId } = req.body; // Get organizationId from request body
+    const organizationId = req.user?.organizationId;
 
     // Validate inputs
     if (!clientId) {
@@ -115,6 +116,7 @@ export const getTasksByClient = async (
         and(
           eq(projects.clientId, clientId),
           eq(projects.organizationId, organizationId),
+          taskReadScope(req.user!),
         ),
       )
       .orderBy(desc(tasks.createdAt));

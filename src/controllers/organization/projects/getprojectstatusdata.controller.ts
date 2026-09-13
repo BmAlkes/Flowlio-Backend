@@ -1,8 +1,9 @@
+import { projectReadScope } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { projects } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { sql, eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import status from "http-status";
 
 export const getProjectStatusData = async (
@@ -30,7 +31,7 @@ export const getProjectStatusData = async (
         status: projects.status,
       })
       .from(projects)
-      .where(eq(projects.organizationId, organizationId));
+      .where(projectReadScope(req.user!));
 
     logger.info(
       `🔍 Found ${allProjects.length} projects for organization ${organizationId}`
@@ -52,7 +53,7 @@ export const getProjectStatusData = async (
         total: sql<number>`COUNT(*)`,
       })
       .from(projects)
-      .where(eq(projects.organizationId, organizationId));
+      .where(projectReadScope(req.user!));
 
     const statusCounts = result[0] || {
       ongoing: 0,

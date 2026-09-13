@@ -1,3 +1,4 @@
+import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
@@ -19,7 +20,7 @@ const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 
 router.post("/", ...orgOwner, createInvoice);
 router.get("/", ...orgOwner, getInvoices);
-router.post("/client/:clientId", isAuthenticated, getInvoicesByClient);
+router.post("/client/:clientId", isAuthenticated, resourceAccess.client(req => req.params.clientId, true), getInvoicesByClient);
 router.post("/:id/generate-pdf", ...orgOwner, generateInvoicePDF);
 router.put("/:id/status", ...orgOwner, updateInvoiceStatus as any);
 router.delete("/:id", ...orgOwner, deleteInvoice);

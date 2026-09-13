@@ -1,7 +1,8 @@
+import { commentReadScope } from "@/security/resource-access";
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { projectComments, users } from "../../../../drizzle/schema";
-import { asc, eq } from "drizzle-orm";
+import { projectComments, users } from "@/schema/schema";
+import { asc, eq, and } from "drizzle-orm";
 import status from "http-status";
 import { logger } from "@/utils/logger.util";
 
@@ -38,7 +39,7 @@ export const getProjectComments = async (req: Request, res: Response) => {
       })
       .from(projectComments)
       .leftJoin(users, eq(projectComments.userId, users.id))
-      .where(eq(projectComments.projectId, projectId))
+      .where(and(eq(projectComments.projectId, projectId), commentReadScope(req.user!)))
       .orderBy(asc(projectComments.createdAt));
 
     if (comments.length === 0) {

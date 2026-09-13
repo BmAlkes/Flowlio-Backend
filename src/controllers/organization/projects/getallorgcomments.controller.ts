@@ -1,197 +1,101 @@
 import { Request, Response } from "express";
-import { connection } from "@/configs/connection.config";
 import { database } from "@/configs/connection.config";
-import { projects } from "../../../../drizzle/schema";
-import { and, eq } from "drizzle-orm";
-import status from "http-status";
+import { projects, projectComments, users } from "@/schema/schema";
+import { and, eq, isNull, inArray, desc, asc, count } from "drizzle-orm";
+import { commentReadScope } from "@/security/resource-access";
 import { logger } from "@/utils/logger.util";
 
 export const getAllOrgComments = async (req: Request, res: Response) => {
   try {
     if (!req.user) {
-      res.status(401).json({ success: false, message: "User not authenticated" });
+      res
+        .status(401)
+        .json({ success: false, message: "Authentication required" });
       return;
     }
-
-    const organizationId = req.user.organizationId;
-    if (!organizationId) {
-      res.status(200).json({ success: true, message: "No organization found", data: [], total: 0, page: 1, totalPages: 0 });
+    if (!req.user.organizationId) {
+      res
+        .status(403)
+        .json({ success: false, message: "Organization context required" });
       return;
     }
-
-    const projectId = req.query.projectId as string | undefined;
-    const page = Math.max(1, parseInt((req.query.page as string) || "1", 10));
-    const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || "20", 10)));
-    const offset = (page - 1) * limit;
-
-    // Resolve project IDs that belong to this org
-    let projectIds: string[];
-    if (projectId) {
-      const proj = await database
-        .select({ id: projects.id })
-        .from(projects)
-        .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
-        .limit(1);
-
-      if (proj.length === 0) {
-        res.status(200).json({ success: true, message: "No comments found", data: [], total: 0, page, totalPages: 0 });
-        return;
-      }
-      projectIds = [projectId];
-    } else {
-      const orgProjects = await database
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.organizationId, organizationId));
-
-      if (orgProjects.length === 0) {
-        res.status(200).json({ success: true, message: "No comments found", data: [], total: 0, page, totalPages: 0 });
-        return;
-      }
-      projectIds = orgProjects.map((p) => p.id);
-    }
-
-    // Build $1, $2, ... placeholders for the IN clause
-    const inPlaceholders = projectIds.map((_, i) => `$${i + 1}`).join(", ");
-
-    // COUNT top-level comments
-    const countResult = await connection.query({
-      text: `SELECT count(*)::int AS total FROM project_comments WHERE project_id IN (${inPlaceholders}) AND parent_id IS NULL`,
-      values: projectIds,
-    });
-    const total: number = parseInt(countResult.rows[0]?.total ?? "0", 10);
-    const totalPages = Math.ceil(total / limit);
-
-    if (total === 0) {
-      res.status(200).json({ success: true, message: "No comments found", data: [], total: 0, page, totalPages: 0 });
-      return;
-    }
-
-    // Fetch top-level comments with JOINs for project, user, task — all in one query
-    const limitIdx  = projectIds.length + 1;
-    const offsetIdx = projectIds.length + 2;
-
-    const mainResult = await connection.query<{
-      id: string;
-      projectId: string;
-      projectName: string | null;
-      parentId: string | null;
-      userId: string;
-      userName: string | null;
-      content: string;
-      createdAt: string;
-      updatedAt: string;
-    }>({
-      text: `
-        SELECT
-          pc.id,
-          pc.project_id      AS "projectId",
-          p.name             AS "projectName",
-          pc.parent_id       AS "parentId",
-          pc.user_id         AS "userId",
-          u.name             AS "userName",
-          pc.content,
-          pc.created_at      AS "createdAt",
-          pc.updated_at      AS "updatedAt"
-        FROM project_comments pc
-        LEFT JOIN projects p ON pc.project_id = p.id
-        LEFT JOIN users    u ON pc.user_id    = u.id
-        WHERE pc.project_id IN (${inPlaceholders})
-          AND pc.parent_id IS NULL
-        ORDER BY pc.created_at DESC
-        LIMIT $${limitIdx} OFFSET $${offsetIdx}
-      `,
-      values: [...projectIds, limit, offset],
-    });
-
-    const topLevel = mainResult.rows;
-
-    if (topLevel.length === 0) {
-      res.status(200).json({ success: true, message: "No comments found", data: [], total, page, totalPages });
-      return;
-    }
-
-    // Fetch replies for these top-level comments
-    const topLevelIds = topLevel.map((c) => c.id);
-    const replyPlaceholders = topLevelIds.map((_, i) => `$${i + 1}`).join(", ");
-
-    const replyResult = await connection.query<{
-      id: string;
-      projectId: string;
-      parentId: string;
-      userId: string;
-      userName: string | null;
-      content: string;
-      createdAt: string;
-      updatedAt: string;
-    }>({
-      text: `
-        SELECT
-          pc.id,
-          pc.project_id  AS "projectId",
-          pc.parent_id   AS "parentId",
-          pc.user_id     AS "userId",
-          u.name         AS "userName",
-          pc.content,
-          pc.created_at  AS "createdAt",
-          pc.updated_at  AS "updatedAt"
-        FROM project_comments pc
-        LEFT JOIN users u ON pc.user_id = u.id
-        WHERE pc.parent_id IN (${replyPlaceholders})
-        ORDER BY pc.created_at ASC
-      `,
-      values: topLevelIds,
-    });
-
-    const repliesByParent = new Map<string, typeof replyResult.rows>();
-    replyResult.rows.forEach((r) => {
-      const bucket = repliesByParent.get(r.parentId) ?? [];
-      bucket.push(r);
-      repliesByParent.set(r.parentId, bucket);
-    });
-
-    const data = topLevel.map((c) => ({
-      id: c.id,
-      projectId: c.projectId,
-      projectName: c.projectName ?? null,
-      taskId: null,
-      taskTitle: null,
-      parentId: c.parentId ?? null,
-      userId: c.userId,
-      userName: c.userName ?? null,
-      content: c.content,
-      createdAt: c.createdAt,
-      updatedAt: c.updatedAt,
-      replies: (repliesByParent.get(c.id) ?? []).map((r) => ({
-        id: r.id,
-        projectId: r.projectId,
-        taskId: null,
-        parentId: r.parentId,
-        userId: r.userId,
-        userName: r.userName ?? null,
-        content: r.content,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-      })),
-    }));
-
-    res.status(200).json({
-      success: true,
-      message: "Comments retrieved successfully",
-      data,
-      total,
-      page,
-      totalPages,
-    });
-  } catch (error: any) {
-    logger.error("Error retrieving org comments:", {
-      message: error?.message,
-      cause: error?.cause,
-      detail: error?.detail,
-    });
-    res.status(status.INTERNAL_SERVER_ERROR).json({
-      success: false,
-      message: error?.cause?.message ?? error?.message ?? "Internal server error",
-    });
+    const page = Math.max(
+      1,
+      Number.parseInt(String(req.query.page ?? "1"), 10) || 1,
+    );
+    const limit = Math.min(
+      100,
+      Math.max(1, Number.parseInt(String(req.query.limit ?? "20"), 10) || 20),
+    );
+    const scope = commentReadScope(req.user);
+    const conditions = and(
+      scope,
+      isNull(projectComments.parentId),
+      typeof req.query.projectId === "string"
+        ? eq(projectComments.projectId, req.query.projectId)
+        : undefined,
+    );
+    const [totalRow] = await database
+      .select({ total: count() })
+      .from(projectComments)
+      .where(conditions);
+    const total = totalRow?.total ?? 0;
+    const selection = {
+      id: projectComments.id,
+      projectId: projectComments.projectId,
+      projectName: projects.name,
+      parentId: projectComments.parentId,
+      userId: projectComments.userId,
+      userName: users.name,
+      content: projectComments.content,
+      createdAt: projectComments.createdAt,
+      updatedAt: projectComments.updatedAt,
+    };
+    const topLevel = await database
+      .select(selection)
+      .from(projectComments)
+      .leftJoin(projects, eq(projectComments.projectId, projects.id))
+      .leftJoin(users, eq(projectComments.userId, users.id))
+      .where(conditions)
+      .orderBy(desc(projectComments.createdAt))
+      .limit(limit)
+      .offset((page - 1) * limit);
+    const replies = topLevel.length
+      ? await database
+          .select(selection)
+          .from(projectComments)
+          .leftJoin(projects, eq(projectComments.projectId, projects.id))
+          .leftJoin(users, eq(projectComments.userId, users.id))
+          .where(
+            and(
+              scope,
+              inArray(
+                projectComments.parentId,
+                topLevel.map((comment) => comment.id),
+              ),
+            ),
+          )
+          .orderBy(asc(projectComments.createdAt))
+      : [];
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: "Comments retrieved successfully",
+        data: topLevel.map((comment) => ({
+          ...comment,
+          replies: replies.filter(
+            (reply) =>
+              reply.parentId === comment.id &&
+              reply.projectId === comment.projectId,
+          ),
+        })),
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
+      });
+  } catch (error) {
+    logger.error("Error retrieving organization comments", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };

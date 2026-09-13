@@ -1,3 +1,4 @@
+import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { createProject } from "../controllers/organization/projects/createproject.controller";
@@ -32,49 +33,49 @@ import { getMilestones, createMilestone, updateMilestone, deleteMilestone } from
 const router = Router();
 
 // ==================== PROJECT ROUTES ====================
-router.post("/create", isAuthenticated, createProject as any);
-router.put("/update/:id", isAuthenticated, updateProject as any);
+router.post("/create", isAuthenticated, resourceAccess.action("create"), resourceAccess.projectFields, createProject as any);
+router.put("/update/:id", isAuthenticated, resourceAccess.project(req => req.params.id, "update"), resourceAccess.projectFields, updateProject as any);
 router.get("/all", isAuthenticated, getAllProjects);
 router.get("/schedule-data", isAuthenticated, getProjectScheduleData);
 router.get("/status-data", isAuthenticated, getProjectStatusData);
-router.post("/client/:clientId", isAuthenticated, getProjectsByClient);
-router.patch("/reorder", isAuthenticated, reorderProjects as any);
+router.post("/client/:clientId", isAuthenticated, resourceAccess.client(req => req.params.clientId), getProjectsByClient);
+router.patch("/reorder", isAuthenticated, resourceAccess.reorder, reorderProjects as any);
 
 // ==================== PROJECT TEMPLATE ROUTES ====================
-router.get("/templates/all", isAuthenticated, getTemplates);
-router.post("/templates/save-as", isAuthenticated, saveProjectAsTemplate);
-router.post("/templates/create", isAuthenticated, createProjectTemplate);
-router.put("/templates/:id", isAuthenticated, updateProjectTemplate as any);
-router.delete("/templates/:id", isAuthenticated, deleteProjectTemplate as any);
+router.get("/templates/all", isAuthenticated, resourceAccess.staff, getTemplates);
+router.post("/templates/save-as", isAuthenticated, resourceAccess.project(req => req.body.projectId, "create"), saveProjectAsTemplate);
+router.post("/templates/create", isAuthenticated, resourceAccess.action("create"), createProjectTemplate);
+router.put("/templates/:id", isAuthenticated, resourceAccess.action("update"), updateProjectTemplate as any);
+router.delete("/templates/:id", isAuthenticated, resourceAccess.action("delete"), deleteProjectTemplate as any);
 
 // ==================== ORGANIZATION DATA ROUTES ====================
-router.get("/clients/organization", isAuthenticated, getOrganizationClients);
-router.get("/users/organization", isAuthenticated, getOrganizationUsers);
+router.get("/clients/organization", isAuthenticated, resourceAccess.staff, getOrganizationClients);
+router.get("/users/organization", isAuthenticated, resourceAccess.staff, getOrganizationUsers);
 
 // ==================== PROJECT COMMENT ROUTES ====================
-router.post("/comments", isAuthenticated, createProjectComment);
+router.post("/comments", isAuthenticated, resourceAccess.action("comment"), resourceAccess.commentReferences, createProjectComment);
 router.get("/comments/all", isAuthenticated, getAllOrgComments);          // org-wide, paginated — must be before /:projectId
-router.get("/comments/:projectId", isAuthenticated, getProjectComments);  // taskId optional via query
-router.patch("/comments/:commentId", isAuthenticated, updateProjectComment);
-router.delete("/comments/:commentId", isAuthenticated, deleteProjectComment);
+router.get("/comments/:projectId", isAuthenticated, resourceAccess.project(req => req.params.projectId), getProjectComments);  // taskId optional via query
+router.patch("/comments/:commentId", isAuthenticated, resourceAccess.comment(req => req.params.commentId), updateProjectComment);
+router.delete("/comments/:commentId", isAuthenticated, resourceAccess.comment(req => req.params.commentId), deleteProjectComment);
 
 // ==================== PROJECT EXPENSE ROUTES ====================
-router.get("/:projectId/expenses", isAuthenticated, getProjectExpenses);
-router.post("/:projectId/expenses", isAuthenticated, createProjectExpense as any);
-router.delete("/:projectId/expenses/:expenseId", isAuthenticated, deleteProjectExpense as any);
+router.get("/:projectId/expenses", isAuthenticated, resourceAccess.financial, resourceAccess.project(req => req.params.projectId), getProjectExpenses);
+router.post("/:projectId/expenses", isAuthenticated, resourceAccess.financial, resourceAccess.project(req => req.params.projectId, "update"), createProjectExpense as any);
+router.delete("/:projectId/expenses/:expenseId", isAuthenticated, resourceAccess.financial, resourceAccess.project(req => req.params.projectId, "delete"), deleteProjectExpense as any);
 
 // ==================== RISK ALERT ROUTES ====================
-router.get("/risk-alerts", isAuthenticated, getProjectRiskAlerts as any);
-router.delete("/risk-alerts/:id", isAuthenticated, dismissProjectRiskAlert as any);
+router.get("/risk-alerts", isAuthenticated, resourceAccess.financial, getProjectRiskAlerts as any);
+router.delete("/risk-alerts/:id", isAuthenticated, resourceAccess.financial, dismissProjectRiskAlert as any);
 
 // ==================== MILESTONE ROUTES ====================
-router.get("/:projectId/milestones", isAuthenticated, getMilestones);
-router.post("/:projectId/milestones", isAuthenticated, createMilestone);
-router.patch("/:projectId/milestones/:id", isAuthenticated, updateMilestone);
-router.delete("/:projectId/milestones/:id", isAuthenticated, deleteMilestone);
+router.get("/:projectId/milestones", isAuthenticated, resourceAccess.project(req => req.params.projectId), getMilestones);
+router.post("/:projectId/milestones", isAuthenticated, resourceAccess.project(req => req.params.projectId, "create"), createMilestone);
+router.patch("/:projectId/milestones/:id", isAuthenticated, resourceAccess.project(req => req.params.projectId, "update"), updateMilestone);
+router.delete("/:projectId/milestones/:id", isAuthenticated, resourceAccess.project(req => req.params.projectId, "delete"), deleteMilestone);
 
 // ==================== WILDCARD ROUTES (must be last) ====================
-router.get("/:id", isAuthenticated, getProjectById);
-router.delete("/:id", isAuthenticated, deleteProject);
+router.get("/:id", isAuthenticated, resourceAccess.project(req => req.params.id), getProjectById);
+router.delete("/:id", isAuthenticated, resourceAccess.project(req => req.params.id, "delete"), deleteProject);
 
 export default router;

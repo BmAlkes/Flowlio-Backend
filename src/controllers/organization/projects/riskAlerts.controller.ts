@@ -1,7 +1,8 @@
+import { projectReadScope } from "@/security/resource-access";
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { projectRiskAlerts, projects } from "@/schema/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
 export const getProjectRiskAlerts = async (
@@ -19,6 +20,7 @@ export const getProjectRiskAlerts = async (
 
     const conditions = [
       eq(projectRiskAlerts.organizationId, organizationId),
+      projectReadScope(req.user!),
       eq(projectRiskAlerts.status, "active"),
     ];
 
@@ -91,6 +93,7 @@ export const dismissProjectRiskAlert = async (
         and(
           eq(projectRiskAlerts.id, id),
           eq(projectRiskAlerts.organizationId, organizationId),
+      sql`exists (select 1 from ${projects} where ${projects.id} = ${projectRiskAlerts.projectId} and ${projectReadScope(req.user!)})`,
           eq(projectRiskAlerts.status, "active"),
         ),
       )

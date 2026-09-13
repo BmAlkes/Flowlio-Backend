@@ -1,6 +1,7 @@
+import { taskReadScope } from "@/security/resource-access";
 import { Request, Response } from "express";
 import { tasks, projects, users, clients } from "../../../schema/schema";
-import { eq, and, desc, or } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { database } from "../../../configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
@@ -104,11 +105,7 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
         and(
           ...conditions,
           eq(projects.organizationId, organizationId as string),
-          or(
-            eq(tasks.createdBy, req.user.id),
-            eq(tasks.assignedTo, req.user.id),
-            eq(tasks.visibility, "public"),
-          ),
+          taskReadScope(req.user),
         ),
       )
       .orderBy(desc(tasks.createdAt));
@@ -186,11 +183,7 @@ export const getTaskById = async (
         and(
           eq(tasks.id, id),
           eq(projects.organizationId, organizationId as string),
-          or(
-            eq(tasks.createdBy, req.user.id),
-            eq(tasks.assignedTo, req.user.id),
-            eq(tasks.visibility, "public"),
-          ),
+          taskReadScope(req.user),
         ),
       )
       .limit(1);
@@ -296,11 +289,7 @@ export const getSubtasksByTaskId = async (
         and(
           eq(tasks.parentId, parentTaskId),
           eq(projects.organizationId, organizationId as string),
-          or(
-            eq(tasks.createdBy, req.user.id),
-            eq(tasks.assignedTo, req.user.id),
-            eq(tasks.visibility, "public"),
-          ),
+          taskReadScope(req.user),
         ),
       )
       .orderBy(desc(tasks.createdAt));

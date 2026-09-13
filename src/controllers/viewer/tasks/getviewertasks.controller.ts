@@ -1,3 +1,4 @@
+import { taskReadScope } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { tasks, projects, clients, users } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -82,7 +83,7 @@ export const getViewerTasks = async (
       .where(
         and(
           eq(tasks.assignedTo, userId),
-          eq(projects.organizationId, organizationId)
+          taskReadScope(req.user!)
         )
       )
       .orderBy(tasks.createdAt);

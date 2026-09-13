@@ -1,3 +1,4 @@
+import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { requirePlanFeature } from "../middlewares/plan-feature.middleware";
@@ -16,7 +17,7 @@ import { upload } from "../controllers/ai/aiAssistant.controller";
 const router = Router();
 
 // Org-facing routes require proposalsAccess feature
-const orgProposals = [isAuthenticated, requirePlanFeature("proposalsAccess")];
+const orgProposals = [isAuthenticated, requireOrgOwnerAccess, requirePlanFeature("proposalsAccess")];
 
 // Org owner / admin: create a proposal (called from AI Assist after generating)
 router.post("/", ...orgProposals, createProposal);

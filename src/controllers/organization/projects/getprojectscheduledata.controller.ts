@@ -1,3 +1,4 @@
+import { projectReadScope } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { projects, tasks } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -38,7 +39,7 @@ export const getProjectScheduleData = async (
       })
       .from(projects)
       .leftJoin(tasks, eq(projects.id, tasks.projectId))
-      .where(eq(projects.organizationId, organizationId))
+      .where(projectReadScope(req.user!))
       .groupBy(
         projects.id,
         projects.name,

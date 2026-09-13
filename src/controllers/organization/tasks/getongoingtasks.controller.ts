@@ -1,3 +1,4 @@
+import { taskReadScope } from "@/security/resource-access";
 import { database } from "@/configs/connection.config";
 import { tasks, projects, clients, users } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -63,6 +64,7 @@ export const getOngoingTasks = async (
       .where(
         and(
           eq(projects.organizationId, organizationId),
+          taskReadScope(req.user!),
           // include common "active" states; allow pending/ongoing just in case
           sql`${tasks.status} IN ('todo', 'in_progress', 'ongoing', 'pending', 'delay', 'changes', 'updated')`
         )

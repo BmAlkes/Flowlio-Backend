@@ -1,3 +1,4 @@
+import { projectBudget } from "@/security/resource-access";
 import { Response } from "express";
 import { database } from "../../../configs/connection.config";
 import { createProjectSchema } from "../../../schema/validation";
@@ -429,7 +430,7 @@ export const createProject = async (
         status: createdProject.status,
         progress: createdProject.progress,
         address: createdProject.address,
-        budget: createdProject.budget,
+        budget: projectBudget(req.user!, createdProject.budget),
         contractfile: createdProject.contractfile,
         contractfilePublicId: createdProject.contractfilePublicId,
         organizationId: createdProject.organizationId,

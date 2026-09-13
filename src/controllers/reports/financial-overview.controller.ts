@@ -1,3 +1,4 @@
+import { projectReadScope } from "@/security/resource-access";
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { revenueEntries, projectExpenses, projects } from "@/schema/schema";
@@ -106,7 +107,7 @@ export const getFinancialOverview = async (req: Request, res: Response) => {
       })
       .from(projects)
       .leftJoin(projectExpenses, and(eq(projects.id, projectExpenses.projectId), gte(projectExpenses.date, range.from), lte(projectExpenses.date, range.to)))
-      .where(eq(projects.organizationId, organizationId))
+      .where(projectReadScope(req.user!))
       .groupBy(projects.id)
       .orderBy(desc(sql`SUM(CAST(${projectExpenses.amount} AS DECIMAL))`))
       .limit(5);

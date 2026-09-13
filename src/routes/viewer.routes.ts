@@ -1,3 +1,4 @@
+import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
@@ -49,8 +50,8 @@ router.get("/tasks", isAuthenticated, getViewerTasks);
 router.get("/tasks/active-time", isAuthenticated, getActiveTimeEntries);
 router.get("/tasks/time-entries", isAuthenticated, getAllTimeEntries);
 router.delete("/tasks/time-entries/:id", isAuthenticated, deleteTimeEntry);
-router.post("/tasks/:id/start", isAuthenticated, startTask);
-router.post("/tasks/:id/end", isAuthenticated, endTask);
+router.post("/tasks/:id/start", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), startTask);
+router.post("/tasks/:id/end", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), endTask);
 
 // ==================== VIEWER AI ASSISTANT ROUTES ====================
 const aiMiddleware = [isAuthenticated, aiRateLimit, logAIUsage, requirePlanFeature("aiAssist")];

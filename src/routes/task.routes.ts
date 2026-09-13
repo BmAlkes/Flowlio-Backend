@@ -1,3 +1,4 @@
+import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { createTask } from "../controllers/organization/tasks/createtask.controller";
@@ -26,17 +27,17 @@ router.get("/active-time", isAuthenticated, getActiveTimeEntries);
 router.get("/time-entries", isAuthenticated, getAllTimeEntries);
 router.delete("/time-entries/:id", isAuthenticated, deleteTimeEntry);
 
-router.post("/create", isAuthenticated, createTask);
+router.post("/create", isAuthenticated, resourceAccess.action("create"), resourceAccess.project(req => req.body.projectId, "create"), resourceAccess.taskReferences, createTask);
 router.get("/all", isAuthenticated, getTasks);
 router.get("/ongoing", isAuthenticated, getOngoingTasks);
-router.post("/client/:clientId", isAuthenticated, getTasksByClient);
+router.post("/client/:clientId", isAuthenticated, resourceAccess.client(req => req.params.clientId), getTasksByClient);
 
-router.get("/:id/subtasks", isAuthenticated, getSubtasksByTaskId);
-router.get("/:id", isAuthenticated, getTaskById);
-router.put("/update/:id", isAuthenticated, updateTask);
-router.patch("/status/:id", isAuthenticated, updateTaskStatus);
-router.delete("/:id", isAuthenticated, deleteTask);
-router.post("/:id/start", isAuthenticated, startTask);
-router.post("/:id/end", isAuthenticated, endTask);
+router.get("/:id/subtasks", isAuthenticated, resourceAccess.task(req => req.params.id), getSubtasksByTaskId);
+router.get("/:id", isAuthenticated, resourceAccess.task(req => req.params.id), getTaskById);
+router.put("/update/:id", isAuthenticated, resourceAccess.task(req => req.params.id, "update"), resourceAccess.taskReferences, updateTask);
+router.patch("/status/:id", isAuthenticated, resourceAccess.task(req => req.params.id, "update"), updateTaskStatus);
+router.delete("/:id", isAuthenticated, resourceAccess.task(req => req.params.id, "delete"), deleteTask);
+router.post("/:id/start", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), startTask);
+router.post("/:id/end", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), endTask);
 
 export default router;
