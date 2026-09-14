@@ -2,8 +2,6 @@ import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { StatusCodes } from "http-status-codes";
-import { userOrganizations, organizations } from "@/schema/schema";
-import { eq } from "drizzle-orm";
 
 export const getCurrentUserProfile = async (
   req: Request,
@@ -96,6 +94,9 @@ export const getCurrentUserProfile = async (
           code: hasPaymentData ? "USER_PENDING" : "USER_PENDING_NO_PLAN",
           redirectTo: hasPaymentData ? "/checkout" : "/pricing",
           data: {
+            id: user.id,
+            name: user.name,
+            email: user.email,
             status: user.status,
             selectedPlanId: user.selectedPlanId,
             pendingOrganizationData: user.pendingOrganizationData,
@@ -105,91 +106,14 @@ export const getCurrentUserProfile = async (
       }
     }
 
-    // Check if user's organization is deactivated (unless super admin)
-    // Skip this check for pending users without organizations (they haven't completed payment yet)
-    let demoOrgInfo: { isDemo: boolean; passwordChanged: boolean } | null =
-      null;
-
-    if (!user.isSuperAdmin) {
-      // Only check organization status if user has an organization
-      // Pending users might not have an organization yet
-      const userOrg = await database
-        .select({
-          organizationId: userOrganizations.organizationId,
-          orgStatus: organizations.status,
-          orgName: organizations.name,
-          trialEndsAt: organizations.trialEndsAt,
-          subscriptionStatus: organizations.subscriptionStatus,
-          orgSettings: organizations.settings,
-        })
-        .from(userOrganizations)
-        .innerJoin(
-          organizations,
-          eq(userOrganizations.organizationId, organizations.id),
-        )
-        .where(eq(userOrganizations.userId, userId))
-        .limit(1);
-
-      // Only perform organization checks if user has an organization
-      // Pending users without organizations should be allowed to access profile
-      if (userOrg.length > 0 && userOrg[0].orgStatus) {
-        const orgData = userOrg[0];
-        const orgStatus = orgData.orgStatus;
-
-        // Check if this is a demo organization and get passwordChanged status
-        const settings = orgData.orgSettings as any;
-        if (settings?.demo === true) {
-          demoOrgInfo = {
+    const selectedOrg = req.user?.organization;
+    const demoOrgInfo =
+      selectedOrg?.settings?.demo === true
+        ? {
             isDemo: true,
-            passwordChanged: settings?.passwordChanged ?? false,
-          };
-        }
-
-        // Check 1: Organization is deactivated
-        if (orgStatus === "suspended" || orgStatus === "inactive") {
-          logger.warn(
-            `User ${userId} attempted to login with deactivated organization ${orgData.organizationId}`,
-          );
-          res.status(403).json({
-            success: false,
-            message:
-              "ORGANIZATION_DEACTIVATED: Your organization account has been deactivated. Please contact the administrator for assistance.",
-            code: "ORGANIZATION_DEACTIVATED",
-          });
-          return;
-        }
-
-        // Check 2: Trial period has expired
-        const trialEndsAt = orgData.trialEndsAt;
-        const subscriptionStatus = orgData.subscriptionStatus;
-        const now = new Date();
-
-        if (trialEndsAt) {
-          const trialEndDate = new Date(trialEndsAt);
-
-          // If trial has expired AND subscription is not active/valid
-          if (
-            trialEndDate < now &&
-            subscriptionStatus !== "active" &&
-            subscriptionStatus !== "trialing"
-          ) {
-            logger.warn(
-              `User ${userId} attempted to login with expired trial organization ${
-                orgData.organizationId
-              }. Trial ended: ${trialEndDate.toISOString()}`,
-            );
-            res.status(403).json({
-              success: false,
-              message:
-                "TRIAL_EXPIRED: Your trial period has expired. Please contact the administrator to upgrade your subscription.",
-              code: "TRIAL_EXPIRED",
-            });
-            return;
+            passwordChanged: selectedOrg.settings.passwordChanged === true,
           }
-        }
-      }
-      // If user has no organization, they're likely pending payment - allow access
-    }
+        : null;
 
     // Get organization information from req.user (set by auth middleware)
     const organizationId = userReq.user?.organizationId;

@@ -8,11 +8,13 @@ import { brevoTransactionApi } from "@/configs/brevo.config";
 import { database } from "../configs/connection.config";
 import * as schema from "../schema/schema";
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
+import { symmetricEncrypt, generateRandomString } from "better-auth/crypto";
 import { env } from "@/utils/env.util";
 import { createAuthMiddleware, emailOTP, twoFactor } from "better-auth/plugins";
 import { admin as adminPlugin } from "better-auth/plugins";
 import { ac, roles } from "./permission";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
 const isProduction =
@@ -30,8 +32,51 @@ const getBaseURL = () => {
 };
 
 export const auth = betterAuth({
+  databaseHooks: {
+    session: {
+      create: {
+        after: async (session) => {
+          // Older email-2FA accounts only stored a flag. Provision the plugin's
+          // record after credential verification, before its login challenge.
+          const user = await database.query.users.findFirst({
+            where: eq(schema.users.id, session.userId),
+          });
+          if (!user?.twoFactorEnabled) return;
+          const factor = await database.query.twoFactor.findFirst({
+            where: eq(schema.twoFactor.userId, user.id),
+          });
+          if (factor) return;
+          const secret = await symmetricEncrypt({
+            key: env.COOKIE_SECRET,
+            data: generateRandomString(32),
+          });
+          await database
+            .insert(schema.twoFactor)
+            .values({
+              id: "email-2fa-" + user.id,
+              userId: user.id,
+              secret,
+              backupCodes: [],
+            })
+            .onConflictDoNothing();
+        },
+      },
+    },
+  },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/sign-in/email-otp" && ctx.body?.email) {
+        const user = await database.query.users.findFirst({
+          where: eq(schema.users.email, ctx.body.email),
+        });
+        if (user?.twoFactorEnabled) {
+          throw new APIError("FORBIDDEN", {
+            code: "TWO_FACTOR_PASSWORD_REQUIRED",
+            message:
+              "Sign in with your password before verifying the second factor.",
+          });
+        }
+      }
       // prevents multiple admin signups
       if (ctx.path === "/sign-up/email") {
         const isAdminExists = await database
@@ -79,7 +124,9 @@ export const auth = betterAuth({
             .limit(1);
 
           if (clientRecord && clientRecord.portalAccessEnabled === false) {
-            const error = new Error("Portal access has been disabled for this account.");
+            const error = new Error(
+              "Portal access has been disabled for this account.",
+            );
             (error as any).code = "PORTAL_ACCESS_DISABLED";
             (error as any).statusCode = 403;
             throw error;
@@ -97,9 +144,21 @@ export const auth = betterAuth({
           .from(schema.userOrganizations)
           .innerJoin(
             schema.organizations,
-            eq(schema.userOrganizations.organizationId, schema.organizations.id)
+            eq(
+              schema.userOrganizations.organizationId,
+              schema.organizations.id,
+            ),
           )
-          .where(eq(schema.userOrganizations.userId, user.id))
+          .where(
+            and(
+              eq(schema.userOrganizations.userId, user.id),
+              eq(schema.userOrganizations.status, "active"),
+            ),
+          )
+          .orderBy(
+            schema.userOrganizations.createdAt,
+            schema.userOrganizations.id,
+          )
           .limit(1);
 
         if (userOrg.length > 0 && userOrg[0].orgStatus) {
@@ -109,7 +168,7 @@ export const auth = betterAuth({
           // Check 1: Organization is deactivated
           if (orgStatus === "suspended" || orgStatus === "inactive") {
             const error = new Error(
-              "Your organization account has been deactivated. Please contact the administrator for assistance."
+              "Your organization account has been deactivated. Please contact the administrator for assistance.",
             );
             (error as any).code = "ORGANIZATION_DEACTIVATED";
             (error as any).statusCode = 403;
@@ -131,7 +190,7 @@ export const auth = betterAuth({
               subscriptionStatus !== "trialing"
             ) {
               const error = new Error(
-                "Your trial period has expired. Please contact the administrator to upgrade your subscription."
+                "Your trial period has expired. Please contact the administrator to upgrade your subscription.",
               );
               (error as any).code = "TRIAL_EXPIRED";
               (error as any).statusCode = 403;
@@ -190,6 +249,19 @@ export const auth = betterAuth({
   plugins: [
     twoFactor({
       issuer: "Flowlio",
+      otpOptions: {
+        sendOTP: async ({ user, otp }) => {
+          await brevoTransactionApi.sendTransacEmail({
+            to: [{ email: user.email }],
+            subject: "Your Flowlio sign-in verification code",
+            sender: { name: "Flowlio", email: env.BREVO_SENDER },
+            htmlContent:
+              "<p>Your Flowlio verification code is:</p><p><strong>" +
+              otp +
+              "</strong></p><p>This code expires in 5 minutes. Do not share it.</p>",
+          });
+        },
+      },
     }),
     // Admin plugin for role-based access control
     adminPlugin({
@@ -216,24 +288,8 @@ export const auth = betterAuth({
         logger.info(
           `👤 User found: ${!!user}, isSuperAdmin: ${
             user?.isSuperAdmin
-          }, twoFactorEnabled: ${user?.twoFactorEnabled}`
+          }, twoFactorEnabled: ${user?.twoFactorEnabled}`,
         );
-
-        // IMPORTANT: Only skip OTP for super admins on SIGN-IN, not on email-verification
-        // This is because email-verification can be used to ENABLE 2FA (when twoFactorEnabled is still false)
-        // For sign-in, super admins should bypass OTP unless they have 2FA enabled
-        if (
-          type === "sign-in" &&
-          user?.isSuperAdmin &&
-          !user.twoFactorEnabled
-        ) {
-          logger.info(
-            `⏭️ Skipping sign-in OTP for super admin without 2FA: ${email}`
-          );
-          // Return early without sending email - Better Auth should skip OTP for superadmins
-          // The plugin will not require OTP if no email is sent
-          return;
-        }
 
         const reqUrl = new URL(req!.url);
         const url = env.FRONTEND_DOMAIN;
@@ -247,7 +303,7 @@ export const auth = betterAuth({
           if (type === "email-verification" && password) {
             // send invitation on behalf of admin
             const invitationUrl = `${url}?otp=${otp}&email=${encodeURIComponent(
-              email
+              email,
             )}`;
             await brevoTransactionApi.sendTransacEmail({
               to: [
@@ -282,7 +338,7 @@ export const auth = betterAuth({
             logger.info(
               `🔐 Email verification OTP check - User: ${!!user}, 2FA: ${
                 user?.twoFactorEnabled
-              }, SuperAdmin: ${user?.isSuperAdmin}`
+              }, SuperAdmin: ${user?.isSuperAdmin}`,
             );
 
             // IMPORTANT: For email-verification type, we should send OTP if user exists
@@ -293,7 +349,7 @@ export const auth = betterAuth({
             // We MUST send OTP even if twoFactorEnabled is false, because the user is trying to ENABLE it!
             if (!user) {
               logger.warn(
-                `⏭️ Skipping email verification OTP - User not found: ${email}`
+                `⏭️ Skipping email verification OTP - User not found: ${email}`,
               );
               return;
             }
@@ -346,7 +402,7 @@ export const auth = betterAuth({
               },
             });
             logger.info(
-              `✅ Email verification OTP sent successfully to ${email}`
+              `✅ Email verification OTP sent successfully to ${email}`,
             );
           } else if (type === "sign-in") {
             // Handle sign-in OTP - check if 2FA is enabled
@@ -362,14 +418,13 @@ export const auth = betterAuth({
             logger.info(
               `🔐 Sign-in OTP check - User: ${!!user}, 2FA: ${
                 user?.twoFactorEnabled
-              }, SuperAdmin: ${user?.isSuperAdmin}`
+              }, SuperAdmin: ${user?.isSuperAdmin}`,
             );
 
-            // Only send sign-in OTP if user has 2FA enabled
-            // Super admins should always bypass OTP (unless they explicitly enable 2FA)
-            if (!user || (!user.twoFactorEnabled && !user.isSuperAdmin)) {
+            // Send an explicitly requested sign-in OTP for an existing account.
+            if (!user) {
               logger.warn(
-                `⏭️ Skipping sign-in OTP - User not found or 2FA not enabled: ${email}`
+                `⏭️ Skipping sign-in OTP - User not found or 2FA not enabled: ${email}`,
               );
               // Don't send OTP email - Better Auth should allow sign-in without OTP
               return;
@@ -417,7 +472,7 @@ export const auth = betterAuth({
           } else {
             // Handle any other OTP types (e.g., two-factor-setup, etc.)
             logger.warn(
-              `⚠️ Unknown OTP type: ${type} for email: ${email} - Attempting to send anyway`
+              `⚠️ Unknown OTP type: ${type} for email: ${email} - Attempting to send anyway`,
             );
 
             // For unknown types, check if user exists and send OTP
@@ -432,7 +487,7 @@ export const auth = betterAuth({
 
             if (!user) {
               logger.warn(
-                `⏭️ Skipping OTP for unknown type - User not found: ${email}`
+                `⏭️ Skipping OTP for unknown type - User not found: ${email}`,
               );
               return;
             }
@@ -440,7 +495,7 @@ export const auth = betterAuth({
             // Skip for super admin without 2FA
             if (user.isSuperAdmin && !user.twoFactorEnabled) {
               logger.info(
-                `⏭️ Skipping OTP for unknown type - Super admin without 2FA: ${email}`
+                `⏭️ Skipping OTP for unknown type - Super admin without 2FA: ${email}`,
               );
               return;
             }
@@ -484,7 +539,7 @@ export const auth = betterAuth({
               },
             });
             logger.info(
-              `✅ OTP sent successfully for type ${type} to ${email}`
+              `✅ OTP sent successfully for type ${type} to ${email}`,
             );
           }
         } catch (error) {
@@ -507,24 +562,28 @@ export const auth = betterAuth({
     modelName: "users",
     additionalFields: {
       role: {
+        input: false,
         fieldName: "role",
         defaultValue: "user",
         required: false,
         type: "string",
       },
       isSuperAdmin: {
+        input: false,
         fieldName: "is_super_admin",
         defaultValue: false,
         required: false,
         type: "boolean",
       },
       subadminId: {
+        input: false,
         fieldName: "subadmin_id",
         defaultValue: null,
         required: false,
         type: "string",
       },
       isOrganizationOwner: {
+        input: false,
         fieldName: "is_organization_owner",
         defaultValue: false,
         required: false,
@@ -562,7 +621,7 @@ export const auth = betterAuth({
             .where(eq(schema.calendarEvents.userId, userId));
 
           logger.info(
-            `📅 Will delete ${calendarEventsCount.length} calendar events for user ${userId}`
+            `📅 Will delete ${calendarEventsCount.length} calendar events for user ${userId}`,
           );
 
           // Delete recent activities where user is the actor
@@ -573,14 +632,14 @@ export const auth = betterAuth({
             .where(eq(schema.recentActivities.actorId, userId));
 
           logger.info(
-            `📊 Found ${activitiesCount.length} activities by user ${userId} (keeping for history)`
+            `📊 Found ${activitiesCount.length} activities by user ${userId} (keeping for history)`,
           );
 
           logger.info(`✅ Pre-deletion checks completed for user ${userId}`);
         } catch (error) {
           logger.error(
             `❌ Error during beforeDelete hook for user ${userId}:`,
-            error
+            error,
           );
           // Don't throw - let the deletion proceed
         }
@@ -589,7 +648,7 @@ export const auth = betterAuth({
         // Perform cleanup after user deletion
         const userId = ctx.id;
         logger.info(
-          `✅ User ${userId} deleted successfully. Cleanup completed.`
+          `✅ User ${userId} deleted successfully. Cleanup completed.`,
         );
       },
     },
@@ -598,7 +657,7 @@ export const auth = betterAuth({
     expiresIn: 60 * 60 * 24 * 7, // 7 days ( session expiry )
     updateAge: 60 * 60 * 24, // 1 day( "expiresIn = now + expiry" after every updateAge time, if session is used )
     cookieCache: {
-      enabled: true, // Enable caching session in cookie
+      enabled: false, // Read session state from the database for immediate revocation
       maxAge: 5 * 60, // 5 minutes
     },
     includeFields: [
@@ -647,7 +706,7 @@ export const auth = betterAuth({
         },
       });
     },
-    autoSignInAfterVerification: true,
+    autoSignInAfterVerification: false,
     sendOnSignUp: false,
     // sendOnSignUp: true,
   },
