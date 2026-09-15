@@ -17,6 +17,7 @@ const debugError = (...args: any[]) => {
 // Lazy imports for heavy dependencies - only load when needed
 // This prevents blocking server startup
 import OpenAI from "openai";
+import { meteredChat, meteredImage } from "@/services/ai-metering.service";
 import { env } from "@/utils/env.util";
 import fs from "fs";
 import path from "path";
@@ -35,7 +36,6 @@ export class OpenAIService {
     logger.info("🔧 Environment check:", {
       hasOpenAI: !!env.OPEN_AI,
       openAILength: env.OPEN_AI?.length || 0,
-      openAIStart: env.OPEN_AI?.substring(0, 10) || "none",
     });
 
     if (!env.OPEN_AI) {
@@ -47,6 +47,8 @@ export class OpenAIService {
     try {
       this.openai = new OpenAI({
         apiKey: env.OPEN_AI,
+        maxRetries: 0,
+        timeout: 120_000,
       });
       logger.info("✅ OpenAI client initialized successfully");
     } catch (error) {
@@ -141,7 +143,7 @@ export class OpenAIService {
       
       Remember: You're a completely free-form AI assistant - users can ask you absolutely anything!`;
 
-      const response = await this.openai.chat.completions.create({
+      const response = await meteredChat(this.openai, {
         model: "gpt-5",
         messages: [
           { role: "system", content: systemPrompt },
@@ -230,7 +232,7 @@ export class OpenAIService {
         };
       }
 
-      const response = await this.openai.chat.completions.create({
+      const response = await meteredChat(this.openai, {
         model: "gpt-5",
         messages: [
           {
@@ -328,7 +330,7 @@ export class OpenAIService {
         date: event.date,
       }));
 
-      const response = await this.openai.chat.completions.create({
+      const response = await meteredChat(this.openai, {
         model: "gpt-3.5-turbo",
         messages: [
           {
@@ -415,7 +417,7 @@ export class OpenAIService {
         return currentDescription || "";
       }
 
-      const response = await this.openai.chat.completions.create({
+      const response = await meteredChat(this.openai, {
         model: "gpt-3.5-turbo",
         messages: [
           {
@@ -515,7 +517,7 @@ export class OpenAIService {
         // Image analysis using Vision API
         const base64Image = fileBuffer.toString("base64");
 
-        const response = await this.openai.chat.completions.create({
+        const response = await meteredChat(this.openai, {
           model: "gpt-4o", // Using GPT-4 with vision
           messages: [
             {
@@ -819,7 +821,7 @@ export class OpenAIService {
           firstChars: fileContent.substring(0, 200),
         });
 
-        const response = await this.openai.chat.completions.create({
+        const response = await meteredChat(this.openai, {
           model: "gpt-4o",
           messages: [
             {
@@ -876,7 +878,7 @@ export class OpenAIService {
         model: "gpt-image-1",
       });
 
-      const response = await this.openai.images.generate({
+      const response = await meteredImage(this.openai, {
         model: "gpt-image-1",
         prompt: prompt,
         n: 1,
@@ -1056,7 +1058,7 @@ Always be helpful, accurate, and engaging. If you need to generate images, use t
         messages.push({ role: "user", content: userInput });
       }
 
-      const response = await this.openai.chat.completions.create({
+      const response = await meteredChat(this.openai, {
         model: "gpt-4o", // Using GPT-4o for now, will be GPT-5 when available
         messages: messages as ChatCompletionMessageParam[],
         max_tokens: 2000,
@@ -1208,7 +1210,7 @@ Return JSON in this exact format:
   "suggestions": ["suggestion 1", "suggestion 2"]
 }${projectsContext}${usersContext}`;
 
-      const response = await this.openai.chat.completions.create({
+      const response = await meteredChat(this.openai, {
         model: "gpt-4o",
         messages: [
           { role: "system", content: systemPrompt },
@@ -1493,7 +1495,7 @@ ${JSON.stringify(projectsSummary, null, 2)}
 
 Please analyze this data and generate a comprehensive weekly summary.`;
 
-      const response = await this.openai.chat.completions.create({
+      const response = await meteredChat(this.openai, {
         model: "gpt-4o",
         messages: [
           { role: "system", content: systemPrompt },

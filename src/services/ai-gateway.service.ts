@@ -1,112 +1,24 @@
-import { OpenAIService } from "@/services/openai.service"
-import { database } from "@/configs/connection.config"
-import { aiUsageLogs, aiTokenLimits } from "@/schema/schema"
-import { sql, and, isNull, eq } from "drizzle-orm"
-import { AIChatParams, AIChatResult } from "@/types/ai-gateway.types"
+import { OpenAIService } from "@/services/openai.service";
+import { AIChatParams, AIChatResult } from "@/types/ai-gateway.types";
+import { requireAIContext } from "@/utils/ai-context.util";
 
 export class AIGateway {
-  private provider: string = "openai"
-  private openaiService: OpenAIService
-
-  constructor() {
-    this.openaiService = new OpenAIService()
-  }
+  private openaiService = new OpenAIService();
 
   async chat(params: AIChatParams): Promise<AIChatResult> {
-    const { feature, model = "gpt-4o", messages, orgId, userId, endpoint, metadata } =
-      params
-    const startTime = Date.now()
-
-    try {
-      if (this.provider === "openai") {
-        const lastUserIdx = [...messages]
-          .reverse()
-          .findIndex((m) => m.role === "user")
-        const userMsgIdx =
-          lastUserIdx === -1 ? -1 : messages.length - 1 - lastUserIdx
-        const userInput =
-          userMsgIdx !== -1 ? messages[userMsgIdx].content : ""
-        const conversationHistory =
-          userMsgIdx > 0
-            ? messages.slice(0, userMsgIdx).map((m) => ({
-                role: m.role,
-                content: m.content,
-              }))
-            : []
-
-        const result = await this.openaiService.generateAdvancedResponse(
-          userInput,
-          { conversationHistory }
-        )
-
-        const content = result.response
-        const totalTokens = result.metadata?.tokens ?? 0
-        const promptTokens = result.metadata?.promptTokens ?? 0
-        const completionTokens = result.metadata?.completionTokens ?? 0
-        const durationMs = Date.now() - startTime
-
-        await database.insert(aiUsageLogs).values({
-          feature,
-          provider: this.provider,
-          model,
-          promptTokens,
-          completionTokens,
-          totalTokens,
-          organizationId: orgId,
-          userId,
-          status: "success",
-          endpoint: endpoint ?? null,
-          durationMs,
-          ...(metadata !== undefined ? { metadata } : {}),
-        })
-
-        await database
-          .update(aiTokenLimits)
-          .set({
-            tokensUsed: sql`${aiTokenLimits.tokensUsed} + ${totalTokens}`,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(aiTokenLimits.organizationId, orgId),
-              isNull(aiTokenLimits.userId),
-              isNull(aiTokenLimits.feature),
-              eq(aiTokenLimits.isActive, true)
-            )
-          )
-
-        return {
-          content,
-          promptTokens,
-          completionTokens,
-          totalTokens,
-          provider: this.provider,
-          model,
-        }
-      }
-
-      throw new Error("Provider not supported yet")
-    } catch (err: any) {
-      const durationMs = Date.now() - startTime
-
-      await database.insert(aiUsageLogs).values({
-        feature,
-        provider: this.provider,
-        model,
-        organizationId: orgId,
-        userId,
-        status: "error",
-        errorMessage: err.message,
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-        endpoint: endpoint ?? null,
-        durationMs,
-      })
-
-      throw err
+    const context = requireAIContext();
+    if (context.organizationId !== params.orgId || context.userId !== params.userId) {
+      throw new Error("AI request identity mismatch");
     }
+    const lastUserIdx = params.messages.map((m) => m.role).lastIndexOf("user");
+    const result = await this.openaiService.generateAdvancedResponse(
+      lastUserIdx < 0 ? "" : params.messages[lastUserIdx].content,
+      { conversationHistory: lastUserIdx > 0 ? params.messages.slice(0, lastUserIdx) : [] },
+    );
+    return { content: result.response, promptTokens: result.metadata?.promptTokens ?? 0,
+      completionTokens: result.metadata?.completionTokens ?? 0,
+      totalTokens: result.metadata?.tokens ?? 0, provider: "openai", model: "gpt-4o" };
   }
 }
 
-export const aiGateway = new AIGateway()
+export const aiGateway = new AIGateway();

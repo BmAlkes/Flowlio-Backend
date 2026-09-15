@@ -160,6 +160,7 @@ export const initCronJobs = () => {
         .where(
           and(
             eq(aiTokenLimits.isActive, true),
+            eq(aiTokenLimits.period, "monthly"),
             lte(aiTokenLimits.resetAt, now)
           )
         );

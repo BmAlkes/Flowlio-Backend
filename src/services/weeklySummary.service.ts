@@ -1,6 +1,8 @@
 import { database } from "@/configs/connection.config";
-import { projects, tasks, timeEntries, clientInteractions } from "@/schema/schema";
+import { projects, tasks, timeEntries, clientInteractions, userOrganizations } from "@/schema/schema";
 import { eq, gte, lte, and, inArray, or, count } from "drizzle-orm";
+import { aiContext } from "@/utils/ai-context.util";
+import { hasFeatureAccess } from "@/utils/plan-access.util";
 import { logger } from "@/utils/logger.util";
 
 export interface WeeklySummaryResult {
@@ -183,7 +185,14 @@ export async function generateWeeklySummary(
       return null;
     }
 
-    const result = await service.generateWeeklyProjectSummary({
+    if (!(await hasFeatureAccess(organizationId, "aiAssist")).hasAccess) return null;
+    const [owner] = await database.select({ userId: userOrganizations.userId }).from(userOrganizations).where(and(
+      eq(userOrganizations.organizationId, organizationId), eq(userOrganizations.role, "owner"),
+      eq(userOrganizations.status, "active"),
+    )).limit(1);
+    if (!owner) return null;
+    const context = { organizationId, userId: owner.userId, feature: "weekly_summary", endpoint: "automation/weekly-summary" };
+    const result = await aiContext.run(context, () => service.generateWeeklyProjectSummary({
       projects: organizationProjects.map((p) => ({
         id: p.id,
         name: p.name,
@@ -216,7 +225,7 @@ export async function generateWeeklySummary(
       weekStart,
       weekEnd,
       organizationName,
-    });
+    }));
 
     return result;
   } catch (error) {

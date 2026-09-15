@@ -1,6 +1,6 @@
 import { database } from "@/configs/connection.config";
 import { aiTokenLimits, subscriptionPlans } from "@/schema/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, asc, sql } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 
 export const DEFAULT_PAID_TOKEN_LIMIT = 50_000;
@@ -60,46 +60,26 @@ export const nextMonthReset = (): Date => {
   return new Date(now.getFullYear(), now.getMonth() + 1, 1);
 };
 
-/**
- * Inserts a default org-wide AI token limit.
- * Safe to call multiple times — skips if a limit already exists for the org.
- */
-export const insertDefaultAITokenLimit = async (
-  orgId: string,
-  tokenLimit: number
-): Promise<void> => {
-  try {
-    const existing = await database
-      .select({ id: aiTokenLimits.id })
-      .from(aiTokenLimits)
-      .where(
-        and(
-          eq(aiTokenLimits.organizationId, orgId),
-          isNull(aiTokenLimits.userId),
-          isNull(aiTokenLimits.feature)
-        )
-      )
-      .limit(1);
+type AITransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
 
-    if (existing.length > 0) return;
+// Caller holds the organization advisory lock. Reuse the canonical record even
+// when disabled instead of silently granting a new quota.
+export async function ensureOrgAITokenLimit(tx: AITransaction, orgId: string, tokenLimit: number) {
+  const [existing] = await tx.select().from(aiTokenLimits).where(and(
+    eq(aiTokenLimits.organizationId, orgId), isNull(aiTokenLimits.userId), isNull(aiTokenLimits.feature),
+  )).orderBy(asc(aiTokenLimits.createdAt), asc(aiTokenLimits.id)).limit(1);
+  if (existing) return existing;
+  const [created] = await tx.insert(aiTokenLimits).values({
+    organizationId: orgId, userId: null, feature: null, tokenLimit,
+    tokensUsed: 0, period: "monthly", resetAt: nextMonthReset(),
+    alertThresholdPercent: 80, isActive: true,
+  }).returning();
+  return created;
+}
 
-    const now = new Date();
-    await database.insert(aiTokenLimits).values({
-      organizationId: orgId,
-      userId: null,
-      feature: null,
-      tokenLimit,
-      tokensUsed: 0,
-      period: "monthly",
-      resetAt: nextMonthReset(),
-      alertThresholdPercent: 80,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    logger.info(`AI token limit (${tokenLimit.toLocaleString()}) set for org ${orgId}`);
-  } catch (err) {
-    logger.error(`Failed to insert default AI token limit for org ${orgId}:`, err);
-  }
+export const insertDefaultAITokenLimit = async (orgId: string, tokenLimit: number): Promise<void> => {
+  await database.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`ai-quota:${orgId}`}, 0))`);
+    await ensureOrgAITokenLimit(tx, orgId, tokenLimit);
+  });
 };

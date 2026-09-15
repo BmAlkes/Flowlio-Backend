@@ -3,6 +3,8 @@ import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { requirePlanFeature } from "@/middlewares/plan-feature.middleware";
 import { logAIUsage } from "@/middlewares/ai-usage-log.middleware";
+import { requireAIOrganization } from "@/middlewares/ai-rbac.middleware";
+import { checkAITokenLimit } from "@/middlewares/ai-limit.middleware";
 import { aiRateLimit } from "@/middlewares/ai-rate-limit.middleware";
 import { requireViewer } from "@/middlewares/role.middleware";
 import { getViewerProjects } from "../controllers/viewer/projects/getviewerprojects.controller";
@@ -54,7 +56,7 @@ router.post("/tasks/:id/start", isAuthenticated, resourceAccess.task(req => req.
 router.post("/tasks/:id/end", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), endTask);
 
 // ==================== VIEWER AI ASSISTANT ROUTES ====================
-const aiMiddleware = [isAuthenticated, aiRateLimit, logAIUsage, requirePlanFeature("aiAssist")];
+const aiMiddleware = [requireAIOrganization, requirePlanFeature("aiAssist"), aiRateLimit, checkAITokenLimit, logAIUsage];
 
 router.post("/ai/suggestions", ...aiMiddleware, generateEventSuggestions);
 router.post("/ai/categories", ...aiMiddleware, generateEventCategories);

@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Request, Response, NextFunction } from "express";
 import { database } from "@/configs/connection.config";
 import { aiTokenLimits, aiUsageAlerts, aiUsageLogs, notifications, userOrganizations } from "@/schema/schema";
-import { eq, and, isNull, gte, sql } from "drizzle-orm";
+import { eq, and, isNull, gte, sql, inArray } from "drizzle-orm";
 import {
   insertDefaultAITokenLimit,
   DEFAULT_PAID_TOKEN_LIMIT,
@@ -18,13 +18,13 @@ export const checkAITokenLimit = async (
     const orgId = req.user?.organizationId;
     const userId = (req.user as any)?.id as string | undefined;
 
-    if (!orgId) {
-      next();
+    if (!orgId || !userId) {
+      res.status(403).json({ success: false, error: "ORGANIZATION_REQUIRED" });
       return;
     }
 
     // ── 1. Org-wide limit check ──
-    const limits = await database
+    let limits = await database
       .select()
       .from(aiTokenLimits)
       .where(
@@ -39,13 +39,18 @@ export const checkAITokenLimit = async (
 
     if (limits.length === 0) {
       await insertDefaultAITokenLimit(orgId, DEFAULT_PAID_TOKEN_LIMIT);
-      next();
-      return;
+      limits = await database.select().from(aiTokenLimits).where(and(
+        eq(aiTokenLimits.organizationId, orgId), isNull(aiTokenLimits.userId),
+        isNull(aiTokenLimits.feature), eq(aiTokenLimits.isActive, true),
+      )).limit(1);
+      if (!limits.length) throw new Error("AI quota unavailable");
     }
 
     const record = limits[0];
 
-    if (record.tokensUsed >= record.tokenLimit) {
+    const expired = record.period === "monthly" && record.resetAt && record.resetAt <= new Date();
+
+    if (!expired && record.tokensUsed >= record.tokenLimit) {
       // Fire-and-forget: create quota_exceeded notification for org admins
       createOrgNotification(orgId, "ai_quota_exceeded", "AI token limit reached",
         `Your organization has used all ${record.tokenLimit.toLocaleString()} AI tokens this month.`);
@@ -62,7 +67,7 @@ export const checkAITokenLimit = async (
 
     // ── 2. Alert threshold check (org-wide) ──
     const usagePercent = (record.tokensUsed / record.tokenLimit) * 100;
-    if (usagePercent >= record.alertThresholdPercent) {
+    if (!expired && usagePercent >= record.alertThresholdPercent) {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -121,7 +126,7 @@ export const checkAITokenLimit = async (
             and(
               eq(aiUsageLogs.organizationId, orgId),
               eq(aiUsageLogs.userId, userId),
-              eq(aiUsageLogs.status, "success"),
+              inArray(aiUsageLogs.status, ["success", "pending"]),
               gte(aiUsageLogs.createdAt, monthStart)
             )
           );
@@ -144,7 +149,7 @@ export const checkAITokenLimit = async (
     next();
   } catch (err) {
     logger.error("checkAITokenLimit error:", err);
-    next();
+    res.status(503).json({ success: false, error: "SERVICE_UNAVAILABLE", message: "Unable to verify AI quota. Please try again." });
   }
 };
 

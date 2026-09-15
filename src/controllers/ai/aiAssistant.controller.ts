@@ -18,8 +18,6 @@ import { Response } from "express";
 import { logger } from "@/utils/logger.util";
 import { database } from "@/configs/connection.config";
 import {
-  aiTokenLimits,
-  aiUsageLogs,
   calendarEvents,
   users,
   projects,
@@ -27,7 +25,7 @@ import {
   tasks,
   timeEntries,
 } from "@/schema/schema";
-import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { eq, gte, inArray, lte } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -1036,7 +1034,6 @@ export const advancedConversation = async (
       model: "gpt-4o",
       endpoint: req.originalUrl || req.path,
     });
-    (res as any).locals._aiLogged = true;
 
     debugLog("✅ ADVANCED AI CONVERSATION COMPLETED SUCCESSFULLY");
     // logger.info("✅ ADVANCED AI CONVERSATION COMPLETED SUCCESSFULLY");
@@ -1089,7 +1086,6 @@ export const testOpenAI = async (req: any, res: Response): Promise<void> => {
       model: "gpt-4o",
       endpoint: req.originalUrl || req.path,
     });
-    (res as any).locals._aiLogged = true;
 
     res.status(200).json({
       success: true,
@@ -1164,43 +1160,6 @@ export const generateImage = async (req: any, res: Response): Promise<void> => {
 
     const imageTokenCost = 1000;
     const imageModel = "gpt-image-1";
-
-    if (req.user.organizationId && req.user.id) {
-      await database.insert(aiUsageLogs).values({
-        feature: "image_generation",
-        provider: "openai",
-        model: imageModel,
-        promptTokens: imageTokenCost,
-        completionTokens: 0,
-        totalTokens: imageTokenCost,
-        organizationId: req.user.organizationId,
-        userId: req.user.id,
-        status: "success",
-        endpoint: req.originalUrl || req.path,
-        durationMs: null,
-        metadata: {
-          prompt,
-          size,
-          responseType: imageUrl.startsWith("data:") ? "base64" : "url",
-        },
-      });
-      (res as any).locals._aiLogged = true;
-
-      await database
-        .update(aiTokenLimits)
-        .set({
-          tokensUsed: sql`${aiTokenLimits.tokensUsed} + ${imageTokenCost}`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(aiTokenLimits.organizationId, req.user.organizationId),
-            isNull(aiTokenLimits.userId),
-            isNull(aiTokenLimits.feature),
-            eq(aiTokenLimits.isActive, true)
-          )
-        );
-    }
 
     res.status(200).json({
       success: true,
@@ -1427,7 +1386,6 @@ Generate a complete professional proposal with the following sections. Return ON
       model: "gpt-4o",
       endpoint: req.originalUrl || req.path,
     });
-    (res as any).locals._aiLogged = true;
 
     // Parse the AI response as JSON
     let proposalData;

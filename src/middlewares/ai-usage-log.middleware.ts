@@ -1,7 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { database } from "@/configs/connection.config";
-import { aiUsageLogs } from "@/schema/schema";
-import { logger } from "@/utils/logger.util";
+import { aiContext, AIContext } from "@/utils/ai-context.util";
 
 const FEATURE_MAP: Record<string, string> = {
   "/suggestions": "event_suggestion",
@@ -24,54 +22,23 @@ function resolveFeature(path: string): string {
   return "unknown";
 }
 
-/**
- * Fire-and-forget AI usage logger.
- * Skips if controller/gateway already logged (res.locals._aiLogged === true).
- */
+
+// Establish identity only. Provider calls own the single durable usage record.
 export const logAIUsage = (req: Request, res: Response, next: NextFunction): void => {
-  const startTime = Date.now();
-
-  const originalJson = res.json.bind(res);
-  let capturedBody: any = null;
-
-  res.json = (body: any) => {
-    capturedBody = body;
-    return originalJson(body);
+  if (!req.user?.id || !req.user.organizationId) {
+    res.status(403).json({ success: false, error: "ORGANIZATION_REQUIRED" });
+    return;
+  }
+  const context: AIContext = { userId: req.user.id, organizationId: req.user.organizationId,
+    feature: resolveFeature(req.path), endpoint: req.originalUrl.split("?")[0] };
+  const json = res.json.bind(res);
+  // Legacy service/controller fallbacks must never disguise a quota/provider failure as success.
+  res.json = (body) => {
+    if (context.failure) {
+      res.status(context.failure.status);
+      return json({ success: false, error: context.failure.code, message: context.failure.message });
+    }
+    return json(body);
   };
-
-  res.on("finish", () => {
-    if ((res.locals as any)._aiLogged) return;
-
-    const user = req.user as any;
-    const orgId = user?.organizationId;
-    const userId = user?.id;
-    if (!orgId || !userId) return;
-
-    const durationMs = Date.now() - startTime;
-    const endpoint = req.originalUrl || req.path;
-    const feature = resolveFeature(req.path);
-    const isSuccess = res.statusCode >= 200 && res.statusCode < 400;
-
-    const tokens = capturedBody?.data?.metadata?.tokens ?? 0;
-
-    database
-      .insert(aiUsageLogs)
-      .values({
-        organizationId: orgId,
-        userId,
-        feature,
-        provider: "openai",
-        model: capturedBody?.data?.metadata?.model ?? null,
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: typeof tokens === "number" ? tokens : 0,
-        status: isSuccess ? "success" : "error",
-        errorMessage: isSuccess ? null : (capturedBody?.message ?? null),
-        endpoint,
-        durationMs,
-      })
-      .catch((err) => logger.error("logAIUsage insert failed:", err));
-  });
-
-  next();
+  aiContext.run(context, next);
 };
