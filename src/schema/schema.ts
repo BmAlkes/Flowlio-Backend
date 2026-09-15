@@ -2,6 +2,8 @@ import {
   text,
   pgTable,
   integer,
+  bigint,
+  check,
   varchar,
   boolean,
   timestamp,
@@ -11,7 +13,7 @@ import {
   unique,
   primaryKey,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import crypto from "crypto";
 
 export const users = pgTable(
@@ -524,6 +526,14 @@ export const subscriptions = pgTable(
     stripeIdx: index("subscriptions_stripe_idx").on(table.stripeSubscriptionId),
   }),
 );
+
+export const invoiceNumberCounters = pgTable("invoice_number_counters", {
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  series: text("series").notNull(),
+  lastValue: bigint("last_value", { mode: "bigint" }).notNull().default(BigInt(0)),
+}, (table) => ({ primaryKey: primaryKey({ name: "invoice_number_counters_pkey", columns: [table.organizationId, table.series] }),
+  nonNegative: check("invoice_number_counters_last_value_check", sql`${table.lastValue} >= 0`),
+}));
 
 export const invoices = pgTable(
   "invoices",

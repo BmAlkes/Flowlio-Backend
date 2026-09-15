@@ -144,6 +144,13 @@
       "when": 1784678400000,
       "tag": "0033_portal_access_enabled",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789490391993,
+      "tag": "0034_invoice_number_sequences",
+      "breakpoints": true
     }
   ]
 }

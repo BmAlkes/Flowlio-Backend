@@ -5,7 +5,7 @@
   "author": "flowlio-be",
   "repository": "https://github.com/Dot-Click/flowlio-be.git",
   "scripts": {
-    "build": "tsc && tsc-alias && npm run dbgenerate",
+    "build": "tsc && tsc-alias",
     "dev": "ts-node-dev -r tsconfig-paths/register src/server.ts",
     "start": "node dist/src/server.js",
     "dbgenerate": "drizzle-kit generate",

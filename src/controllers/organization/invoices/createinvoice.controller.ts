@@ -1,6 +1,5 @@
 import { Response } from "express";
-import { eq, sql } from "drizzle-orm";
-import { invoices } from "@/schema/schema";
+import { insertNumberedInvoice } from "@/services/invoice-numbering.service";
 import { database } from "../../../configs/connection.config";
 import { createInvoiceSchema } from "@/schema/validation";
 import { logger } from "@/utils/logger.util";
@@ -67,15 +66,6 @@ export const createInvoice = async (
       return;
     }
 
-    // Generate sequential invoice number for this organization
-    const [{ count }] = await database
-      .select({ count: sql<number>`count(*)` })
-      .from(invoices)
-      .where(eq(invoices.organizationId, organizationId));
-
-    const nextNumber = (Number(count) + 1).toString().padStart(5, "0");
-    const invoiceNumber = `S1-${nextNumber}`;
-
     // Handle PDF upload if provided
     let pdfUrl = null;
     let pdfFileName = null;
@@ -106,7 +96,6 @@ export const createInvoice = async (
       organizationId: organizationId,
       clientId: validatedData.clientId,
       createdBy: req.user.id,
-      invoiceNumber: invoiceNumber,
       clientname: client.name.trim(),
       amount: validatedData.amount.toString(),
       status: "draft",
@@ -118,10 +107,7 @@ export const createInvoice = async (
       paymentUrl: validatedData.paymentUrl || null,
     };
 
-    const [newInvoice] = await database
-      .insert(invoices)
-      .values(invoiceData)
-      .returning();
+    const newInvoice = await database.transaction(tx => insertNumberedInvoice(tx, "S1", invoiceData));
 
     const userId = req.user?.id;
     if (organizationId && userId) {
@@ -132,7 +118,7 @@ export const createInvoice = async (
         action: "create",
         resource: "invoice",
         resourceId: newInvoice.id,
-        message: `Created invoice: ${invoiceNumber} for ${client.name.trim()}`,
+        message: `Created invoice: ${newInvoice.invoiceNumber} for ${client.name.trim()}`,
         metadata: {
           amount: validatedData.amount,
           clientId: validatedData.clientId,

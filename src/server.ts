@@ -4,6 +4,8 @@ if (__dirname.includes("dist")) {
 }
 import { assignSocketToReqIO } from "@/middlewares/socket.middleware";
 import { connAuthBridge } from "@/middlewares/socket.middleware";
+import { connection } from "./configs/connection.config";
+import { prepareInvoiceNumbering } from "./utils/invoice-numbering-migration.util";
 import { prepareMigration } from "./utils/preparemigration.util";
 import { throttle } from "./middlewares/throttle.middleware";
 import { registerEvents } from "@/utils/registerevents.util";
@@ -110,10 +112,9 @@ const io = new Server(httpServer, {
 });
 
 swagger(app);
-// Run migration asynchronously to avoid blocking server startup
-// Migration will run in the background and won't prevent server from starting
-prepareMigration(isProduction || isRailway).catch((error) => {
-  logger.error("Migration error (non-blocking):", error);
+// Finish legacy preparation before the required invoice numbering readiness check.
+const schemaPreparation = prepareMigration(isProduction || isRailway).catch((error) => {
+  logger.error("Legacy migration preparation error:", error);
 });
 
 app.use(helmet());
@@ -292,35 +293,41 @@ app.use(
   },
 );
 
-httpServer.listen(port as number, () => {
-  logger.info(`Server is running on port ${port}`);
+void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() => {
+  httpServer.listen(port as number, () => {
+    logger.info(`Server is running on port ${port}`);
 
-  // Start background sync service asynchronously after server starts
-  // This prevents blocking the server startup
-  setImmediate(() => {
-    if (isProduction || env.ENABLE_BACKGROUND_SYNC === "false") {
-      // Delay initial sync to avoid blocking startup
+    // Start background sync service asynchronously after server starts
+    // This prevents blocking the server startup
+    setImmediate(() => {
+      if (isProduction || env.ENABLE_BACKGROUND_SYNC === "false") {
+        // Delay initial sync to avoid blocking startup
+        setTimeout(() => {
+          backgroundSyncService.startPeriodicSync(60); // Sync every 60 minutes instead of 15
+          logger.info("Background sync service started (60min interval)");
+        }, 5000); // Start sync 5 seconds after server starts
+      } else {
+        logger.info("Background sync service disabled in development mode");
+      }
+    });
+
+    // Start auto-renewal service asynchronously after server starts
+    // This checks for expiring subscriptions and auto-renews them
+    setImmediate(() => {
+      // Delay initial check to avoid blocking startup
       setTimeout(() => {
-        backgroundSyncService.startPeriodicSync(60); // Sync every 60 minutes instead of 15
-        logger.info("Background sync service started (60min interval)");
-      }, 5000); // Start sync 5 seconds after server starts
-    } else {
-      logger.info("Background sync service disabled in development mode");
-    }
+        autoRenewalService.startPeriodicRenewal(24); // Check every 24 hours (once per day)
+        logger.info("Auto-renewal service started (24h interval)");
+      }, 10000); // Start 10 seconds after server starts
+    });
+
+    // Start Backend Automations (Cron Jobs)
+    setImmediate(() => {
+      initCronJobs();
+    });
   });
 
-  // Start auto-renewal service asynchronously after server starts
-  // This checks for expiring subscriptions and auto-renews them
-  setImmediate(() => {
-    // Delay initial check to avoid blocking startup
-    setTimeout(() => {
-      autoRenewalService.startPeriodicRenewal(24); // Check every 24 hours (once per day)
-      logger.info("Auto-renewal service started (24h interval)");
-    }, 10000); // Start 10 seconds after server starts
-  });
-
-  // Start Backend Automations (Cron Jobs)
-  setImmediate(() => {
-    initCronJobs();
-  });
+}).catch((error) => {
+  logger.error("Required invoice numbering migration failed; server was not started", error);
+  process.exit(1);
 });
