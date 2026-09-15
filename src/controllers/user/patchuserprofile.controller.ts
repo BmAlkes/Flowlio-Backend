@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { account, users } from "@/schema/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 
@@ -79,7 +79,7 @@ export const patchUserProfile = async (
       }
 
       const userAccount = await database.query.account.findFirst({
-        where: eq(account.userId, userId),
+        where: and(eq(account.userId, userId), eq(account.providerId, "credential")),
         columns: { password: true },
       });
 

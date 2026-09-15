@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { account } from "@/schema/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 
@@ -28,7 +28,7 @@ export const verifyCurrentUserPassword = async (
     }
 
     const userAccount = await database.query.account.findFirst({
-      where: eq(account.userId, req.user.id),
+      where: and(eq(account.userId, req.user.id), eq(account.providerId, "credential")),
       columns: { password: true },
     });
 
