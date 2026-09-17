@@ -1017,6 +1017,25 @@ export const timeEntries = pgTable(
   }),
 );
 
+export const invoiceTimeItems = pgTable("invoice_time_items", {
+  id: text("id").primaryKey(),
+  invoiceId: text("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
+  timeEntryId: text("time_entry_id").notNull().unique().references(() => timeEntries.id, { onDelete: "restrict" }),
+  userName: text("user_name").notNull(), projectName: text("project_name").notNull(),
+  taskTitle: text("task_title"), description: text("description"),
+  startedAt: timestamp("started_at").notNull(), minutes: integer("minutes").notNull(),
+  hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+}, table => ({ invoiceIdx: index("invoice_time_items_invoice_idx").on(table.invoiceId) }));
+
+export const timeInvoicingRequests = pgTable("time_invoicing_requests", {
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  requestKey: text("request_key").notNull(), actorId: text("actor_id").notNull(),
+  requestHash: text("request_hash").notNull(),
+  invoiceId: text("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, table => ({ primaryKey: primaryKey({ columns: [table.organizationId, table.requestKey] }) }));
+
 // ==================== NOTIFICATIONS ====================
 
 export const notifications = pgTable(

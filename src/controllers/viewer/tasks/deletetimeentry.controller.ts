@@ -1,3 +1,4 @@
+import { isInvoicedTimeConstraint } from "@/utils/invoiced-time-error.util";
 import { database } from "@/configs/connection.config";
 import { timeEntries } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -33,6 +34,10 @@ export const deleteTimeEntry = async (
     logger.info(`🗑️ Deleted time entry ${id} for viewer user ${userId}`);
     res.status(200).json({ success: true, message: "Time entry deleted" });
   } catch (error) {
+    if (isInvoicedTimeConstraint(error)) {
+      res.status(409).json({ success: false, message: "This time entry belongs to an invoice and cannot be deleted while that invoice exists." });
+      return;
+    }
     logger.error("Error deleting time entry:", error);
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,

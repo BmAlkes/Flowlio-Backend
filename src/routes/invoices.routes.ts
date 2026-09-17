@@ -1,3 +1,4 @@
+import { billableTime, invoiceFromTime, invoiceTimeDetails } from "@/controllers/organization/invoices/time-invoicing.controller";
 import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
@@ -17,6 +18,10 @@ import { deleteRecurringTemplate } from "@/controllers/organization/invoices/rec
 const router = Router();
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
+
+router.get("/billable-time", ...orgOwner, billableTime);
+router.post("/from-time", ...orgOwner, invoiceFromTime);
+router.get("/:id/time-items", ...orgOwner, invoiceTimeDetails);
 
 router.post("/", ...orgOwner, createInvoice);
 router.get("/", ...orgOwner, getInvoices);

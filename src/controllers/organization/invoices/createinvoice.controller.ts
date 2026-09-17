@@ -44,6 +44,11 @@ export const createInvoice = async (
       return; // Response already sent by requireOrganizationId
     }
 
+    // An older browser must not use the retired two-request time-billing flow.
+    if (/^Time tracking \([0-9]{4}-[0-9]{2}-[0-9]{2} to [0-9]{4}-[0-9]{2}-[0-9]{2}\), [0-9]+\.[0-9]{2}h total:/.test(validatedData.description ?? "")) {
+      res.status(409).json({ success: false, message: "Refresh the application to invoice tracked time with the updated workflow." });
+      return;
+    }
     const invoiceAccess = await canCreateInvoice(organizationId);
     if (!invoiceAccess.hasAccess) {
       res.status(403).json({ success: false, message: invoiceAccess.reason });

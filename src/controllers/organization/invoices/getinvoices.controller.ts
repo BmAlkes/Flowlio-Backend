@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
-import { invoices } from "@/schema/schema";
+import { invoices, invoiceTimeItems } from "@/schema/schema";
 import { database } from "../../../configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
-import { eq, and } from "drizzle-orm";
+import { eq, and, getTableColumns, exists } from "drizzle-orm";
 
 export interface GetInvoicesRequest {
   user?: {
@@ -65,7 +65,7 @@ export const getInvoices = async (
 
     // Fetch invoices
     const invoicesData = await database
-      .select()
+      .select({ ...getTableColumns(invoices), hasTrackedTime: exists(database.select({ id: invoiceTimeItems.id }).from(invoiceTimeItems).where(eq(invoiceTimeItems.invoiceId, invoices.id))) })
       .from(invoices)
       .where(and(...conditions))
       .orderBy(invoices.createdAt);

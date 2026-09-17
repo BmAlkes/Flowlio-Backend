@@ -143,6 +143,12 @@ if (!process.env.INVOICE_TEST_DATABASE_URL) {
     assert.equal(await count(), 0); assert.deepEqual(await counter(), []);
     assert.equal((await insert()).invoiceNumber, 'S1-00001');
   });
+  test('retired browser time-invoice flow is rejected before allocating a number', async () => {
+    const res = { code: 200, status(value) { this.code=value; return this; }, json(value) { this.body=value; } };
+    await createInvoice({ user: { id: 'alice', role: 'user', organizationId: 'org-a' }, body: { clientId: 'client-org-a', amount: 25,
+      description: 'Time tracking (2026-09-01 to 2026-09-17), 1.00h total:\n- Design: 1.00h' } },res);
+    assert.equal(res.code,409); assert.equal(await count(),0); assert.deepEqual(await counter(),[]);
+  });
   test('manual controller rejects foreign clients without allocating a number', async () => {
     assert.equal((await manual('org-a', 'client-org-b')).code, 404);
     assert.equal(await count(), 0); assert.deepEqual(await counter(), []);

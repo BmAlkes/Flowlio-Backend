@@ -5,6 +5,7 @@ if (__dirname.includes("dist")) {
 import { assignSocketToReqIO } from "@/middlewares/socket.middleware";
 import { connAuthBridge } from "@/middlewares/socket.middleware";
 import { connection } from "./configs/connection.config";
+import { prepareTimeInvoicing } from "./utils/time-invoicing-migration.util";
 import { prepareInvoiceNumbering } from "./utils/invoice-numbering-migration.util";
 import { prepareMigration } from "./utils/preparemigration.util";
 import { throttle } from "./middlewares/throttle.middleware";
@@ -293,7 +294,7 @@ app.use(
   },
 );
 
-void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() => {
+void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() => prepareTimeInvoicing(connection)).then(() => {
   httpServer.listen(port as number, () => {
     logger.info(`Server is running on port ${port}`);
 
@@ -328,6 +329,6 @@ void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() =
   });
 
 }).catch((error) => {
-  logger.error("Required invoice numbering migration failed; server was not started", error);
+  logger.error("Required invoice migration failed; server was not started", error);
   process.exit(1);
 });

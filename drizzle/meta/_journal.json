@@ -151,6 +151,13 @@
       "when": 1789490391993,
       "tag": "0034_invoice_number_sequences",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789639740194,
+      "tag": "0035_time_invoicing",
+      "breakpoints": true
     }
   ]
 }
