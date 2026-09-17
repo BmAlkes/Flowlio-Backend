@@ -1,3 +1,4 @@
+import { prepareTimeTracking } from "./utils/time-tracking-migration.util";
 // Only register module-alias when running compiled code (npm start); in dev ts-node-dev uses tsconfig-paths for @/
 if (__dirname.includes("dist")) {
   require("module-alias/register");
@@ -294,7 +295,7 @@ app.use(
   },
 );
 
-void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() => prepareTimeInvoicing(connection)).then(() => {
+void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() => prepareTimeInvoicing(connection)).then(() => prepareTimeTracking(connection)).then(() => {
   httpServer.listen(port as number, () => {
     logger.info(`Server is running on port ${port}`);
 
@@ -329,6 +330,6 @@ void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() =
   });
 
 }).catch((error) => {
-  logger.error("Required invoice migration failed; server was not started", error);
+  logger.error("Required schema migration failed; server was not started", error);
   process.exit(1);
 });
