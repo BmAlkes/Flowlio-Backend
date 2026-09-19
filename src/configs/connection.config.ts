@@ -1,5 +1,3 @@
-import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@/schema/schema";
 import { env } from "@/utils/env.util";
@@ -33,7 +31,3 @@ export const database = drizzle(connection, {
   casing: "snake_case",
   schema,
 });
-
-export const migrateSchema = async (
-  db: NodePgDatabase<Record<string, unknown>>
-) => await migrate(db, { migrationsFolder: "drizzle" });

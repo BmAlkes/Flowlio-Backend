@@ -1,4 +1,4 @@
-import { prepareTimeTracking } from "./utils/time-tracking-migration.util";
+import { runReleaseMigrations } from "./utils/release-migrations.util";
 // Only register module-alias when running compiled code (npm start); in dev ts-node-dev uses tsconfig-paths for @/
 if (__dirname.includes("dist")) {
   require("module-alias/register");
@@ -6,9 +6,6 @@ if (__dirname.includes("dist")) {
 import { assignSocketToReqIO } from "@/middlewares/socket.middleware";
 import { connAuthBridge } from "@/middlewares/socket.middleware";
 import { connection } from "./configs/connection.config";
-import { prepareTimeInvoicing } from "./utils/time-invoicing-migration.util";
-import { prepareInvoiceNumbering } from "./utils/invoice-numbering-migration.util";
-import { prepareMigration } from "./utils/preparemigration.util";
 import { throttle } from "./middlewares/throttle.middleware";
 import { registerEvents } from "@/utils/registerevents.util";
 import { authActivityMiddleware } from "@/middlewares/auth-activity.middleware";
@@ -114,11 +111,6 @@ const io = new Server(httpServer, {
 });
 
 swagger(app);
-// Finish legacy preparation before the required invoice numbering readiness check.
-const schemaPreparation = prepareMigration(isProduction || isRailway).catch((error) => {
-  logger.error("Legacy migration preparation error:", error);
-});
-
 app.use(helmet());
 io.on("connection", registerEvents);
 app.use(express.static("public"));
@@ -295,7 +287,7 @@ app.use(
   },
 );
 
-void schemaPreparation.then(() => prepareInvoiceNumbering(connection)).then(() => prepareTimeInvoicing(connection)).then(() => prepareTimeTracking(connection)).then(() => {
+void runReleaseMigrations(connection).then(() => {
   httpServer.listen(port as number, () => {
     logger.info(`Server is running on port ${port}`);
 

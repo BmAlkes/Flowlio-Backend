@@ -530,7 +530,7 @@ export const subscriptions = pgTable(
 export const invoiceNumberCounters = pgTable("invoice_number_counters", {
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   series: text("series").notNull(),
-  lastValue: bigint("last_value", { mode: "bigint" }).notNull().default(BigInt(0)),
+  lastValue: bigint("last_value", { mode: "bigint" }).notNull().default(sql`0`),
 }, (table) => ({ primaryKey: primaryKey({ name: "invoice_number_counters_pkey", columns: [table.organizationId, table.series] }),
   nonNegative: check("invoice_number_counters_last_value_check", sql`${table.lastValue} >= 0`),
 }));
@@ -964,7 +964,7 @@ export const clients = pgTable(
     assignedTo: text("assigned_to").references(() => users.id),
     assignedAt: timestamp("assigned_at"),
     followupNotifiedAt: timestamp("followup_notified_at"),
-    portalAccessEnabled: boolean("portal_access_enabled").notNull().$defaultFn(() => true),
+    portalAccessEnabled: boolean("portal_access_enabled").notNull().default(true),
   },
   (table) => ({
     orgIdx: index("clients_organization_idx").on(table.organizationId),
@@ -1026,7 +1026,12 @@ export const invoiceTimeItems = pgTable("invoice_time_items", {
   startedAt: timestamp("started_at").notNull(), minutes: integer("minutes").notNull(),
   hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }).notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-}, table => ({ invoiceIdx: index("invoice_time_items_invoice_idx").on(table.invoiceId) }));
+}, table => ({
+  invoiceIdx: index("invoice_time_items_invoice_idx").on(table.invoiceId),
+  minutesCheck: check("invoice_time_items_minutes_check", sql`${table.minutes} > 0`),
+  rateCheck: check("invoice_time_items_hourly_rate_check", sql`${table.hourlyRate} > 0`),
+  amountCheck: check("invoice_time_items_amount_check", sql`${table.amount} >= 0`),
+}));
 
 export const timeInvoicingRequests = pgTable("time_invoicing_requests", {
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),

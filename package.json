@@ -17,7 +17,8 @@
     "tailwind": "npx @tailwindcss/cli -i ./public/input.css -o ./public/output.css --watch",
     "better-auth-generate": "npx @better-auth/cli@latest generate",
     "test": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/*.test.cjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dbmigrate": "node dist/src/migrate.js"
   },
   "license": "ISC",
   "_moduleAliases": {
