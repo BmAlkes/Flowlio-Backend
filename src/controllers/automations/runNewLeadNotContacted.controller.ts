@@ -1,22 +1,10 @@
-import { Request, Response } from "express";
 import { automationService } from "@/services/automation/automation.service";
-import { recordAutomationRun } from "@/utils/automationRun.util";
-import { logger } from "@/utils/logger.util";
+import { createManualAutomationController } from "./manual-automation.controller";
 
-export const runNewLeadNotContactedAutomation = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const organizationId: string | undefined = (req.body?.organizationId as string)?.trim() || undefined;
-    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
-    logger.info("Manual trigger: new lead not contacted automation", { organizationId, isSuperAdmin });
-    if (!organizationId && !isSuperAdmin) {
-      res.status(400).json({ success: false, message: "organizationId is required" });
-      return;
-    }
-    const result = await automationService.handleNewLeadNotContacted({ organizationId, forceRun: true });
-    await recordAutomationRun("new-lead-not-contacted", result, "manual", organizationId ?? null);
-    res.status(200).json({ success: true, message: `Leads found: ${result.leadsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
-  } catch (error) {
-    logger.error("Error running new lead not contacted automation manually:", error);
-    res.status(500).json({ success: false, message: "Automation failed", error: error instanceof Error ? error.message : "Unknown error" });
-  }
-};
+export const runNewLeadNotContactedAutomation = createManualAutomationController({
+  key: "new-lead-not-contacted",
+  run: (organizationId) => automationService.handleNewLeadNotContacted({ organizationId, forceRun: true }),
+  message: (result) => `Leads found: ${result.leadsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`,
+  logStart: "Manual trigger: new lead not contacted automation",
+  logError: "Error running new lead not contacted automation manually:",
+});

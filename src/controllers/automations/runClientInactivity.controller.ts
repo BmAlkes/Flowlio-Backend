@@ -1,22 +1,10 @@
-import { Request, Response } from "express";
 import { automationService } from "@/services/automation/automation.service";
-import { recordAutomationRun } from "@/utils/automationRun.util";
-import { logger } from "@/utils/logger.util";
+import { createManualAutomationController } from "./manual-automation.controller";
 
-export const runClientInactivityAutomation = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const organizationId: string | undefined = (req.body?.organizationId as string)?.trim() || undefined;
-    const isSuperAdmin = !!(req.user as any)?.isSuperAdmin;
-    logger.info("Manual trigger: client inactivity automation", { organizationId, isSuperAdmin });
-    if (!organizationId && !isSuperAdmin) {
-      res.status(400).json({ success: false, message: "organizationId is required" });
-      return;
-    }
-    const result = await automationService.handleClientInactivity({ organizationId, forceRun: true });
-    await recordAutomationRun("client-inactivity", result, "manual", organizationId ?? null);
-    res.status(200).json({ success: true, message: `Clients found: ${result.clientsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`, data: result });
-  } catch (error) {
-    logger.error("Error running client inactivity automation manually:", error);
-    res.status(500).json({ success: false, message: "Automation failed", error: error instanceof Error ? error.message : "Unknown error" });
-  }
-};
+export const runClientInactivityAutomation = createManualAutomationController({
+  key: "client-inactivity",
+  run: (organizationId) => automationService.handleClientInactivity({ organizationId, forceRun: true }),
+  message: (result) => `Clients found: ${result.clientsFound}, emails sent: ${result.emailsSent}, failed: ${result.emailsFailed}.`,
+  logStart: "Manual trigger: client inactivity automation",
+  logError: "Error running client inactivity automation manually:",
+});

@@ -1,7 +1,5 @@
 import { Request, Response } from "express";
-import { database } from "../../../configs/connection.config";
-import { paymentLinks } from "@/schema/schema";
-import { eq, and } from "drizzle-orm";
+import { changePaymentLinkStatus } from "@/modules/payments/update-payment-link-status";
 import { updatePaymentLinkStatusSchema } from "@/schema/validation";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
@@ -30,16 +28,7 @@ export const updatePaymentLinkStatus = async (
       return;
     }
 
-    const [updated] = await database
-      .update(paymentLinks)
-      .set({ status: bodyResult.data.status, updatedAt: new Date() })
-      .where(
-        and(
-          eq(paymentLinks.id, id),
-          eq(paymentLinks.organizationId, organizationId),
-        ),
-      )
-      .returning();
+    const updated = await changePaymentLinkStatus(organizationId, id, bodyResult.data.status);
 
     if (!updated) {
       res.status(404).json({ success: false, message: "Payment link not found" });
