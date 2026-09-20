@@ -1,7 +1,8 @@
+import { listPage, pageResult, containsText } from "@/utils/list-query";
 import { taskReadScope } from "@/security/resource-access";
 import { Request, Response } from "express";
 import { tasks, projects, users, clients } from "../../../schema/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, ilike } from "drizzle-orm";
 import { database } from "../../../configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
@@ -33,10 +34,13 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
     }
 
     const { organizationId } = req.user;
-    const { projectId, status, assignedTo } = req.query;
+    const { projectId, status, assignedTo, search } = req.query;
+    const page = listPage(req.query);
 
     // Build query conditions
     const conditions = [eq(tasks.projectId, projects.id)];
+
+    if (search) conditions.push(ilike(tasks.title, containsText(search as string)));
 
     if (projectId) {
       conditions.push(eq(tasks.projectId, projectId as string));
@@ -62,7 +66,7 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
     }
 
     // Get tasks with related data
-    const tasksData = await database
+    const selection = database
       .select({
         id: tasks.id,
         title: tasks.title,
@@ -108,12 +112,13 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
           taskReadScope(req.user),
         ),
       )
-      .orderBy(desc(tasks.createdAt));
+      .orderBy(desc(tasks.createdAt), desc(tasks.id)).$dynamic();
+    const tasksData = await (page ? selection.limit(page.pageSize + 1).offset(page.offset) : selection);
 
     res.status(200).json({
       success: true,
       message: "Tasks retrieved successfully",
-      data: tasksData,
+      ...pageResult(tasksData, page),
     });
   } catch (error) {
     logger.error("Error fetching tasks:", error);

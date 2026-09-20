@@ -1,3 +1,4 @@
+import { listPage, pageResult } from "@/utils/list-query";
 import { database } from "@/configs/connection.config";
 import { timeEntries, tasks, projects } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
@@ -24,7 +25,8 @@ export const getAllTimeEntries = async (
     }
 
     // Get all time entries for the user within their organization
-    const allEntries = await database
+    const page = listPage(req.query);
+    const selection = database
       .select({
         id: timeEntries.id,
         userId: timeEntries.userId,
@@ -49,7 +51,8 @@ export const getAllTimeEntries = async (
           eq(projects.organizationId, organizationId)
         )
       )
-      .orderBy(desc(timeEntries.createdAt));
+      .orderBy(desc(timeEntries.createdAt), desc(timeEntries.id)).$dynamic();
+    const allEntries = await (page ? selection.limit(page.pageSize + 1).offset(page.offset) : selection);
 
     logger.info(
       `✅ Found ${allEntries.length} time entries for user ${userId}`
@@ -58,7 +61,7 @@ export const getAllTimeEntries = async (
     res.status(200).json({
       success: true,
       message: "Time entries retrieved successfully",
-      data: allEntries,
+      ...pageResult(allEntries, page),
     });
   } catch (error) {
     logger.error("Error fetching time entries:", error);

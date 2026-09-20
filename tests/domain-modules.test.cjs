@@ -5,11 +5,13 @@ const { sql } = require("drizzle-orm");
 const { PgDialect } = require("drizzle-orm/pg-core");
 const dialect = new PgDialect();
 let rows, updates, predicates, actors, calls, failRun, failRecord;
+let limits = [], offsets = [];
 const result = { tasksFound: 1, projectsFound: 2, alertsCreated: 3, alertsResolved: 4, invoicesFound: 5, linksFound: 6, webhooksFound: 7, leadsFound: 8, clientsFound: 9, ticketsFound: 10, organizationsFound: 11, emailsSent: 12, emailsFailed: 13 };
 const query = {
   from() { return this; }, leftJoin() { return this; },
   where(predicate) { predicates.push(dialect.sqlToQuery(predicate)); return this; },
-  orderBy() { return Promise.resolve(rows); }, limit() { return Promise.resolve(rows); },
+  orderBy() { return this; }, $dynamic() { return this; }, limit(value) { limits.push(value); return this; }, offset(value) { offsets.push(value); return this; },
+  then(resolve, reject) { return Promise.resolve(rows).then(resolve, reject); },
   set(value) { updates.push(value); return this; }, returning() { return Promise.resolve(rows); },
 };
 const database = { select() { return query; }, update() { return query; } };
@@ -129,7 +131,7 @@ for (const item of cases) item.controller = require("../src/controllers/automati
 Module._load = originalLoad;
 const actor = { id: "owner", role: "user", organizationId: "org-a", isOrganizationOwner: true };
 function response() { return { code: 200, body: undefined, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } }; }
-beforeEach(() => { rows = []; updates = []; predicates = []; actors = []; calls = []; failRun = false; failRecord = false; });
+beforeEach(() => { rows = []; limits = []; offsets = []; updates = []; predicates = []; actors = []; calls = []; failRun = false; failRecord = false; });
 
 for (const item of cases) test("manual automation preserves options, message and history: " + item.key, async () => {
   const res = response();
@@ -200,4 +202,19 @@ test("payment status validation precedes writes and missing links retain 404", a
   assert.equal(res.code, 400); assert.equal(updates.length, 0);
   res = response(); await updatePaymentLinkStatus({ user: actor, params: { id: "x" }, body: { status: "paid" } }, res);
   assert.equal(res.code, 404);
+});
+
+
+test("paged project reads apply filters and SQL bounds before producing the response", async () => {
+  const date = new Date("2026-01-01T00:00:00Z");
+  rows = [1, 2, 3].map(id => ({ id: String(id), name: "Website", createdAt: date, updatedAt: date }));
+  const res = response();
+  await projects.getAllProjects({ user: actor, query: { page: "2", pageSize: "2", status: "ongoing", search: "100%" } }, res);
+  assert.equal(res.code, 200);
+  assert.deepEqual(limits, [3]); assert.deepEqual(offsets, [2]);
+  assert.equal(res.body.data.length, 2);
+  assert.deepEqual(res.body.pagination, { page: 2, pageSize: 2, hasMore: true });
+  assert.ok(predicates[0].params.includes("org-a"));
+  assert.ok(predicates[0].params.includes("active"));
+  assert.ok(predicates[0].params.includes("%100\\%%"));
 });

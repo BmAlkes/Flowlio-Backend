@@ -1,3 +1,4 @@
+import { validateListQuery } from "../utils/list-query";
 import { validateDomainStatus, contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
 import { projectsResponseSchema, projectResponseSchema, clientProjectsResponseSchema } from "../contracts/core-api";
 import { resourceAccess } from "../security/resource-access";
@@ -38,7 +39,7 @@ router.use(apiErrorEnvelope);
 // ==================== PROJECT ROUTES ====================
 router.post("/create", isAuthenticated, resourceAccess.action("create"), resourceAccess.projectFields, validateDomainStatus("project"), createProject as any);
 router.put("/update/:id", isAuthenticated, resourceAccess.project(req => req.params.id, "update"), resourceAccess.projectFields, validateDomainStatus("project"), updateProject as any);
-router.get("/all", isAuthenticated, contractResponse(projectsResponseSchema), getAllProjects);
+router.get("/all", isAuthenticated, validateListQuery, contractResponse(projectsResponseSchema), getAllProjects);
 router.get("/schedule-data", isAuthenticated, getProjectScheduleData);
 router.get("/status-data", isAuthenticated, getProjectStatusData);
 router.post("/client/:clientId", isAuthenticated, resourceAccess.client(req => req.params.clientId), contractResponse(clientProjectsResponseSchema), getProjectsByClient);

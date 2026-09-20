@@ -1,3 +1,4 @@
+import { validateListQuery } from "../utils/list-query";
 import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
@@ -24,11 +25,11 @@ import { getTasksByClient } from "../controllers/organization/tasks/gettasksbycl
 const router = Router();
 
 router.get("/active-time", isAuthenticated, getActiveTimeEntries);
-router.get("/time-entries", isAuthenticated, getAllTimeEntries);
+router.get("/time-entries", isAuthenticated, validateListQuery, getAllTimeEntries);
 router.delete("/time-entries/:id", isAuthenticated, deleteTimeEntry);
 
 router.post("/create", isAuthenticated, resourceAccess.action("create"), resourceAccess.project(req => req.body.projectId, "create"), resourceAccess.taskReferences, createTask);
-router.get("/all", isAuthenticated, getTasks);
+router.get("/all", isAuthenticated, validateListQuery, getTasks);
 router.get("/ongoing", isAuthenticated, getOngoingTasks);
 router.post("/client/:clientId", isAuthenticated, resourceAccess.client(req => req.params.clientId), getTasksByClient);
 

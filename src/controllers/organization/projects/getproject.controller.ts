@@ -1,3 +1,4 @@
+import { listPage, pageResult } from "@/utils/list-query";
 import { listProjects, findProject } from "@/modules/projects/read-projects";
 import { database } from "@/configs/connection.config";
 import { clients, users, userOrganizations, userManagement } from "@/schema/schema";
@@ -25,7 +26,7 @@ export const getAllProjects = async (
     const organizationId = req.user?.organizationId as string;
     logger.info("🏢 Organization ID:", organizationId);
 
-    const transformedProjects = await listProjects(req.user);
+    const transformedProjects = await listProjects(req.user, req.query);
 
     logger.info(
       `Fetched ${transformedProjects.length} projects for organization ${organizationId}`,
@@ -34,7 +35,7 @@ export const getAllProjects = async (
     res.status(200).json({
       success: true,
       message: "Projects fetched successfully",
-      data: transformedProjects,
+      ...pageResult(transformedProjects, listPage(req.query)),
     });
   } catch (error) {
     logger.error("Error fetching projects:", error);

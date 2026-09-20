@@ -1,3 +1,4 @@
+import { validateListQuery } from "../utils/list-query";
 import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
@@ -50,7 +51,7 @@ router.get("/projects/:id", isAuthenticated, getViewerProjectById);
 // ==================== VIEWER TASKS ROUTES ====================
 router.get("/tasks", isAuthenticated, getViewerTasks);
 router.get("/tasks/active-time", isAuthenticated, getActiveTimeEntries);
-router.get("/tasks/time-entries", isAuthenticated, getAllTimeEntries);
+router.get("/tasks/time-entries", isAuthenticated, validateListQuery, getAllTimeEntries);
 router.delete("/tasks/time-entries/:id", isAuthenticated, deleteTimeEntry);
 router.post("/tasks/:id/start", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), startTask);
 router.post("/tasks/:id/end", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), endTask);

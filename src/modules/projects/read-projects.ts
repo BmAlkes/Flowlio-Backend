@@ -1,21 +1,29 @@
+import { listPage, readListQuery, containsText } from "@/utils/list-query";
 import { projectReadScope, projectBudget } from "@/security/resource-access";
 import type { Actor } from "@/security/resource-policy";
 import { database } from "@/configs/connection.config";
 import { projects, clients, users } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or, ilike, inArray } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
-export async function listProjects(actor: Actor) {
+export async function listProjects(actor: Actor, query: unknown = {}) {
   // Create aliases for users table to avoid conflicts
   const assignedUsers = alias(users, "assigned_users");
   const createdByUsers = alias(users, "created_by_users");
 
   logger.info("🔍 About to execute database query with joins...");
 
+  const filters = readListQuery(query);
+  const page = listPage(query);
   const whereConditions = [projectReadScope(actor)];
+  if (filters.search) whereConditions.push(or(ilike(projects.name, containsText(filters.search)), ilike(projects.projectNumber, containsText(filters.search)))!);
+  if (filters.status) whereConditions.push(filters.status === "ongoing"
+    ? inArray(projects.status, ["ongoing", "active", "in_progress"])
+    : eq(projects.status, filters.status));
 
-  const projectsData = await database
+
+  const selection = database
     .select({
       // ... (all fields)
       id: projects.id,
@@ -50,7 +58,8 @@ export async function listProjects(actor: Actor) {
     .leftJoin(assignedUsers, eq(projects.assignedTo, assignedUsers.id))
     .leftJoin(createdByUsers, eq(projects.createdBy, createdByUsers.id))
     .where(and(...whereConditions))
-    .orderBy(desc(projects.createdAt));
+    .orderBy(desc(projects.createdAt), desc(projects.id)).$dynamic();
+  const projectsData = await (page ? selection.limit(page.pageSize + 1).offset(page.offset) : selection);
 
   logger.info(
     "✅ Simple database query executed successfully. Found projects:",

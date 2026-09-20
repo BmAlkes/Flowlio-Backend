@@ -115,6 +115,10 @@ app.use(assignSocketToReqIO(io));
 app.use(express.static("dist"));
 app.use(cors(corsOptions));
 app.use(cookieParser());
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  next();
+});
 io.use(connAuthBridge);
 
 app.use(morgan(isProduction || isRailway ? "combined" : "dev"));
