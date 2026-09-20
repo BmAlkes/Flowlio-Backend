@@ -1,3 +1,4 @@
+import type { ClientStatus } from "../contracts/core-api";
 import {
   text,
   pgTable,
@@ -343,7 +344,7 @@ export const projects = pgTable(
     assignedTo: text("assigned_to").references(() => users.id, {
       onDelete: "set null",
     }),
-    status: text("status").$defaultFn(() => "active"),
+    status: text("status").$defaultFn(() => "pending"),
     visibility: text("visibility")
       .$type<"public" | "private">()
       .default("private"),
@@ -938,7 +939,7 @@ export const clients = pgTable(
     >(),
     customFields: json("custom_fields").$type<Record<string, any>>(),
     status: text("status")
-      .$type<"New Lead" | "Contacted" | "Qualified" | "Proposal Sent" | "Contract Signed" | "Project In Progress" | "Completed" | "Inactive" | "Lost">()
+      .$type<ClientStatus | "New Lead" | "Contacted" | "Qualified" | "Proposal Sent" | "Contract Signed" | "Project In Progress" | "Completed" | "Inactive" | "Lost">()
       .$defaultFn(() => "New Lead"),
     createdBy: text("created_by")
       .notNull()

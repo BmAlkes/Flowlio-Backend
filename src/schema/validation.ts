@@ -1,3 +1,4 @@
+import { clientStatusSchema, projectStatusSchema } from "../contracts/core-api";
 import { z } from "zod";
 
 export const createUserMemberSchema = z.object({
@@ -138,7 +139,7 @@ const projectBaseSchema = z.object({
     )
     .optional(),
   customFields: z.record(z.any()).optional(),
-  status: z.enum(["pending", "ongoing", "completed", "delayed"]).optional(),
+  status: projectStatusSchema.optional(),
   progress: z.number().min(0).max(100).optional(),
   visibility: z.enum(["public", "private"]).optional().default("private"),
   templateId: z.string().optional(),
@@ -295,7 +296,7 @@ export const clientBaseSchema = z.object({
       }),
     )
     .optional(),
-  status: z.string().optional(),
+  status: clientStatusSchema.optional(),
   customFields: z.record(z.any()).optional(),
 });
 

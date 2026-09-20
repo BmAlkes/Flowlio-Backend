@@ -1,3 +1,5 @@
+import { validateDomainStatus, contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
+import { projectsResponseSchema, projectResponseSchema, clientProjectsResponseSchema } from "../contracts/core-api";
 import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
@@ -31,14 +33,15 @@ import { getProjectRiskAlerts, dismissProjectRiskAlert } from "../controllers/or
 import { getMilestones, createMilestone, updateMilestone, deleteMilestone } from "../controllers/organization/projects/milestones.controller";
 
 const router = Router();
+router.use(apiErrorEnvelope);
 
 // ==================== PROJECT ROUTES ====================
-router.post("/create", isAuthenticated, resourceAccess.action("create"), resourceAccess.projectFields, createProject as any);
-router.put("/update/:id", isAuthenticated, resourceAccess.project(req => req.params.id, "update"), resourceAccess.projectFields, updateProject as any);
-router.get("/all", isAuthenticated, getAllProjects);
+router.post("/create", isAuthenticated, resourceAccess.action("create"), resourceAccess.projectFields, validateDomainStatus("project"), createProject as any);
+router.put("/update/:id", isAuthenticated, resourceAccess.project(req => req.params.id, "update"), resourceAccess.projectFields, validateDomainStatus("project"), updateProject as any);
+router.get("/all", isAuthenticated, contractResponse(projectsResponseSchema), getAllProjects);
 router.get("/schedule-data", isAuthenticated, getProjectScheduleData);
 router.get("/status-data", isAuthenticated, getProjectStatusData);
-router.post("/client/:clientId", isAuthenticated, resourceAccess.client(req => req.params.clientId), getProjectsByClient);
+router.post("/client/:clientId", isAuthenticated, resourceAccess.client(req => req.params.clientId), contractResponse(clientProjectsResponseSchema), getProjectsByClient);
 router.patch("/reorder", isAuthenticated, resourceAccess.reorder, reorderProjects as any);
 
 // ==================== PROJECT TEMPLATE ROUTES ====================
@@ -75,7 +78,7 @@ router.patch("/:projectId/milestones/:id", isAuthenticated, resourceAccess.proje
 router.delete("/:projectId/milestones/:id", isAuthenticated, resourceAccess.project(req => req.params.projectId, "delete"), deleteMilestone);
 
 // ==================== WILDCARD ROUTES (must be last) ====================
-router.get("/:id", isAuthenticated, resourceAccess.project(req => req.params.id), getProjectById);
+router.get("/:id", isAuthenticated, resourceAccess.project(req => req.params.id), contractResponse(projectResponseSchema), getProjectById);
 router.delete("/:id", isAuthenticated, resourceAccess.project(req => req.params.id, "delete"), deleteProject);
 
 export default router;

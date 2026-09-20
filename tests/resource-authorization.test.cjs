@@ -157,6 +157,11 @@ before(async () => {
       return { requirePlanFeature: () => (_req, _res, next) => next() };
     if (request.includes("utils/logger.util"))
       return { logger: { warn() {}, error() {}, info() {} } };
+    // This suite stubs business responses; response-shape checks have their own HTTP suite.
+    if (request.includes("middlewares/api-contract.middleware")) {
+      const actual = originalLoad.call(this, request, parent, isMain);
+      return { ...actual, contractResponse: () => (_req, _res, next) => next() };
+    }
     if (request.includes("/controllers/"))
       return new Proxy(
         {},

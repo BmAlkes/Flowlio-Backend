@@ -1,3 +1,5 @@
+import { contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
+import { proposalsResponseSchema, clientProposalsResponseSchema } from "../contracts/core-api";
 import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
@@ -15,6 +17,7 @@ import { getProposalsByClient } from "../controllers/proposals/getproposalsbycli
 import { upload } from "../controllers/ai/aiAssistant.controller";
 
 const router = Router();
+router.use(apiErrorEnvelope);
 
 // Org-facing routes require proposalsAccess feature
 const orgProposals = [isAuthenticated, requireOrgOwnerAccess, requirePlanFeature("proposalsAccess")];
@@ -26,16 +29,16 @@ router.post("/", ...orgProposals, createProposal);
 router.post("/upload", ...orgProposals, upload.single("file"), uploadManualProposal);
 
 // Org owner / admin: view all proposals sent by the organization
-router.get("/organization", ...orgProposals, getOrganizationProposals);
+router.get("/organization", ...orgProposals, contractResponse(proposalsResponseSchema), getOrganizationProposals);
 
 // Org owner: delete a proposal
 router.delete("/:id", ...orgProposals, deleteProposal);
 
 // Org-facing: proposals for a specific client (client profile page)
-router.get("/client/:clientId", ...orgProposals, getProposalsByClient);
+router.get("/client/:clientId", ...orgProposals, contractResponse(clientProposalsResponseSchema), getProposalsByClient);
 
 // Client-facing routes — no plan check (client responds to proposals, not the org)
-router.get("/client", isAuthenticated, getClientProposals);
+router.get("/client", isAuthenticated, contractResponse(proposalsResponseSchema), getClientProposals);
 router.put("/:id/approve", isAuthenticated, approveProposal);
 router.put("/:id/reject", isAuthenticated, rejectProposal);
 

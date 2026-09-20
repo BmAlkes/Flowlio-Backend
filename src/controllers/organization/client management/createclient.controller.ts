@@ -1,3 +1,4 @@
+import { clientStatusSchema } from "../../../contracts/core-api";
 import { Request, Response } from "express";
 import { database } from "../../../configs/connection.config";
 import { users, clients, organizations, account } from "../../../schema/schema";
@@ -79,8 +80,7 @@ export const createClient = async (
       return;
     }
 
-    const validClientStatuses = ["Active", "Onboarding", "On Hold", "Inactive", "Completed", "Churned"];
-    const clientStatus = validClientStatuses.includes(status) ? status : "Active";
+    const clientStatus = clientStatusSchema.parse(status);
 
     // Check if client with same email already exists in users table (auth identity)
     const existingUser = await database

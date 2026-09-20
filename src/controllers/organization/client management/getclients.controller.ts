@@ -120,7 +120,7 @@ export const getClients = async (
         const mappedProjects = clientProjects.map((project) => ({
           id: project.id,
           name: project.name,
-          status: project.status || "active",
+          status: project.status || "pending",
           completionRate: project.progress || 0,
           contractFile: project.contractfile || "",
         }));

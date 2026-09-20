@@ -3,6 +3,10 @@ import status from "http-status";
 const routes = Router();
 
 routes.use((req, res) => {
+  if (req.path === "/api" || req.path.startsWith("/api/")) {
+    res.status(404).json({ success: false, code: "ENDPOINT_NOT_FOUND", message: "API endpoint not found" });
+    return;
+  }
   const isRequestSentFromAxios =
     req.headers["user-agent"] && req.headers.referer;
 

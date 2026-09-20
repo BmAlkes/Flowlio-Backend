@@ -1,3 +1,5 @@
+import { validateDomainStatus, contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
+import { clientsResponseSchema } from "../contracts/core-api";
 import express from "express";
 import { createClient } from "../controllers/organization/client management/createclient.controller";
 import { getClients } from "../controllers/organization/client management/getclients.controller";
@@ -8,6 +10,7 @@ import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { requireOrgOwnerAccess } from "@/middlewares/role.middleware";
 
 const router = express.Router();
+router.use(apiErrorEnvelope);
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 
@@ -15,10 +18,10 @@ const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 router.use(express.json({ limit: "50mb" }));
 router.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-router.post("/create", ...orgOwner, createClient);
-router.get("/", ...orgOwner, getClients);
+router.post("/create", ...orgOwner, validateDomainStatus("client"), createClient);
+router.get("/", ...orgOwner, (req, res, next) => req.query.type === "lead" ? next() : contractResponse(clientsResponseSchema)(req, res, next), getClients);
 router.delete("/:id", ...orgOwner, deleteClient);
-router.put("/:id", ...orgOwner, updateClient);
+router.put("/:id", ...orgOwner, validateDomainStatus("client"), updateClient);
 router.patch("/reorder", ...orgOwner, reorderClients as any);
 
 export default router;

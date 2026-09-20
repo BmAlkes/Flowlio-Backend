@@ -21,7 +21,8 @@
     "dbmigrate": "node dist/src/migrate.js",
     "start:http": "node dist/src/server.js",
     "start:worker": "node dist/src/worker.js",
-    "dev:worker": "ts-node-dev -r tsconfig-paths/register src/worker.ts"
+    "dev:worker": "ts-node-dev -r tsconfig-paths/register src/worker.ts",
+    "contracts:check": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/api-contracts.test.cjs"
   },
   "license": "ISC",
   "_moduleAliases": {
