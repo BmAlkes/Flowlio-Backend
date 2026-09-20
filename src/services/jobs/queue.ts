@@ -69,7 +69,7 @@ export async function scheduleDue(pool: Pool, schedules: Schedule[], now = new D
     }
 }
 /** Session lock spans the handler. A disconnected/crashed worker releases it in PostgreSQL. */
-export async function runOne(pool: Pool, handlers: Record<string, Handler>, onConnectionLost: (error: Error) => void): Promise<boolean> {
+export async function runOne(pool: Pool, handlers: Record<string, Handler>, onConnectionLost: (error: Error) => void, onOutcome?: (job: Job, outcome: string, durationMs: number) => Promise<void>): Promise<boolean> {
     const candidates = await pool.query<Job>(`SELECT * FROM (
       SELECT DISTINCT ON (kind) id,kind,payload,scheduled_at,attempts,available_at FROM durable_jobs
       WHERE status IN ('pending','running','retry') AND available_at <= now() AND kind = ANY($1)
@@ -90,19 +90,24 @@ export async function runOne(pool: Pool, handlers: Record<string, Handler>, onCo
                 continue;
             }
             const job = result.rows[0];
+            const started = performance.now();
+            const report = (outcome: string) => Promise.resolve().then(() => onOutcome?.(job, outcome, performance.now()-started)).catch(() => {});
             const handler = handlers[job.kind];
             if (job.status === "running" && (!handler.transactional || handler.retryable === false)) {
                 await client.query("UPDATE durable_jobs SET status='uncertain',last_error='Worker interrupted during external operation',finished_at=now() WHERE id=$1", [job.id]);
                 await client.query("COMMIT");
+                await report("uncertain");
                 return true;
             }
             if (job.attempts >= 5) {
                 await client.query("UPDATE durable_jobs SET status='failed',finished_at=now() WHERE id=$1", [job.id]);
                 await client.query("COMMIT");
+                await report("failed");
                 return true;
             }
             await client.query("UPDATE durable_jobs SET status='running',attempts=attempts+1,started_at=now() WHERE id=$1", [job.id]);
             await client.query("COMMIT");
+            let outcome = "completed";
             try {
                 if (handler.transactional) {
                     await client.query("BEGIN");
@@ -118,9 +123,11 @@ export async function runOne(pool: Pool, handlers: Record<string, Handler>, onCo
                 if (handler.transactional)
                     await client.query("ROLLBACK");
                 const status = (!handler.transactional || handler.retryable === false) ? "uncertain" : job.attempts + 1 >= 5 ? "failed" : "retry";
+                outcome = status;
                 await client.query(`UPDATE durable_jobs SET status=$2,last_error=$3,
           available_at=now()+($4 * interval '1 second'),finished_at=CASE WHEN $2='retry' THEN NULL ELSE now() END WHERE id=$1`, [job.id, status, error instanceof Error ? error.name : "Job error", Math.min(3600, 30 * 2 ** job.attempts)]);
             }
+            await report(outcome);
             return true;
         }
         catch (error) {

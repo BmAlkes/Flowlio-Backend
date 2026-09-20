@@ -2635,3 +2635,27 @@ export const jobSchedules = pgTable("job_schedules", {
   intervalMinutes: integer("interval_minutes"),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
 });
+
+
+export const operationalEvents = pgTable("operational_events", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  source: text("source").notNull(),
+  code: text("code").notNull(),
+  route: text("route").notNull(),
+  correlationId: text("correlation_id").notNull(),
+  release: text("release").notNull(),
+  status: integer("status"),
+  durationMs: integer("duration_ms"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => [index("operational_events_org_time_idx").on(table.organizationId, table.occurredAt), index("operational_events_time_idx").on(table.occurredAt)]);
+
+export const operationalMetrics = pgTable("operational_metrics", {
+  scope: text("scope").notNull(),
+  source: text("source").notNull(),
+  bucketAt: timestamp("bucket_at", { withTimezone: true }).notNull(),
+  requests: integer("requests").notNull(),
+  errors: integer("errors").notNull(),
+  durationMs: bigint("duration_ms", { mode: "number" }).notNull(),
+  maxDurationMs: integer("max_duration_ms").notNull(),
+}, table => [primaryKey({ columns: [table.scope, table.source, table.bucketAt] })]);

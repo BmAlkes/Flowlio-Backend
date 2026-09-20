@@ -29,6 +29,13 @@
       "when": 1789881060217,
       "tag": "0003_happy_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789916868230,
+      "tag": "0004_observability",
+      "breakpoints": true
     }
   ]
 }

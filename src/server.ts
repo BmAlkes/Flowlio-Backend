@@ -3,6 +3,9 @@ import { runReleaseMigrations } from "./utils/release-migrations.util";
 if (__dirname.includes("dist")) {
   require("module-alias/register");
 }
+import observabilityRoutes from "./routes/observability.routes";
+import { observeRequest } from "./middlewares/observability.middleware";
+import { startTelemetryFlush } from "./modules/observability/runtime";
 import { assignSocketToReqIO } from "@/middlewares/socket.middleware";
 import { connAuthBridge } from "@/middlewares/socket.middleware";
 import { connection } from "./configs/connection.config";
@@ -64,6 +67,7 @@ const isRailway =
   !!process.env.RAILWAY_PROJECT_ID;
 
 const corsOptions: CorsOptions = {
+  exposedHeaders: ["X-Request-Id", "X-App-Version"],
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
@@ -115,13 +119,15 @@ app.use(assignSocketToReqIO(io));
 app.use(express.static("dist"));
 app.use(cors(corsOptions));
 app.use(cookieParser());
+app.use("/api", observeRequest);
+startTelemetryFlush();
 app.use("/api", (_req, res, next) => {
   res.setHeader("Cache-Control", "private, no-store");
   next();
 });
 io.use(connAuthBridge);
 
-app.use(morgan(isProduction || isRailway ? "combined" : "dev"));
+app.use(morgan(":method :status :response-time ms"));
 
 // Add request logging for auth endpoints (only in development)
 if (!isProduction && !isRailway) {
@@ -223,6 +229,7 @@ app.use('/api/webhooks', express.raw({ type: '*/*' }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
+app.use("/api/observability", observabilityRoutes);
 app.use("/api/superadmin", superAdminRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/user", userProfileRoutes);
