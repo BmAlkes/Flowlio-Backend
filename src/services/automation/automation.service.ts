@@ -1,4 +1,5 @@
-import { database } from "../../configs/connection.config";
+import { scopedDatabase, jobContext } from "../jobs/context";
+import { database as baseDatabase } from "../../configs/connection.config";
 import { tasks, projects, notifications, users, userOrganizations, organizations, projectRiskAlerts, clients, invoices, paymentLinks, leadWebhooks, leadWebhookLogs, supportTickets, supportTicketMessages, automationSettings } from "../../schema/schema";
 import { eq, and, lt, ne, sql, gte, count, isNull, or, inArray, not, desc } from "drizzle-orm";
 import { logger } from "../../utils/logger.util";
@@ -17,7 +18,9 @@ const OVERDUE_REMINDER_INTERVAL_DAYS = 7;
 // How often to re-alert on a project that remains at high risk.
 // Future: make this configurable per organization.
 const PROJECT_RISK_ALERT_INTERVAL_DAYS = 7;
-import { sendTransactionalEmail, EmailResult } from "../email/transactional.service";
+import type { EmailResult } from "../email/transactional.service";
+import { sendTransactionalEmail } from "../jobs/deliveries";
+import { enqueue } from "../jobs/queue";
 import { sendPushToUser } from "../../utils/web-push.util";
 import { env } from "../../utils/env.util";
 import crypto from "crypto";
@@ -96,6 +99,7 @@ export class AutomationService {
 
       return progress;
     } catch (error) {
+      if (jobContext.getStore()) throw error;
       logger.error(
         `❌ Error recalculating progress for project ${projectId}:`,
         error,
@@ -151,6 +155,7 @@ export class AutomationService {
         return computedStatus;
       });
     } catch (error) {
+      if (jobContext.getStore()) throw error;
       logger.error(`Error recalculating status for project ${projectId}:`, error);
       return null;
     }
@@ -353,6 +358,7 @@ export class AutomationService {
 
       logger.info("Overdue task automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       const msg = error?.message ?? String(error);
       logger.error("Error in overdue task automation:", error);
       result.errors.push(`Automation error: ${msg}`);
@@ -422,6 +428,7 @@ export class AutomationService {
         }
       }
     } catch (error) {
+      if (jobContext.getStore()) throw error;
       logger.error("Error in project reminder automation:", error);
     }
   }
@@ -446,6 +453,7 @@ export class AutomationService {
         );
       }
     } catch (error) {
+      if (jobContext.getStore()) throw error;
       logger.error(`Error in auto-assigning task ${taskId}:`, error);
     }
   }
@@ -650,6 +658,7 @@ export class AutomationService {
 
       logger.info("Project risk alert automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       const msg = error?.message ?? String(error);
       logger.error("Error in project risk alert automation:", error);
       result.errors.push(`Automation error: ${msg}`);
@@ -787,6 +796,7 @@ export class AutomationService {
 
       logger.info("Lead follow-up overdue automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       const msg = error?.message ?? String(error);
       logger.error("Error in lead follow-up automation:", error);
       result.errors.push(`Automation error: ${msg}`);
@@ -919,6 +929,7 @@ export class AutomationService {
 
       logger.info("Weekly summary automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       const msg = error?.message ?? String(error);
       logger.error("Error in weekly summary automation:", error);
       result.errors.push(`Automation error: ${msg}`);
@@ -1078,6 +1089,7 @@ export class AutomationService {
       }
       logger.info("Invoice overdue automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       result.errors.push(error?.message ?? String(error));
       logger.error("Error in invoice overdue automation:", error);
     }
@@ -1160,6 +1172,7 @@ export class AutomationService {
       }
       logger.info("Payment link reminder automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       result.errors.push(error?.message ?? String(error));
       logger.error("Error in payment link reminder automation:", error);
     }
@@ -1267,6 +1280,7 @@ export class AutomationService {
       }
       logger.info("Webhook issue automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       result.errors.push(error?.message ?? String(error));
       logger.error("Error in webhook issue automation:", error);
     }
@@ -1362,6 +1376,7 @@ export class AutomationService {
       }
       logger.info("New lead not contacted automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       result.errors.push(error?.message ?? String(error));
       logger.error("Error in new-lead-not-contacted automation:", error);
     }
@@ -1460,6 +1475,7 @@ export class AutomationService {
       }
       logger.info("Client inactivity automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       result.errors.push(error?.message ?? String(error));
       logger.error("Error in client inactivity automation:", error);
     }
@@ -1569,6 +1585,7 @@ export class AutomationService {
       }
       logger.info("Support ticket unanswered automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       result.errors.push(error?.message ?? String(error));
       logger.error("Error in support ticket unanswered automation:", error);
     }
@@ -1708,6 +1725,7 @@ export class AutomationService {
       }
       logger.info("Trial and usage limits automation completed", result);
     } catch (error: any) {
+      if (jobContext.getStore()) throw error;
       result.errors.push(error?.message ?? String(error));
       logger.error("Error in trial and usage limits automation:", error);
     }
@@ -1737,11 +1755,18 @@ export class AutomationService {
         read: false,
         createdAt: new Date(),
       });
-      sendPushToUser(params.userId, { title: params.title, body: params.message }).catch(() => {});
+      const context = jobContext.getStore();
+      if (context) {
+        await enqueue(context.client, "push-delivery", context.job.id + ":push:" + params.userId + ":" + params.type + ":" + JSON.stringify(params.data ?? {}),
+          { userId: params.userId, title: params.title, body: params.message });
+      } else sendPushToUser(params.userId, { title: params.title, body: params.message }).catch(() => {});
     } catch (error) {
+      if (jobContext.getStore()) throw error;
       logger.error("Error creating notification:", error);
     }
   }
 }
 
 export const automationService = new AutomationService();
+
+const database = scopedDatabase(baseDatabase);

@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc && tsc-alias",
     "dev": "ts-node-dev -r tsconfig-paths/register src/server.ts",
-    "start": "node dist/src/server.js",
+    "start": "node dist/src/start.js",
     "dbgenerate": "drizzle-kit generate",
     "dbpush": "drizzle-kit push",
     "dbstudio": "drizzle-kit studio --port 4983",
@@ -18,7 +18,10 @@
     "better-auth-generate": "npx @better-auth/cli@latest generate",
     "test": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/*.test.cjs",
     "typecheck": "tsc --noEmit",
-    "dbmigrate": "node dist/src/migrate.js"
+    "dbmigrate": "node dist/src/migrate.js",
+    "start:http": "node dist/src/server.js",
+    "start:worker": "node dist/src/worker.js",
+    "dev:worker": "ts-node-dev -r tsconfig-paths/register src/worker.ts"
   },
   "license": "ISC",
   "_moduleAliases": {

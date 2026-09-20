@@ -17,52 +17,9 @@ const isRailway =
   !!process.env.RAILWAY_PROJECT_ID;
 
 export class AutoRenewalService {
-  private renewalInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
 
-  /**
-   * Start periodic auto-renewal check
-   * @param intervalHours - Check interval in hours (default: 24 hours = once per day)
-   */
-  startPeriodicRenewal(intervalHours: number = 24): void {
-    if (this.renewalInterval) {
-      if (!isProduction && !isRailway) {
-        logger.warn("Auto-renewal service is already running");
-      }
-      return;
-    }
-
-    logger.info(
-      `Starting auto-renewal service (checking every ${intervalHours} hours)`
-    );
-
-    // Run immediately on startup, then at intervals
-    this.performAutoRenewal().catch((error) => {
-      logger.error("Error in initial auto-renewal check:", error);
-    });
-
-    this.renewalInterval = setInterval(async () => {
-      if (!this.isRunning) {
-        await this.performAutoRenewal();
-      }
-    }, intervalHours * 60 * 60 * 1000);
-  }
-
-  /**
-   * Stop periodic auto-renewal check
-   */
-  stopPeriodicRenewal(): void {
-    if (this.renewalInterval) {
-      clearInterval(this.renewalInterval);
-      this.renewalInterval = null;
-      logger.info("Auto-renewal service stopped");
-    }
-  }
-
-  /**
-   * Perform auto-renewal for expiring subscriptions
-   */
-  async performAutoRenewal(): Promise<void> {
+  async performAutoRenewal(strict = false): Promise<void> {
     if (this.isRunning) {
       if (!isProduction && !isRailway) {
         logger.warn("Auto-renewal is already running, skipping");
@@ -141,6 +98,7 @@ export class AutoRenewalService {
           // This catches any edge cases where renewal happened without payment
           await this.verifyRenewalPayment(subscription.id, plan, organization);
         } catch (error) {
+          if (strict) throw error;
           renewalResults.failedRenewals++;
           renewalResults.errors.push({
             subscriptionId: subscription.id,
@@ -156,6 +114,7 @@ export class AutoRenewalService {
 
       logger.info("Auto-renewal process completed", renewalResults);
     } catch (error: any) {
+      if (strict) throw error;
       // Check if it's a database connection error
       if (
         error?.message?.includes("ENOTFOUND") ||
@@ -1128,15 +1087,7 @@ export class AutoRenewalService {
     }
   }
 
-  /**
-   * Get renewal service status
-   */
-  getRenewalStatus(): { isRunning: boolean; hasInterval: boolean } {
-    return {
-      isRunning: this.isRunning,
-      hasInterval: this.renewalInterval !== null,
-    };
-  }
+
 }
 
 // Export singleton instance

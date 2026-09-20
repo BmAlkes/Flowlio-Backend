@@ -1,4 +1,5 @@
-import { database } from "@/configs/connection.config";
+import { scopedDatabase, jobContext } from "./jobs/context";
+import { database as baseDatabase } from "@/configs/connection.config";
 import { recurringInvoices } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { and, eq } from "drizzle-orm";
@@ -81,6 +82,7 @@ export class RecurringInvoiceService {
         return newInvoice;
       });
     } catch (error) {
+      if (jobContext.getStore()) throw error;
       logger.error(`❌ Failed to generate invoice from template ${template.id}:`, error);
       throw error;
     }
@@ -110,7 +112,10 @@ export class RecurringInvoiceService {
         await this.generateInvoiceFromTemplate(template);
       }
     } catch (error) {
+      if (jobContext.getStore()) throw error;
       logger.error("❌ Error processing recurring invoices:", error);
     }
   }
 }
+
+const database = scopedDatabase(baseDatabase);

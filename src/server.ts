@@ -52,9 +52,6 @@ import reportsRoutes from "./routes/reports.routes";
 import proposalsRoutes from "./routes/proposals.routes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import crmRoutes from "./routes/crm.routes";
-import { backgroundSyncService } from "./services/backgroundSync.service";
-import { autoRenewalService } from "./services/autoRenewal.service";
-import { initCronJobs } from "./services/automation/cron.service";
 import automationsRoutes from "./routes/automations.routes";
 
 config();
@@ -291,34 +288,7 @@ void runReleaseMigrations(connection).then(() => {
   httpServer.listen(port as number, () => {
     logger.info(`Server is running on port ${port}`);
 
-    // Start background sync service asynchronously after server starts
-    // This prevents blocking the server startup
-    setImmediate(() => {
-      if (isProduction || env.ENABLE_BACKGROUND_SYNC === "false") {
-        // Delay initial sync to avoid blocking startup
-        setTimeout(() => {
-          backgroundSyncService.startPeriodicSync(60); // Sync every 60 minutes instead of 15
-          logger.info("Background sync service started (60min interval)");
-        }, 5000); // Start sync 5 seconds after server starts
-      } else {
-        logger.info("Background sync service disabled in development mode");
-      }
-    });
 
-    // Start auto-renewal service asynchronously after server starts
-    // This checks for expiring subscriptions and auto-renews them
-    setImmediate(() => {
-      // Delay initial check to avoid blocking startup
-      setTimeout(() => {
-        autoRenewalService.startPeriodicRenewal(24); // Check every 24 hours (once per day)
-        logger.info("Auto-renewal service started (24h interval)");
-      }, 10000); // Start 10 seconds after server starts
-    });
-
-    // Start Backend Automations (Cron Jobs)
-    setImmediate(() => {
-      initCronJobs();
-    });
   });
 
 }).catch((error) => {

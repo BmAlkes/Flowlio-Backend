@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
-import { backgroundSyncService } from "../../../services/backgroundSync.service";
+import { connection } from "../../../configs/connection.config";
+import { enqueue } from "../../../services/jobs/queue";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 
@@ -21,11 +22,11 @@ export const forceSyncUser = async (
 
     logger.info(`Force sync requested by user: ${req.user.id}`);
 
-    await backgroundSyncService.forceSyncUser(req.user.id);
+    await enqueue(connection,"calendar-sync","calendar-user:"+req.user.id+":"+Math.floor(Date.now()/60000),{userId:req.user.id});
 
-    res.status(200).json({
+    res.status(202).json({
       success: true,
-      message: "User sync completed successfully",
+      message: "User sync queued successfully",
     });
   } catch (error) {
     logger.error("Error during force sync:", error);
@@ -45,7 +46,8 @@ export const getSyncStatus = async (
   res: Response
 ): Promise<void> => {
   try {
-    const status = backgroundSyncService.getSyncStatus();
+    const result = await connection.query("SELECT EXISTS(SELECT 1 FROM durable_jobs WHERE kind='calendar-sync' AND status='running') AS running, EXISTS(SELECT 1 FROM job_schedules WHERE kind='calendar-sync' AND enabled=true) AS enabled");
+    const status = {isRunning:result.rows[0].running,hasInterval:result.rows[0].enabled};
 
     res.status(200).json({
       success: true,
@@ -80,7 +82,10 @@ export const startBackgroundSync = async (
 
     const { intervalMinutes = 15 } = req.body;
 
-    backgroundSyncService.startPeriodicSync(intervalMinutes);
+    if (!Number.isInteger(intervalMinutes) || intervalMinutes < 1 || intervalMinutes > 1440) {
+      res.status(400).json({success:false,message:"Interval must be an integer between 1 and 1440 minutes"}); return;
+    }
+    await connection.query("INSERT INTO job_schedules (kind,next_run_at,enabled,interval_minutes) VALUES ('calendar-sync',now(),true,$1) ON CONFLICT(kind) DO UPDATE SET enabled=true,interval_minutes=$1,next_run_at=now()",[intervalMinutes]);
 
     res.status(200).json({
       success: true,
@@ -112,7 +117,7 @@ export const stopBackgroundSync = async (
       return;
     }
 
-    backgroundSyncService.stopPeriodicSync();
+    await connection.query("INSERT INTO job_schedules (kind,next_run_at,enabled) VALUES ('calendar-sync',now(),false) ON CONFLICT(kind) DO UPDATE SET enabled=false");
 
     res.status(200).json({
       success: true,

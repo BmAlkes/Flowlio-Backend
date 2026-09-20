@@ -18,6 +18,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 export const sendPushToUser = async (
   userId: string,
   payload: { title: string; body: string; icon?: string; data?: Record<string, unknown> },
+  strict = false,
 ): Promise<void> => {
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
 
@@ -28,6 +29,7 @@ export const sendPushToUser = async (
       .from(pushSubscriptions)
       .where(eq(pushSubscriptions.userId, userId));
   } catch (err) {
+    if (strict) throw err;
     logger.error("Failed to fetch push subscriptions:", err);
     return;
   }
@@ -40,7 +42,7 @@ export const sendPushToUser = async (
     ...payload,
   });
 
-  await Promise.allSettled(
+  const outcomes = await Promise.allSettled(
     subscriptions.map(async (sub) => {
       try {
         await webpush.sendNotification(
@@ -58,9 +60,11 @@ export const sendPushToUser = async (
             logger.error("Failed to delete expired push subscription:", deleteErr);
           }
         } else {
+          if (strict) throw err;
           logger.error("Push notification send error:", err);
         }
       }
     }),
   );
+  if (strict && outcomes.some(result=>result.status === "rejected")) throw new Error("Push delivery unconfirmed");
 };

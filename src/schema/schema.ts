@@ -2613,3 +2613,24 @@ export const projectRiskAlerts = pgTable(
     statusIdx: index("project_risk_alerts_status_idx").on(table.status),
   }),
 );
+
+
+export const durableJobs = pgTable("durable_jobs", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(),
+  dedupeKey: text("dedupe_key").notNull().unique(),
+  payload: json("payload").notNull().default({}),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+  availableAt: timestamp("available_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  lastError: text("last_error"),
+}, table => ({ due: index("durable_jobs_due_idx").on(table.status,table.availableAt) }));
+export const jobSchedules = pgTable("job_schedules", {
+  kind: text("kind").primaryKey(),
+  enabled: boolean("enabled").notNull().default(true),
+  intervalMinutes: integer("interval_minutes"),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
+});

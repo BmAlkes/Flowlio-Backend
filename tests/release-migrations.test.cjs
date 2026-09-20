@@ -6,8 +6,9 @@ const {readReleaseMigrations}=require('../src/utils/release-migrations.util');
 const {generateDrizzleJson,generateMigration}=require('drizzle-kit/api');
 const folder=path.resolve('drizzle/releases');
 test('release journal registers every SQL file and the snapshot matches the current model',async()=>{
- const migrations=await readReleaseMigrations(folder);assert.equal(migrations.length,2);
- const previous=JSON.parse(await fs.readFile(path.join(folder,'meta/0000_snapshot.json'),'utf8'));
+ const migrations=await readReleaseMigrations(folder);assert.ok(migrations.length>=2);
+ const snapshots=(await fs.readdir(path.join(folder,'meta'))).filter(name=>name.endsWith('_snapshot.json')).sort();
+ const previous=JSON.parse(await fs.readFile(path.join(folder,'meta',snapshots.at(-1)),'utf8'));
  const current=generateDrizzleJson(require('../src/schema/schema'),previous.id,['public'],'snake_case');
  assert.deepEqual(await generateMigration(previous,current),[]);
 });

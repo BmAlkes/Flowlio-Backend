@@ -17,51 +17,9 @@ const isRailway =
   !!process.env.RAILWAY_PROJECT_ID;
 
 export class BackgroundSyncService {
-  private syncInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
 
-  /**
-   * Start periodic background sync
-   * @param intervalMinutes - Sync interval in minutes (default: 15)
-   */
-  startPeriodicSync(intervalMinutes: number = 15): void {
-    if (this.syncInterval) {
-      if (!isProduction && !isRailway) {
-        logger.warn("Background sync is already running");
-      }
-      return;
-    }
-
-    if (!isProduction && !isRailway) {
-      logger.info(`Starting background sync every ${intervalMinutes} minutes`);
-    }
-
-    this.syncInterval = setInterval(async () => {
-      if (!this.isRunning) {
-        await this.performBackgroundSync();
-      }
-    }, intervalMinutes * 60 * 1000);
-
-    // Don't run initial sync immediately - let the first interval trigger it
-    // This prevents blocking server startup
-    // The sync will run after the first interval (60 minutes by default)
-  }
-
-  /**
-   * Stop periodic background sync
-   */
-  stopPeriodicSync(): void {
-    if (this.syncInterval) {
-      clearInterval(this.syncInterval);
-      this.syncInterval = null;
-      logger.info("Background sync stopped");
-    }
-  }
-
-  /**
-   * Perform background sync for all connected users
-   */
-  async performBackgroundSync(): Promise<void> {
+  async performBackgroundSync(strict = false): Promise<void> {
     if (this.isRunning) {
       if (!isProduction && !isRailway) {
         logger.warn("Background sync is already running, skipping");
@@ -106,9 +64,10 @@ export class BackgroundSyncService {
       // Sync each user's events
       for (const user of connectedUsers) {
         try {
-          await this.syncUserEvents(user.userId);
+          await this.syncUserEvents(user.userId,strict);
           syncResults.successfulSyncs++;
         } catch (error) {
+          if (strict) throw error;
           syncResults.failedSyncs++;
           syncResults.errors.push({
             userId: user.userId,
@@ -127,6 +86,7 @@ export class BackgroundSyncService {
         logger.info("Background sync completed", syncResults);
       }
     } catch (error) {
+      if (strict) throw error;
       logger.error("Error during background sync:", error);
     } finally {
       this.isRunning = false;
@@ -136,7 +96,7 @@ export class BackgroundSyncService {
   /**
    * Sync events for a specific user
    */
-  private async syncUserEvents(userId: string): Promise<void> {
+  private async syncUserEvents(userId: string, strict = false): Promise<void> {
     logger.info(`Syncing events for user: ${userId}`);
 
     // Set credentials for the user
@@ -209,6 +169,7 @@ export class BackgroundSyncService {
             );
           }
         } catch (error) {
+          if (strict) throw error;
           logger.error(`Failed to delete app event ${deletedGoogleId}:`, error);
         }
       }
@@ -318,10 +279,12 @@ export class BackgroundSyncService {
             }
           }
         } catch (error) {
+          if (strict) throw error;
           logger.error(`Failed to sync Google event ${googleEvent.id}:`, error);
         }
       }
     } catch (error) {
+      if (strict) throw error;
       logger.error(
         `Failed to fetch Google Calendar events for user ${userId}:`,
         error
@@ -373,6 +336,7 @@ export class BackgroundSyncService {
             `Deleted Google Calendar event that was removed from app: ${deletedGoogleId}`
           );
         } catch (error) {
+          if (strict) throw error;
           logger.error(
             `Failed to delete Google event ${deletedGoogleId}:`,
             error
@@ -416,10 +380,12 @@ export class BackgroundSyncService {
             }
           }
         } catch (error) {
+          if (strict) throw error;
           logger.error(`Failed to sync app event ${appEvent.id}:`, error);
         }
       }
     } catch (error) {
+      if (strict) throw error;
       logger.error(`Failed to sync app events for user ${userId}:`, error);
     }
 
@@ -429,20 +395,12 @@ export class BackgroundSyncService {
   /**
    * Force sync for a specific user (can be called manually)
    */
-  async forceSyncUser(userId: string): Promise<void> {
+  async forceSyncUser(userId: string, strict = false): Promise<void> {
     logger.info(`Force syncing events for user: ${userId}`);
-    await this.syncUserEvents(userId);
+    await this.syncUserEvents(userId,strict);
   }
 
-  /**
-   * Get sync status
-   */
-  getSyncStatus(): { isRunning: boolean; hasInterval: boolean } {
-    return {
-      isRunning: this.isRunning,
-      hasInterval: this.syncInterval !== null,
-    };
-  }
+
 }
 
 // Export singleton instance
