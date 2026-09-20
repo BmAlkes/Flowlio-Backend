@@ -24,6 +24,7 @@ export const getPayPalAccessToken = async (): Promise<string> => {
       `${baseURL}/v1/oauth2/token`,
       "grant_type=client_credentials",
       {
+        timeout: 15000,
         headers: {
           Authorization: `Basic ${auth}`,
           "Content-Type": "application/x-www-form-urlencoded",

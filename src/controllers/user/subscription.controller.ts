@@ -1,15 +1,16 @@
+import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
+import { transaction, reconcileSubscription } from "@/services/subscription-reconciliation.service";
+import { enqueue } from "@/services/jobs/queue";
 import { Request, Response } from "express";
-import { database } from "@/configs/connection.config";
+import { database, connection } from "@/configs/connection.config";
 import {
   subscriptions,
   organizations,
   subscriptionPlans,
   userOrganizations,
-  users,
 } from "@/schema/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
-import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
 import crypto from "crypto";
 
 export const getSubscriptionStatus = async (
@@ -387,156 +388,47 @@ export const getAvailablePlans = async (
   }
 };
 
-export const cancelSubscription = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const cancelSubscription = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user?.id;
-
-    if (!userId) {
-      res.status(401).json({
-        success: false,
-        message: "User not authenticated",
-      });
-      return;
-    }
-
-    // Get user's organization
-    const userOrg = await database
-      .select({
-        organization: organizations,
-      })
-      .from(organizations)
-      .innerJoin(
-        userOrganizations,
-        eq(organizations.id, userOrganizations.organizationId)
-      )
-      .where(eq(userOrganizations.userId, userId))
-      .limit(1);
-
-    if (!userOrg.length) {
-      res.status(404).json({
-        success: false,
-        message: "Organization not found",
-      });
-      return;
-    }
-
-    const organizationId = userOrg[0].organization.id;
-
-    // Get active subscription
-    const existingSubscription = await database
-      .select()
-      .from(subscriptions)
-      .where(
-        and(
-          eq(subscriptions.organizationId, organizationId),
-          eq(subscriptions.status, "active")
-        )
-      )
-      .limit(1);
-
-    if (!existingSubscription.length) {
-      res.status(404).json({
-        success: false,
-        message: "No active subscription found",
-      });
-      return;
-    }
-
-    const subscription = existingSubscription[0];
-    const currentDate = new Date();
-
-    // Check if subscription has already expired
-    if (subscription.currentPeriodEnd < currentDate) {
-      res.status(400).json({
-        success: false,
-        message: "Subscription has already expired",
-      });
-      return;
-    }
-
-    // Check if already scheduled for cancellation
-    if (subscription.cancelAtPeriodEnd) {
-      res.status(400).json({
-        success: false,
-        message: "Subscription is already scheduled for cancellation",
-      });
-      return;
-    }
-
-    // Set cancelAtPeriodEnd to true (non-refundable)
-    await database
-      .update(subscriptions)
-      .set({
-        cancelAtPeriodEnd: true,
-        cancelledAt: currentDate,
-        updatedAt: currentDate,
-      })
-      .where(eq(subscriptions.id, subscription.id));
-
-    logger.info(
-      `Subscription ${subscription.id} scheduled for cancellation at period end for organization ${organizationId}`
-    );
-
-    // Get organization and plan details for notification
-    const org = userOrg[0].organization;
-    const plan = await database.query.subscriptionPlans.findFirst({
-      where: eq(subscriptionPlans.id, subscription.planId),
-      columns: {
-        name: true,
-        price: true,
-      },
+    const organizationId = req.user?.organizationId;
+    if (!userId) { res.status(401).json({ success: false, message: "User not authenticated" }); return; }
+    if (!organizationId) { res.status(404).json({ success: false, message: "Organization not found" }); return; }
+    const subscription = await transaction(connection, async client => {
+      const owner = await client.query(`SELECT id FROM user_organizations WHERE user_id=$1 AND organization_id=$2
+        AND role='owner' AND status='active'`, [userId, organizationId]);
+      if (!owner.rowCount) return null;
+      const sub = (await client.query(`SELECT * FROM subscriptions WHERE organization_id=$1
+        AND status IN ('active','past_due') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [organizationId])).rows[0];
+      if (!sub) return undefined;
+      if (sub.paypal_subscription_id) {
+        await client.query(`UPDATE subscriptions SET metadata=COALESCE(metadata::jsonb,'{}'::jsonb) ||
+          jsonb_build_object('cancellationRequestedAt',COALESCE(metadata->>'cancellationRequestedAt',now()::text)),updated_at=now() WHERE id=$1`, [sub.id]);
+        await enqueue(client, "subscription-reconcile", "cancel:" + sub.paypal_subscription_id, { providerId: sub.paypal_subscription_id });
+      } else {
+        await client.query("UPDATE subscriptions SET cancel_at_period_end=true,cancelled_at=COALESCE(cancelled_at,now()),updated_at=now() WHERE id=$1", [sub.id]);
+      }
+      return sub;
     });
-    const user = await database.query.users.findFirst({
-      where: eq(users.id, userId),
-      columns: {
-        name: true,
-        email: true,
-      },
-    });
-
-    // Notify super admins about subscription cancellation
-    await notifySuperAdmins({
-      type: "userUnsubscribe",
-      title: "Subscription Cancelled",
-      message: `A user has cancelled their subscription. The subscription will remain active until the end of the current billing period.`,
-      details: {
-        "Organization Name": org.name || "N/A",
-        "Organization ID": organizationId,
-        "User Name": user?.name || "N/A",
-        "User Email": user?.email || "N/A",
-        "Plan Name": plan?.name || "N/A",
-        "Plan Price": plan?.price ? `$${plan.price}` : "N/A",
-        "Subscription ID": subscription.id,
-        "Current Period End": subscription.currentPeriodEnd
-          .toISOString()
-          .split("T")[0],
-        "Cancelled At": currentDate.toISOString().split("T")[0],
-      },
-    });
-
-    res.status(200).json({
-      success: true,
-      message:
-        "Subscription has been cancelled. It will remain active until the end of the current billing period. This action is non-refundable.",
-      data: {
-        subscriptionId: subscription.id,
-        cancelAtPeriodEnd: true,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        cancelledAt: currentDate,
-      },
-    });
-    return;
+    if (subscription === null) { res.status(403).json({ success: false, message: "Only the organization owner can cancel" }); return; }
+    if (!subscription) { res.status(404).json({ success: false, message: "No active subscription found" }); return; }
+    if (subscription.paypal_subscription_id) {
+      await transaction(connection, client => reconcileSubscription(client, subscription.paypal_subscription_id));
+    }
+    if (!subscription.cancel_at_period_end) {
+      void notifySuperAdmins({
+        type: "userUnsubscribe", title: "Subscription Cancelled",
+        message: "Subscription cancelled. Access remains available until the end of the paid period.",
+        details: { "Organization ID": organizationId, "Subscription ID": subscription.id },
+      }).catch(() => logger.error("Subscription cancellation notification failed"));
+    }
+    res.status(200).json({ success: true,
+      message: "Subscription cancelled. Access remains available until the end of the paid period.",
+      data: { subscriptionId: subscription.id, cancelAtPeriodEnd: true,
+        currentPeriodEnd: subscription.current_period_end, cancelledAt: new Date() } });
   } catch (error) {
-    logger.error("Cancel subscription error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to cancel subscription",
-      error: process.env.NODE_ENV === "development" ? error : undefined,
-    });
-    return;
+    logger.error("Subscription cancellation awaiting reconciliation", { error: error instanceof Error ? error.name : "Error" });
+    res.status(503).json({ success: false, message: "Cancellation could not be confirmed yet. Please retry shortly." });
   }
 };
 

@@ -510,6 +510,7 @@ export const subscriptions = pgTable(
     cancelledAt: timestamp("cancelled_at"),
     trialStart: timestamp("trial_start"),
     trialEnd: timestamp("trial_end"),
+    paypalSubscriptionId: text("paypal_subscription_id").unique(),
     stripeSubscriptionId: text("stripe_subscription_id").unique(),
     stripeCustomerId: text("stripe_customer_id"),
     metadata: json("metadata"),
@@ -2633,4 +2634,13 @@ export const jobSchedules = pgTable("job_schedules", {
   enabled: boolean("enabled").notNull().default(true),
   intervalMinutes: integer("interval_minutes"),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
+});
+
+// Verified provider notifications; payloads deliberately exclude customer/payment details.
+export const subscriptionEvents = pgTable("subscription_events", {
+  id: text("id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  paypalSubscriptionId: text("paypal_subscription_id"),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
 });

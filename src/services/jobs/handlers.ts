@@ -9,7 +9,7 @@ import { enqueue, type Handler, type Schedule } from "./queue";
 import { sendTransactionalEmail } from "../email/transactional.service";
 import { sendPushToUser } from "../../utils/web-push.util";
 import { backgroundSyncService } from "../backgroundSync.service";
-import { autoRenewalService } from "../autoRenewal.service";
+import { reconcileEvent, scheduleSubscriptionReconciliation } from "../subscription-reconciliation.service";
 import { nextMonthReset } from "../../utils/aiTokenLimit.util";
 const automations = [
     ["task-overdue", "handleOverdueTasks", 8], ["project-risk", "handleProjectRiskAlerts", 9],
@@ -23,7 +23,7 @@ export const schedules: Schedule[] = [
     ...automations.map(([kind, , hour, weekday]) => ({ kind, minutes: hour === undefined ? 360 : 60, weekday })),
     { kind: "project-end", minutes: 1440, hour: 8 }, { kind: "recurring-invoices", minutes: 1440, hour: 8 },
     { kind: "ai-reset", minutes: 1440, hour: 0 }, { kind: "webhook-retries", minutes: 1 }, { kind: "followup-reminders", minutes: 60 },
-    { kind: "subscription-renewal", minutes: 1440, hour: 0 },
+    { kind: "subscription-renewal", minutes: 60 },
     { kind: "calendar-sync", minutes: 60 },
 ];
 const transactional = (run: Handler["run"]): Handler => ({
@@ -60,7 +60,8 @@ export const handlers: Record<string, Handler> = {
                 await backgroundSyncService.performBackgroundSync(true);
         }
     },
-    "subscription-renewal": { transactional: false, run: async () => { await autoRenewalService.performAutoRenewal(true); } },
+    "subscription-renewal": transactional(scheduleSubscriptionReconciliation),
+    "subscription-reconcile": transactional(reconcileEvent),
 };
 for (const [kind, method, defaultHour] of automations) {
     handlers[kind] = transactional(async (job, client) => {

@@ -1,5 +1,6 @@
+import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
 import { Request, Response } from "express";
-import { database } from "@/configs/connection.config";
+import { database, connection } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
 import axios from "axios";
@@ -10,14 +11,14 @@ import {
   subscriptionPlans,
   users,
 } from "@/schema/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { transaction, acceptSubscriptionEvent } from "@/services/subscription-reconciliation.service";
+import { eventSubscriptionId, validDate } from "@/services/subscription-policy";
 import crypto from "crypto";
-import { notifySuperAdmins } from "@/utils/superadmin-notification.util";
 import { getPayPalAccessToken, getPayPalBaseURL } from "@/utils/paypal.util";
 import {
-  insertDefaultAITokenLimit,
+  ensureOrgAITokenLimit,
   DEFAULT_PAID_TOKEN_LIMIT,
-  getAITokenLimitFromPlan,
 } from "@/utils/aiTokenLimit.util";
 
 // ── Billing plan setup ────────────────────────────────────────────────────────
@@ -29,95 +30,105 @@ function getBillingFrequency(plan: typeof subscriptionPlans.$inferSelect) {
   if (type === "yearly" || type === "year") {
     return { interval_unit: "YEAR", interval_count: value };
   }
+  if (type === "days" || type === "day") return { interval_unit: "DAY", interval_count: value };
   // Default: monthly billing
   return { interval_unit: "MONTH", interval_count: value };
 }
 
 async function ensurePayPalBillingPlan(
-  plan: typeof subscriptionPlans.$inferSelect
+  inputPlan: typeof subscriptionPlans.$inferSelect
 ): Promise<string> {
-  if (plan.paypalPlanId) return plan.paypalPlanId;
+  return database.transaction(async (database) => {
+    await database.execute(sql`select id from subscription_plans where id=${inputPlan.id} for update`);
+    const plan = await database.query.subscriptionPlans.findFirst({ where: eq(subscriptionPlans.id, inputPlan.id) });
+    if (!plan?.isActive) throw new Error("Plan no longer available");
+    if (plan.paypalPlanId) return plan.paypalPlanId;
 
-  const accessToken = await getPayPalAccessToken();
-  const baseURL = getPayPalBaseURL();
+    const accessToken = await getPayPalAccessToken();
+    const baseURL = getPayPalBaseURL();
 
-  // Ensure product exists
-  let productId = plan.paypalProductId ?? null;
-  if (!productId) {
-    const productRes = await axios.post(
-      `${baseURL}/v1/catalogs/products`,
+    // Ensure product exists
+    let productId = plan.paypalProductId ?? null;
+    if (!productId) {
+      const productRes = await axios.post(
+        `${baseURL}/v1/catalogs/products`,
+        {
+          name: "Flowlio",
+          description: "Flowlio project management platform",
+          type: "SERVICE",
+          category: "SOFTWARE",
+        },
+        {
+          timeout: 15000,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+            "PayPal-Request-Id": crypto.createHash("sha256").update("product:" + plan.id).digest("hex").slice(0, 38),
+          },
+        }
+      );
+      productId = productRes.data.id as string;
+
+      await database
+        .update(subscriptionPlans)
+        .set({ paypalProductId: productId, updatedAt: new Date() })
+        .where(eq(subscriptionPlans.id, plan.id));
+
+      logger.info(`Created PayPal product ${productId} for plan ${plan.id}`);
+    }
+
+    // Create billing plan
+    const planName = plan.name ? `Flowlio – ${plan.name}` : "Flowlio Subscription";
+    const billingRes = await axios.post(
+      `${baseURL}/v1/billing/plans`,
       {
-        name: "Flowlio",
-        description: "Flowlio project management platform",
-        type: "SERVICE",
-        category: "SOFTWARE",
+        product_id: productId,
+        name: planName,
+        description: plan.name || "Flowlio project management platform subscription",
+        status: "ACTIVE",
+        billing_cycles: [
+          {
+            frequency: getBillingFrequency(plan),
+            tenure_type: "REGULAR",
+            sequence: 1,
+            total_cycles: 0, // indefinite
+            pricing_scheme: {
+              fixed_price: {
+                value: Number(plan.price).toFixed(2),
+                currency_code: plan.currency || "USD",
+              },
+            },
+          },
+        ],
+        payment_preferences: {
+          auto_bill_outstanding: true,
+          setup_fee_failure_action: "CONTINUE",
+          payment_failure_threshold: 3,
+        },
       },
       {
+        timeout: 15000,
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
+          "PayPal-Request-Id": crypto.createHash("sha256").update("plan:" + plan.id).digest("hex").slice(0, 38),
         },
       }
     );
-    productId = productRes.data.id as string;
+
+    const paypalPlanId = billingRes.data.id as string;
 
     await database
       .update(subscriptionPlans)
-      .set({ paypalProductId: productId, updatedAt: new Date() })
+      .set({ paypalPlanId, updatedAt: new Date() })
       .where(eq(subscriptionPlans.id, plan.id));
 
-    logger.info(`Created PayPal product ${productId} for plan ${plan.id}`);
-  }
+    logger.info(
+      `Created PayPal billing plan ${paypalPlanId} for plan ${plan.id} (${plan.name})`
+    );
 
-  // Create billing plan
-  const planName = plan.name ? `Flowlio – ${plan.name}` : "Flowlio Subscription";
-  const billingRes = await axios.post(
-    `${baseURL}/v1/billing/plans`,
-    {
-      product_id: productId,
-      name: planName,
-      description: plan.name || "Flowlio project management platform subscription",
-      status: "ACTIVE",
-      billing_cycles: [
-        {
-          frequency: getBillingFrequency(plan),
-          tenure_type: "REGULAR",
-          sequence: 1,
-          total_cycles: 0, // indefinite
-          pricing_scheme: {
-            fixed_price: {
-              value: Number(plan.price).toFixed(2),
-              currency_code: plan.currency || "USD",
-            },
-          },
-        },
-      ],
-      payment_preferences: {
-        auto_bill_outstanding: true,
-        setup_fee_failure_action: "CONTINUE",
-        payment_failure_threshold: 3,
-      },
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  const paypalPlanId = billingRes.data.id as string;
-
-  await database
-    .update(subscriptionPlans)
-    .set({ paypalPlanId, updatedAt: new Date() })
-    .where(eq(subscriptionPlans.id, plan.id));
-
-  logger.info(
-    `Created PayPal billing plan ${paypalPlanId} for plan ${plan.id} (${plan.name})`
-  );
-
-  return paypalPlanId;
+    return paypalPlanId;
+  });
 }
 
 // ── POST /payments/paypal/create-subscription ─────────────────────────────────
@@ -153,6 +164,15 @@ export const createPayPalSubscription = async (
       return;
     }
 
+    if (req.user?.organizationId) {
+      if (req.user.userOrganization?.role !== "owner") {
+        res.status(403).json({ success: false, message: "Only the organization owner can manage subscriptions" }); return;
+      }
+      const existing = await database.query.subscriptions.findFirst({ where: eq(subscriptions.organizationId, req.user.organizationId) });
+      if (existing?.paypalSubscriptionId && !["CANCELLED", "EXPIRED"].includes((existing.metadata as any)?.paypalStatus)) {
+        res.status(409).json({ success: false, message: "Cancel the existing recurring subscription before starting another" }); return;
+      }
+    }
     const paypalPlanId = await ensurePayPalBillingPlan(plan);
 
     // Fetch subscriber info to populate PayPal's "Payments from" fields
@@ -173,6 +193,7 @@ export const createPayPalSubscription = async (
       `${baseURL}/v1/billing/subscriptions`,
       {
         plan_id: paypalPlanId,
+        custom_id: req.user!.id,
         subscriber: {
           name: {
             given_name: givenName,
@@ -190,6 +211,7 @@ export const createPayPalSubscription = async (
         },
       },
       {
+        timeout: 15000,
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
@@ -262,8 +284,8 @@ export const activatePayPalSubscription = async (
     const baseURL = getPayPalBaseURL();
 
     const subDetails = await axios.get(
-      `${baseURL}/v1/billing/subscriptions/${subscriptionId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      `${baseURL}/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 15000 }
     );
 
     const paypalStatus: string = subDetails.data.status;
@@ -287,119 +309,204 @@ export const activatePayPalSubscription = async (
       return;
     }
 
-    // Get user data
-    const userData = await database.query.users.findFirst({
-      where: (u, { eq }) => eq(u.id, userId),
-    });
-
-    if (!userData) {
-      res.status(404).json({ success: false, message: "User not found" });
-      return;
-    }
-
-    const pendingData = userData.pendingOrganizationData as {
-      organizationName?: string;
-      organizationWebsite?: string;
-      organizationIndustry?: string;
-      organizationSize?: string;
-      planId?: string;
-    } | null;
-
-    const finalPlanId =
-      bodyPlanId || userData.selectedPlanId || pendingData?.planId;
-
-    if (!finalPlanId) {
-      res.status(400).json({ success: false, message: "Plan ID is required" });
-      return;
-    }
-
-    const plan = await database.query.subscriptionPlans.findFirst({
-      where: (plans, { eq, and }) =>
-        and(eq(plans.id, finalPlanId), eq(plans.isActive, true)),
-    });
-
-    if (!plan) {
-      res.status(404).json({ success: false, message: "Plan not found or inactive" });
-      return;
-    }
-
-    // Calculate subscription period
-    const now = new Date();
-    let periodMs = 30 * 24 * 60 * 60 * 1000;
-    const durationValue = Number(plan.durationValue);
-    const durationType = String(plan.durationType || "monthly").toLowerCase();
-
-    if (!isNaN(durationValue) && durationValue > 0) {
-      if (durationType === "days") {
-        periodMs = durationValue * 24 * 60 * 60 * 1000;
-      } else if (durationType === "yearly" || durationType === "year") {
-        periodMs = durationValue * 365 * 24 * 60 * 60 * 1000;
-      } else {
-        periodMs = durationValue * 30 * 24 * 60 * 60 * 1000;
+    const activated = await database.transaction(async (database) => {
+      await database.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`paypal-user:${userId}`}, 0))`);
+      const linked = await database.query.subscriptions.findFirst({ where: eq(subscriptions.paypalSubscriptionId, subscriptionId) });
+      const membership = linked && await database.query.userOrganizations.findFirst({ where: and(
+        eq(userOrganizations.organizationId, linked.organizationId), eq(userOrganizations.userId, userId),
+        eq(userOrganizations.role, "owner"), eq(userOrganizations.status, "active")) });
+      if (linked) {
+        if (!membership) { res.status(403).json({ success: false, message: "Subscription belongs to another account" }); return; }
+        const linkedPlan = await database.query.subscriptionPlans.findFirst({ where: eq(subscriptionPlans.id, linked.planId) });
+        return { orgId: linked.organizationId, dbSubscriptionId: linked.id, finalPlanId: linked.planId, plan: linkedPlan!, created: false };
       }
-    }
-
-    // Use PayPal's next billing time if available
-    const nextBillingTimeStr =
-      subDetails.data.billing_info?.next_billing_time as string | undefined;
-    const subscriptionEndDate = nextBillingTimeStr
-      ? new Date(nextBillingTimeStr)
-      : new Date(now.getTime() + periodMs);
-
-    const subscriptionMetadata = {
-      paypalSubscriptionId: subscriptionId,
-      paypalPlanId,
-      activatedAt: now.toISOString(),
-      paymentMethod: "PayPal Subscription",
-    };
-
-    // Check if user already has an org
-    const existingUserOrg = await database.query.userOrganizations.findFirst({
-      where: (userOrgs, { eq }) => eq(userOrgs.userId, userId),
-      with: { organization: true },
-    });
-
-    let orgId: string;
-    let dbSubscriptionId: string;
-
-    if (existingUserOrg?.organization) {
-      // Update existing org and subscription
-      orgId = existingUserOrg.organization.id;
-      const orgSettings = existingUserOrg.organization.settings as any || {};
-      const isDemoOrg = orgSettings?.demo === true;
-
-      let updatedSettings = { ...orgSettings };
-      if (isDemoOrg) {
-        delete updatedSettings.demo;
-        delete updatedSettings.demoCreatedAt;
-        delete updatedSettings.demoCreatedBy;
-        delete updatedSettings.demoRole;
+      if (subDetails.data.custom_id !== userId) {
+        res.status(403).json({ success: false, message: "Subscription does not belong to this account. Please restart checkout." }); return;
       }
-
-      const existingSub = await database.query.subscriptions.findFirst({
-        where: (subs, { eq }) => eq(subs.organizationId, orgId),
+      // Get user data
+      const userData = await database.query.users.findFirst({
+        where: (u, { eq }) => eq(u.id, userId),
       });
 
-      if (existingSub) {
-        dbSubscriptionId = existingSub.id;
-        await database
-          .update(subscriptions)
-          .set({
+      if (!userData) {
+        res.status(404).json({ success: false, message: "User not found" });
+        return;
+      }
+
+      const pendingData = userData.pendingOrganizationData as {
+        organizationName?: string;
+        organizationWebsite?: string;
+        organizationIndustry?: string;
+        organizationSize?: string;
+        planId?: string;
+      } | null;
+
+      const finalPlanId =
+        bodyPlanId || userData.selectedPlanId || pendingData?.planId;
+
+      if (!finalPlanId) {
+        res.status(400).json({ success: false, message: "Plan ID is required" });
+        return;
+      }
+
+      const plan = await database.query.subscriptionPlans.findFirst({
+        where: (plans, { eq, and }) =>
+          and(eq(plans.id, finalPlanId), eq(plans.isActive, true)),
+      });
+
+      if (!plan) {
+        res.status(404).json({ success: false, message: "Plan not found or inactive" });
+        return;
+      }
+
+      if (plan.paypalPlanId !== paypalPlanId) {
+        res.status(400).json({ success: false, message: "PayPal plan does not match selected plan" }); return;
+      }
+      const now = new Date();
+      const subscriptionEndDate = validDate(subDetails.data.billing_info?.next_billing_time);
+      const paymentTime = validDate(subDetails.data.billing_info?.last_payment?.time);
+      if (!subscriptionEndDate || subscriptionEndDate <= now || !paymentTime || paymentTime > now
+          || Number(subDetails.data.billing_info?.failed_payments_count) > 0
+          || Number(subDetails.data.billing_info?.outstanding_balance?.value) > 0) {
+        res.status(409).json({ success: false, message: "Payment confirmation is pending. Please retry shortly." }); return;
+      }
+      const subscriptionMetadata = {
+        paypalSubscriptionId: subscriptionId,
+        paypalPlanId,
+        activatedAt: now.toISOString(),
+        paypalLastPaymentAt: paymentTime.toISOString(),
+        paymentMethod: "PayPal Subscription",
+      };
+
+      // Check if user already has an org
+      const existingUserOrg = await database.query.userOrganizations.findFirst({
+        where: and(eq(userOrganizations.userId, userId), eq(userOrganizations.status, "active"),
+          ...(req.user?.organizationId ? [eq(userOrganizations.organizationId, req.user.organizationId)] : [])),
+        with: { organization: true },
+      });
+
+      let orgId: string;
+      let dbSubscriptionId: string;
+
+      if (existingUserOrg?.organization) {
+        if (existingUserOrg.role !== "owner") {
+          res.status(403).json({ success: false, message: "Only the organization owner can manage subscriptions" }); return;
+        }
+        await database.execute(sql`select id from organizations where id=${existingUserOrg.organization.id} for update`);
+        // Update existing org and subscription
+        orgId = existingUserOrg.organization.id;
+        const orgSettings = existingUserOrg.organization.settings as any || {};
+        const isDemoOrg = orgSettings?.demo === true;
+
+        let updatedSettings = { ...orgSettings };
+        if (isDemoOrg) {
+          delete updatedSettings.demo;
+          delete updatedSettings.demoCreatedAt;
+          delete updatedSettings.demoCreatedBy;
+          delete updatedSettings.demoRole;
+        }
+
+        const existingSub = await database.query.subscriptions.findFirst({
+          where: (subs, { eq }) => eq(subs.organizationId, orgId),
+        });
+
+        if (existingSub?.paypalSubscriptionId && existingSub.paypalSubscriptionId !== subscriptionId
+            && !["CANCELLED", "EXPIRED"].includes((existingSub.metadata as any)?.paypalStatus)) {
+          res.status(409).json({ success: false, message: "Cancel the existing recurring subscription before replacing it" }); return;
+        }
+        if (existingSub) {
+          dbSubscriptionId = existingSub.id;
+          await database
+            .update(subscriptions)
+            .set({
+              planId: finalPlanId,
+              paypalSubscriptionId: subscriptionId,
+              status: "active",
+              currentPeriodStart: now,
+              currentPeriodEnd: subscriptionEndDate,
+              cancelAtPeriodEnd: false,
+              updatedAt: now,
+              metadata: { ...subscriptionMetadata },
+            })
+            .where(eq(subscriptions.id, dbSubscriptionId));
+        } else {
+          dbSubscriptionId = crypto.randomUUID().replace(/-/g, "");
+          await database.insert(subscriptions).values({
+            id: dbSubscriptionId,
+            organizationId: orgId,
             planId: finalPlanId,
+              paypalSubscriptionId: subscriptionId,
             status: "active",
             currentPeriodStart: now,
             currentPeriodEnd: subscriptionEndDate,
             cancelAtPeriodEnd: false,
+            createdAt: now,
             updatedAt: now,
-            metadata: { ...(existingSub.metadata as any || {}), ...subscriptionMetadata },
+            metadata: subscriptionMetadata,
+          });
+        }
+
+        await database
+          .update(organizations)
+          .set({
+            status: "active",
+            subscriptionStatus: "active",
+            subscriptionPlanId: finalPlanId,
+            subscriptionStartDate: now,
+            subscriptionEndDate,
+            settings: updatedSettings,
+            updatedAt: now,
+            ...(country && { country }),
           })
-          .where(eq(subscriptions.id, dbSubscriptionId));
+          .where(eq(organizations.id, orgId));
       } else {
+        // Create new org
+        const finalOrgName =
+          organizationName ||
+          pendingData?.organizationName ||
+          `${userData.email.split("@")[0]}'s Organization`;
+
+        const baseSlug = finalOrgName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/(^-|-$)/g, "");
+        const slug = `${baseSlug}-${userId.substring(0, 8)}`;
+
+        orgId = crypto.randomUUID().replace(/-/g, "");
         dbSubscriptionId = crypto.randomUUID().replace(/-/g, "");
+
+        await database.insert(organizations).values({
+          id: orgId,
+          name: finalOrgName,
+          slug,
+          status: "active",
+          subscriptionStatus: "active",
+          subscriptionPlanId: finalPlanId,
+          subscriptionStartDate: now,
+          subscriptionEndDate,
+          createdAt: now,
+          updatedAt: now,
+          website: organizationWebsite || pendingData?.organizationWebsite,
+          industry: organizationIndustry || pendingData?.organizationIndustry,
+          size: organizationSize || pendingData?.organizationSize,
+          country: country || null,
+        });
+
+        await database.insert(userOrganizations).values({
+          id: crypto.randomUUID().replace(/-/g, ""),
+          userId,
+          organizationId: orgId,
+          role: "owner",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+
         await database.insert(subscriptions).values({
           id: dbSubscriptionId,
           organizationId: orgId,
           planId: finalPlanId,
+              paypalSubscriptionId: subscriptionId,
           status: "active",
           currentPeriodStart: now,
           currentPeriodEnd: subscriptionEndDate,
@@ -410,110 +517,39 @@ export const activatePayPalSubscription = async (
         });
       }
 
+      // Assign default AI token limit — use plan's aiTokenLimit if defined
+      const configuredLimit = (plan.features as { aiTokenLimit?: number } | null)?.aiTokenLimit;
+      const aiLimit = typeof configuredLimit === "number" && configuredLimit > 0 ? configuredLimit : DEFAULT_PAID_TOKEN_LIMIT;
+      await database.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`ai-quota:${orgId}`}, 0))`);
+      await ensureOrgAITokenLimit(database, orgId, aiLimit);
+
+      // Activate user
       await database
-        .update(organizations)
+        .update(users)
         .set({
           status: "active",
-          subscriptionStatus: "active",
-          subscriptionPlanId: finalPlanId,
-          subscriptionStartDate: now,
-          subscriptionEndDate,
-          settings: updatedSettings,
-          updatedAt: now,
-          ...(country && { country }),
+          role: "user",
+          isOrganizationOwner: true,
+          selectedPlanId: null,
+          pendingOrganizationData: null,
         })
-        .where(eq(organizations.id, orgId));
-    } else {
-      // Create new org
-      const finalOrgName =
-        organizationName ||
-        pendingData?.organizationName ||
-        `${userData.email.split("@")[0]}'s Organization`;
+        .where(eq(users.id, userId));
 
-      const baseSlug = finalOrgName
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)/g, "");
-      const slug = `${baseSlug}-${userId.substring(0, 8)}`;
-
-      orgId = crypto.randomUUID().replace(/-/g, "");
-      dbSubscriptionId = crypto.randomUUID().replace(/-/g, "");
-
-      await database.insert(organizations).values({
-        id: orgId,
-        name: finalOrgName,
-        slug,
-        status: "active",
-        subscriptionStatus: "active",
-        subscriptionPlanId: finalPlanId,
-        subscriptionStartDate: now,
-        subscriptionEndDate,
-        createdAt: now,
-        updatedAt: now,
-        website: organizationWebsite || pendingData?.organizationWebsite,
-        industry: organizationIndustry || pendingData?.organizationIndustry,
-        size: organizationSize || pendingData?.organizationSize,
-        country: country || null,
-      });
-
-      await database.insert(userOrganizations).values({
-        id: crypto.randomUUID().replace(/-/g, ""),
-        userId,
-        organizationId: orgId,
-        role: "owner",
-        status: "active",
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await database.insert(subscriptions).values({
-        id: dbSubscriptionId,
-        organizationId: orgId,
-        planId: finalPlanId,
-        status: "active",
-        currentPeriodStart: now,
-        currentPeriodEnd: subscriptionEndDate,
-        cancelAtPeriodEnd: false,
-        createdAt: now,
-        updatedAt: now,
-        metadata: subscriptionMetadata,
-      });
+      return { orgId, dbSubscriptionId, finalPlanId, plan, created: true };
+    });
+    if (!activated) return;
+    const { orgId, dbSubscriptionId, finalPlanId, plan } = activated;
+    if (activated.created) {
+      void notifySuperAdmins({
+        type: "userSubscribe", title: "New Subscription Activated",
+        message: `PayPal subscription activated for organization ${orgId}.`,
+        details: { "Organization ID": orgId, "Subscription ID": subscriptionId, "Plan Name": plan.name },
+      }).catch(() => logger.error("Subscription activation notification failed"));
     }
-
-    // Assign default AI token limit — use plan's aiTokenLimit if defined
-    const aiLimit = finalPlanId
-      ? await getAITokenLimitFromPlan(finalPlanId)
-      : DEFAULT_PAID_TOKEN_LIMIT;
-    await insertDefaultAITokenLimit(orgId, aiLimit);
-
-    // Activate user
-    await database
-      .update(users)
-      .set({
-        status: "active",
-        role: "user",
-        isOrganizationOwner: true,
-        selectedPlanId: null,
-        pendingOrganizationData: null,
-      })
-      .where(eq(users.id, userId));
 
     logger.info(
       `✅ PayPal subscription ${subscriptionId} activated for org ${orgId}, user ${userId}`
     );
-
-    notifySuperAdmins({
-      type: "userSubscribe",
-      title: "New Subscription Activated",
-      message: `New PayPal subscription activated for organization "${existingUserOrg?.organization?.name || organizationName || "New Org"}".`,
-      details: {
-        "Subscription ID": subscriptionId,
-        "Plan Name": plan.name,
-        "Plan Price": `${plan.price} ${plan.currency}`,
-        "User Email": userData.email,
-        "Activated At": now.toISOString().split("T")[0],
-      },
-    }).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -551,7 +587,7 @@ async function verifyPayPalWebhookSignature(
     const webhookId = env.PAYPAL_WEBHOOK_ID;
     if (!webhookId) {
       logger.error("PAYPAL_WEBHOOK_ID not configured — rejecting webhook");
-      return false;
+      throw new Error("PayPal webhook verification is not configured");
     }
 
     const accessToken = await getPayPalAccessToken();
@@ -569,6 +605,7 @@ async function verifyPayPalWebhookSignature(
         webhook_event: JSON.parse(rawBody),
       },
       {
+        timeout: 15000,
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
@@ -578,193 +615,29 @@ async function verifyPayPalWebhookSignature(
 
     return response.data?.verification_status === "SUCCESS";
   } catch (error: any) {
-    logger.error("PayPal webhook signature verification failed:", error.message);
-    return false;
+    logger.error("PayPal webhook verification unavailable");
+    throw error;
   }
 }
 
 // ── POST /payments/paypal/webhook ─────────────────────────────────────────────
 
-export const handlePayPalWebhook = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const handlePayPalWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
-    // Verify the request actually came from PayPal
-    const rawBody =
-      typeof req.body === "string" ? req.body : JSON.stringify(req.body);
-
-    const isValid = await verifyPayPalWebhookSignature(req, rawBody);
-    if (!isValid) {
-      logger.warn("PayPal webhook signature verification failed — rejected");
-      res.status(401).json({ error: "Invalid webhook signature" });
-      return;
+    const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8")
+      : typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+    const event = JSON.parse(rawBody);
+    if (typeof event.id !== "string" || !event.id || typeof event.event_type !== "string") {
+      res.status(400).json({ error: "Invalid event" }); return;
     }
-
-    const event = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-    const eventType: string = event.event_type;
-
-    logger.info(`PayPal webhook received: ${eventType}`, {
-      resourceId: event.resource?.id,
-    });
-
-    switch (eventType) {
-      case "BILLING.SUBSCRIPTION.ACTIVATED": {
-        const subId = event.resource?.id as string;
-        if (subId) {
-          // Ensure subscription DB record is marked active
-          await syncSubscriptionFromPayPal(subId);
-        }
-        break;
-      }
-
-      case "BILLING.SUBSCRIPTION.PAYMENT.COMPLETED": {
-        const subId = event.resource?.id as string;
-        if (subId) {
-          await syncSubscriptionFromPayPal(subId);
-        }
-        break;
-      }
-
-      case "BILLING.SUBSCRIPTION.SUSPENDED":
-      case "BILLING.SUBSCRIPTION.CANCELLED":
-      case "BILLING.SUBSCRIPTION.EXPIRED": {
-        const subId = event.resource?.id as string;
-        if (subId) {
-          await markSubscriptionByPayPalId(subId, "cancelled");
-        }
-        break;
-      }
-
-      default:
-        logger.info(`Unhandled PayPal webhook event: ${eventType}`);
+    if (!(await verifyPayPalWebhookSignature(req, rawBody))) {
+      res.status(401).json({ error: "Invalid webhook signature" }); return;
     }
-
+    const providerId = eventSubscriptionId(event);
+    await transaction(connection, client => acceptSubscriptionEvent(client, event.id, event.event_type, providerId));
     res.status(200).json({ received: true });
-  } catch (error: any) {
-    logger.error("Error handling PayPal webhook:", error);
-    res.status(500).json({ success: false, message: "Webhook processing failed" });
+  } catch (error) {
+    logger.error("PayPal webhook receipt failed", { error: error instanceof Error ? error.name : "Error" });
+    res.status(503).json({ success: false, message: "Webhook receipt failed; retry required" });
   }
 };
-
-async function syncSubscriptionFromPayPal(paypalSubscriptionId: string) {
-  try {
-    const accessToken = await getPayPalAccessToken();
-    const baseURL = getPayPalBaseURL();
-
-    const subDetails = await axios.get(
-      `${baseURL}/v1/billing/subscriptions/${paypalSubscriptionId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
-    const status: string = subDetails.data.status;
-    const nextBillingTimeStr = subDetails.data.billing_info
-      ?.next_billing_time as string | undefined;
-    const nextPeriodEnd = nextBillingTimeStr
-      ? new Date(nextBillingTimeStr)
-      : null;
-
-    if (status !== "ACTIVE") return;
-
-    // Find subscription in DB by paypalSubscriptionId in metadata
-    const allSubs = await database.query.subscriptions.findMany({
-      where: (subs, { eq }) => eq(subs.status, "active"),
-    });
-
-    const dbSub = allSubs.find((s) => {
-      const meta = s.metadata as any;
-      return meta?.paypalSubscriptionId === paypalSubscriptionId;
-    });
-
-    if (!dbSub) {
-      logger.warn(
-        `No DB subscription found for PayPal subscription ${paypalSubscriptionId}`
-      );
-      return;
-    }
-
-    const now = new Date();
-    const updates: any = {
-      status: "active",
-      updatedAt: now,
-      metadata: {
-        ...(dbSub.metadata as any || {}),
-        lastSyncedAt: now.toISOString(),
-        lastPayPalStatus: status,
-      },
-    };
-
-    if (nextPeriodEnd) {
-      updates.currentPeriodEnd = nextPeriodEnd;
-    }
-
-    await database
-      .update(subscriptions)
-      .set(updates)
-      .where(eq(subscriptions.id, dbSub.id));
-
-    if (nextPeriodEnd) {
-      await database
-        .update(organizations)
-        .set({
-          subscriptionStatus: "active",
-          subscriptionEndDate: nextPeriodEnd,
-          updatedAt: now,
-        })
-        .where(eq(organizations.id, dbSub.organizationId));
-    }
-
-    logger.info(
-      `Synced subscription ${dbSub.id} from PayPal subscription ${paypalSubscriptionId}`
-    );
-  } catch (error: any) {
-    logger.error(
-      `Error syncing PayPal subscription ${paypalSubscriptionId}:`,
-      error
-    );
-  }
-}
-
-async function markSubscriptionByPayPalId(
-  paypalSubscriptionId: string,
-  newStatus: "cancelled" | "past_due"
-) {
-  try {
-    const allSubs = await database.query.subscriptions.findMany();
-
-    const dbSub = allSubs.find((s) => {
-      const meta = s.metadata as any;
-      return meta?.paypalSubscriptionId === paypalSubscriptionId;
-    });
-
-    if (!dbSub) return;
-
-    const now = new Date();
-    await database
-      .update(subscriptions)
-      .set({
-        status: newStatus,
-        updatedAt: now,
-        metadata: {
-          ...(dbSub.metadata as any || {}),
-          cancelledAt: now.toISOString(),
-          cancelledViaPayPal: true,
-        },
-      })
-      .where(eq(subscriptions.id, dbSub.id));
-
-    await database
-      .update(organizations)
-      .set({ subscriptionStatus: newStatus, updatedAt: now })
-      .where(eq(organizations.id, dbSub.organizationId));
-
-    logger.info(
-      `Marked subscription ${dbSub.id} as ${newStatus} via PayPal webhook`
-    );
-  } catch (error: any) {
-    logger.error(
-      `Error marking subscription for PayPal ID ${paypalSubscriptionId}:`,
-      error
-    );
-  }
-}
