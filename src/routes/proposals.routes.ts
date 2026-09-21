@@ -1,3 +1,4 @@
+import { previewProposalProject, convertProposalProject } from "../controllers/proposals/project-conversion.controller";
 import { contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
 import { proposalsResponseSchema, clientProposalsResponseSchema } from "../contracts/core-api";
 import { requireOrgOwnerAccess } from "../middlewares/role.middleware";
@@ -30,6 +31,9 @@ router.post("/upload", ...orgProposals, upload.single("file"), uploadManualPropo
 
 // Org owner / admin: view all proposals sent by the organization
 router.get("/organization", ...orgProposals, contractResponse(proposalsResponseSchema), getOrganizationProposals);
+
+router.get("/:id/project-preview", ...orgProposals, previewProposalProject);
+router.post("/:id/project", ...orgProposals, convertProposalProject);
 
 // Org owner: delete a proposal
 router.delete("/:id", ...orgProposals, deleteProposal);

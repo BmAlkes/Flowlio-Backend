@@ -2659,3 +2659,16 @@ export const operationalMetrics = pgTable("operational_metrics", {
   durationMs: bigint("duration_ms", { mode: "number" }).notNull(),
   maxDurationMs: integer("max_duration_ms").notNull(),
 }, table => [primaryKey({ columns: [table.scope, table.source, table.bucketAt] })]);
+
+// Keep a conversion tombstone even when the source proposal or project is deleted.
+export const proposalProjectConversions = pgTable("proposal_project_conversions", {
+  sourceId: text("source_id").primaryKey(),
+  proposalId: text("proposal_id").references(() => proposals.id, { onDelete: "set null" }),
+  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  sourceVersion: text("source_version").notNull(),
+  sourceTitle: text("source_title").notNull(),
+  templateId: text("template_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => ({ org: index("proposal_project_conversions_org_idx").on(table.organizationId) }));
