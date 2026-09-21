@@ -28,6 +28,8 @@ type Throttle = <O = IOverRideOptions | "default">(
 
 export const throttle: Throttle = (overRideOptions) => {
   const limiter = new RateLimiterPostgres({
+    // Release migrations create the shared table before HTTP starts accepting requests.
+    tableCreated: true,
     ...options,
     ...(overRideOptions === "default"
       ? {}

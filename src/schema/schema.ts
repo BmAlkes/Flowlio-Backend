@@ -2728,3 +2728,8 @@ export const workflowExecutions = pgTable("workflow_executions", {
   outcome: text("outcome").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => ({ eventKey: uniqueIndex("workflow_execution_event_key").on(table.ruleId, table.eventId) }));
+export const requestThrottle = pgTable("throttle", {
+  key: varchar("key", { length: 255 }).primaryKey(),
+  points: integer("points").notNull().default(0),
+  expire: bigint("expire", { mode: "number" }),
+});

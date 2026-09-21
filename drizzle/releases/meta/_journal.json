@@ -71,6 +71,13 @@
       "when": 1789992153212,
       "tag": "0009_workflow_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789995649415,
+      "tag": "0010_request_throttle",
+      "breakpoints": true
     }
   ]
 }
