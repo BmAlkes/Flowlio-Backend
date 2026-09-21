@@ -2699,3 +2699,11 @@ export const deliveryReviews = pgTable("delivery_reviews", {
   projectIdx: index("delivery_reviews_project_idx").on(table.projectId, table.requestedAt),
   sourceUnique: unique("delivery_reviews_source_unique").on(table.projectId, table.milestoneId, table.clientId, table.sourceVersion),
 }));
+export const memberCapacity = pgTable("member_capacity", {
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  weeklyMinutes: integer("weekly_minutes"),
+  team: text("team").notNull().default(""),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({ key: primaryKey({ columns: [table.organizationId, table.userId] }), minutesCheck: check("member_capacity_minutes_check", sql`${table.weeklyMinutes} >= 0 AND ${table.weeklyMinutes} <= 10080`) }));

@@ -1,0 +1,10 @@
+﻿import {Router} from "express";
+import type {RequestHandler} from "express";
+import {isAuthenticated} from "../middlewares/auth.middleware";
+import {requireOrgOwnerAccess} from "../middlewares/role.middleware";
+import {connection} from "../configs/connection.config";
+import {logger} from "../utils/logger.util";
+import {createCapacity,CapacityError} from "../modules/capacity/service";
+const service=createCapacity(connection),router=Router();
+const handler=(save:boolean):RequestHandler=>async(req,res)=>{try{const data=save?await service.save(req.user!,String(req.params.userId),req.body):await service.report(req.user!,req.query);res.json({success:true,data});}catch(error){if(error instanceof CapacityError){res.status(error.status).json({success:false,code:error.code});return;}logger.error({error},'Capacity request failed');res.status(500).json({success:false,code:'CAPACITY_FAILED'});}};
+router.use(isAuthenticated,requireOrgOwnerAccess);router.get('/',handler(false));router.put('/:userId',handler(true));export default router;

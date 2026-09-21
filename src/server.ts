@@ -1,3 +1,4 @@
+import capacityRoutes from "./routes/capacity.routes";
 import { runReleaseMigrations } from "./utils/release-migrations.util";
 // Only register module-alias when running compiled code (npm start); in dev ts-node-dev uses tsconfig-paths for @/
 if (__dirname.includes("dist")) {
@@ -238,6 +239,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/capacity", capacityRoutes);
 app.use("/api/leads", leadsRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api", calendarEventsRoutes);

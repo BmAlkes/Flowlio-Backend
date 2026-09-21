@@ -57,6 +57,13 @@
       "when": 1789987470797,
       "tag": "0007_delivery_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789988537266,
+      "tag": "0008_member_capacity",
+      "breakpoints": true
     }
   ]
 }
