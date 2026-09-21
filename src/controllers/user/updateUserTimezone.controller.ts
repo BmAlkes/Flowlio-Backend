@@ -18,10 +18,10 @@ export const updateUserTimezone = async (
       return;
     }
 
-    const { timezone } = req.body;
+    const { timezone } = req.body ?? {};
     logger.info("Timezone update request:", { userId: req.user.id, timezone });
 
-    if (!timezone) {
+    if (typeof timezone !== "string" || !timezone.trim() || timezone.length > 100) {
       res.status(400).json({
         success: false,
         message: "Timezone is required",
@@ -66,7 +66,6 @@ export const updateUserTimezone = async (
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,
       message: "Failed to update timezone",
-      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
