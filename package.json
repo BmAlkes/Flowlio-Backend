@@ -22,7 +22,9 @@
     "start:http": "node dist/src/server.js",
     "start:worker": "node dist/src/worker.js",
     "dev:worker": "ts-node-dev -r tsconfig-paths/register src/worker.ts",
-    "contracts:check": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/api-contracts.test.cjs"
+    "contracts:check": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/api-contracts.test.cjs",
+    "lint": "eslint src --max-warnings=0",
+    "test:ci": "node scripts/test-ci.cjs"
   },
   "license": "ISC",
   "_moduleAliases": {
@@ -43,11 +45,13 @@
     "@types/swagger-ui-express": "^4.1.8",
     "@types/web-push": "^3.6.4",
     "drizzle-kit": "^0.31.6",
+    "eslint": "9.22.0",
     "ts-node": "^10.9.1",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "typescript-eslint": "8.26.0"
   },
   "dependencies": {
     "@getbrevo/brevo": "^2.5.0",
