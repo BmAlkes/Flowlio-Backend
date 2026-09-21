@@ -24,7 +24,7 @@
     "dev:worker": "ts-node-dev -r tsconfig-paths/register src/worker.ts",
     "contracts:check": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/api-contracts.test.cjs",
     "lint": "eslint src --max-warnings=0",
-    "test:ci": "node scripts/test-ci.cjs"
+    "test:ci": "npm run build && node scripts/test-ci.cjs"
   },
   "license": "ISC",
   "_moduleAliases": {
