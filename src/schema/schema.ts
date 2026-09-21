@@ -2733,3 +2733,14 @@ export const requestThrottle = pgTable("throttle", {
   points: integer("points").notNull().default(0),
   expire: bigint("expire", { mode: "number" }),
 });
+
+export const onboardingProgress = pgTable("onboarding_progress", {
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  steps: json("steps").notNull().default({}),
+  dismissed: boolean("dismissed").notNull().default(false),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => ({ scope: primaryKey({ columns: [table.organizationId, table.userId, table.role] }) }));
