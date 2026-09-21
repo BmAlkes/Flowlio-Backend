@@ -1,9 +1,9 @@
-import capacityRoutes from "./routes/capacity.routes";
 import { runReleaseMigrations } from "./utils/release-migrations.util";
 // Only register module-alias when running compiled code (npm start); in dev ts-node-dev uses tsconfig-paths for @/
 if (__dirname.includes("dist")) {
   require("module-alias/register");
 }
+import capacityRoutes from "./routes/capacity.routes";
 import observabilityRoutes from "./routes/observability.routes";
 import { observeRequest } from "./middlewares/observability.middleware";
 import { startTelemetryFlush } from "./modules/observability/runtime";
