@@ -50,6 +50,13 @@
       "when": 1789986416161,
       "tag": "0006_project_profitability",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789987470797,
+      "tag": "0007_delivery_reviews",
+      "breakpoints": true
     }
   ]
 }

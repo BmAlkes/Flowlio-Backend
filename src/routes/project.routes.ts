@@ -1,3 +1,4 @@
+import { listDeliveryReviews, requestDeliveryReview, decideDeliveryReview } from "../modules/delivery/controller";
 import { getProfitability, saveFinancialSettings } from "../modules/profitability/controller";
 import { validateListQuery } from "../utils/list-query";
 import { validateDomainStatus, contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
@@ -81,6 +82,10 @@ router.get("/:projectId/milestones", isAuthenticated, resourceAccess.project(req
 router.post("/:projectId/milestones", isAuthenticated, resourceAccess.project(req => req.params.projectId, "create"), createMilestone);
 router.patch("/:projectId/milestones/:id", isAuthenticated, resourceAccess.project(req => req.params.projectId, "update"), updateMilestone);
 router.delete("/:projectId/milestones/:id", isAuthenticated, resourceAccess.project(req => req.params.projectId, "delete"), deleteMilestone);
+
+router.get("/:projectId/delivery-reviews", isAuthenticated, resourceAccess.project(req => req.params.projectId), listDeliveryReviews);
+router.post("/:projectId/delivery-reviews", isAuthenticated, resourceAccess.project(req => req.params.projectId), requestDeliveryReview);
+router.post("/:projectId/delivery-reviews/:reviewId/decision", isAuthenticated, resourceAccess.project(req => req.params.projectId), decideDeliveryReview);
 
 // ==================== WILDCARD ROUTES (must be last) ====================
 router.get("/:id", isAuthenticated, resourceAccess.project(req => req.params.id), contractResponse(projectResponseSchema), getProjectById);

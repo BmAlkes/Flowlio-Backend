@@ -2679,3 +2679,23 @@ export const projectFinancialSettings = pgTable("project_financial_settings", {
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+export const deliveryReviews = pgTable("delivery_reviews", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  milestoneId: text("milestone_id").references(() => projectMilestones.id, { onDelete: "set null" }),
+  clientId: text("client_id").references(() => clients.id, { onDelete: "set null" }),
+  sourceVersion: text("source_version").notNull(),
+  title: text("title").notNull(),
+  dueDate: timestamp("due_date"),
+  note: text("note").notNull(),
+  state: text("state").notNull().default("pending"),
+  requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).defaultNow().notNull(),
+  decidedBy: text("decided_by").references(() => users.id, { onDelete: "set null" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  comment: text("comment"),
+}, table => ({
+  projectIdx: index("delivery_reviews_project_idx").on(table.projectId, table.requestedAt),
+  sourceUnique: unique("delivery_reviews_source_unique").on(table.projectId, table.milestoneId, table.clientId, table.sourceVersion),
+}));
