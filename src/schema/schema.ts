@@ -12,6 +12,7 @@ import {
   json,
   index,
   unique,
+  uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
@@ -2707,3 +2708,23 @@ export const memberCapacity = pgTable("member_capacity", {
   updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, table => ({ key: primaryKey({ columns: [table.organizationId, table.userId] }), minutesCheck: check("member_capacity_minutes_check", sql`${table.weeklyMinutes} >= 0 AND ${table.weeklyMinutes} <= 10080`) }));
+export const workflowRules = pgTable("workflow_rules", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  trigger: text("trigger").notNull(),
+  projectStatus: text("project_status"),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  enabled: boolean("enabled").notNull().default(false),
+  activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => ({ organizationIndex: index("workflow_rules_org_idx").on(table.organizationId) }));
+export const workflowExecutions = pgTable("workflow_executions", {
+  id: text("id").primaryKey(),
+  ruleId: text("rule_id").notNull().references(() => workflowRules.id, { onDelete: "cascade" }),
+  eventId: text("event_id").notNull(),
+  outcome: text("outcome").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => ({ eventKey: uniqueIndex("workflow_execution_event_key").on(table.ruleId, table.eventId) }));

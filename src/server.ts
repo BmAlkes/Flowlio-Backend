@@ -3,6 +3,7 @@ import { runReleaseMigrations } from "./utils/release-migrations.util";
 if (__dirname.includes("dist")) {
   require("module-alias/register");
 }
+import workflowsRoutes from "./routes/workflows.routes";
 import capacityRoutes from "./routes/capacity.routes";
 import observabilityRoutes from "./routes/observability.routes";
 import { observeRequest } from "./middlewares/observability.middleware";
@@ -240,6 +241,7 @@ app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/capacity", capacityRoutes);
+app.use("/api/workflows", workflowsRoutes);
 app.use("/api/leads", leadsRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api", calendarEventsRoutes);

@@ -1,3 +1,4 @@
+import { processWorkflowOrganization } from "../../modules/workflows/service";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "../../schema/schema";
 import { automationService } from "../automation/automation.service";
@@ -20,6 +21,7 @@ const automations = [
     ["trial-and-usage", "handleTrialAndUsageLimits", 6],
 ] as const;
 export const schedules: Schedule[] = [
+    { kind: "workflow-events", minutes: 1 },
     ...automations.map(([kind, , hour, weekday]) => ({ kind, minutes: hour === undefined ? 360 : 60, weekday })),
     { kind: "project-end", minutes: 1440, hour: 8 }, { kind: "recurring-invoices", minutes: 1440, hour: 8 },
     { kind: "ai-reset", minutes: 1440, hour: 0 }, { kind: "webhook-retries", minutes: 1 }, { kind: "followup-reminders", minutes: 60 },
@@ -30,6 +32,11 @@ const transactional = (run: Handler["run"]): Handler => ({
     transactional: true, run: (job, client) => jobContext.run({ job, client, database: drizzle(client, { schema, casing: "snake_case" }) }, () => run(job, client))
 });
 export const handlers: Record<string, Handler> = {
+    "workflow-events": transactional(async (job, client) => {
+        if (job.payload.organizationId) { await processWorkflowOrganization(client, String(job.payload.organizationId)); return; }
+        const organizations = await client.query("select distinct organization_id from workflow_rules where enabled=true");
+        for (const row of organizations.rows) await enqueue(client, "workflow-events", job.id + ":" + row.organization_id, { organizationId: row.organization_id }, job.scheduled_at);
+    }),
     "project-end": transactional(async () => { await automationService.handleProjectEndReminders(); }),
     "recurring-invoices": transactional(async () => { await RecurringInvoiceService.processRecurringInvoices(); }),
     "webhook-retries": transactional(async (_job, client) => { await retryWebhooks(client); }),
