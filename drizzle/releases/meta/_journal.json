@@ -43,6 +43,13 @@
       "when": 1789967396593,
       "tag": "0005_proposal_to_project",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789986416161,
+      "tag": "0006_project_profitability",
+      "breakpoints": true
     }
   ]
 }

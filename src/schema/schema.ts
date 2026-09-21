@@ -2672,3 +2672,10 @@ export const proposalProjectConversions = pgTable("proposal_project_conversions"
   templateId: text("template_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => ({ org: index("proposal_project_conversions_org_idx").on(table.organizationId) }));
+export const projectFinancialSettings = pgTable("project_financial_settings", {
+  projectId: text("project_id").primaryKey().references(() => projects.id, { onDelete: "cascade" }),
+  currency: text("currency").notNull(),
+  hourlyCost: decimal("hourly_cost", { precision: 10, scale: 2 }),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});

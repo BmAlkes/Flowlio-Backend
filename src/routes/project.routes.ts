@@ -1,3 +1,4 @@
+import { getProfitability, saveFinancialSettings } from "../modules/profitability/controller";
 import { validateListQuery } from "../utils/list-query";
 import { validateDomainStatus, contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
 import { projectsResponseSchema, projectResponseSchema, clientProjectsResponseSchema } from "../contracts/core-api";
@@ -62,6 +63,9 @@ router.get("/comments/all", isAuthenticated, getAllOrgComments);          // org
 router.get("/comments/:projectId", isAuthenticated, resourceAccess.project(req => req.params.projectId), getProjectComments);  // taskId optional via query
 router.patch("/comments/:commentId", isAuthenticated, resourceAccess.comment(req => req.params.commentId), updateProjectComment);
 router.delete("/comments/:commentId", isAuthenticated, resourceAccess.comment(req => req.params.commentId), deleteProjectComment);
+
+router.get("/:projectId/profitability", isAuthenticated, resourceAccess.financial, resourceAccess.project(req => req.params.projectId), getProfitability);
+router.put("/:projectId/financial-settings", isAuthenticated, resourceAccess.financial, resourceAccess.project(req => req.params.projectId, "update"), saveFinancialSettings);
 
 // ==================== PROJECT EXPENSE ROUTES ====================
 router.get("/:projectId/expenses", isAuthenticated, resourceAccess.financial, resourceAccess.project(req => req.params.projectId), getProjectExpenses);
