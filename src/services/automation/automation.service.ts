@@ -1,3 +1,4 @@
+import { setDrizzleAuditContext } from "../../modules/audit/context";
 import { scopedDatabase, jobContext } from "../jobs/context";
 import { database as baseDatabase } from "../../configs/connection.config";
 import { tasks, projects, notifications, users, userOrganizations, organizations, projectRiskAlerts, clients, invoices, paymentLinks, leadWebhooks, leadWebhookLogs, supportTickets, supportTicketMessages, automationSettings } from "../../schema/schema";
@@ -120,7 +121,7 @@ export class AutomationService {
     try {
       return await database.transaction(async (tx) => {
         const projectRows = await tx
-          .select({ id: projects.id, status: projects.status })
+          .select({ id: projects.id, status: projects.status, organizationId: projects.organizationId })
           .from(projects)
           .where(eq(projects.id, projectId))
           .limit(1);
@@ -143,6 +144,7 @@ export class AutomationService {
         const computedStatus = computeProjectStatus(projectTasks);
 
         if (computedStatus !== project.status) {
+          await setDrizzleAuditContext(tx, { organizationId: project.organizationId, actorKind: "system", actorId: "automation:project-status", operationId: jobContext.getStore()?.job.id });
           await tx
             .update(projects)
             .set({ status: computedStatus, updatedAt: new Date() })

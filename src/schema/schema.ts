@@ -10,6 +10,7 @@ import {
   timestamp,
   decimal,
   json,
+  jsonb,
   index,
   unique,
   uniqueIndex,
@@ -2744,3 +2745,22 @@ export const onboardingProgress = pgTable("onboarding_progress", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => ({ scope: primaryKey({ columns: [table.organizationId, table.userId, table.role] }) }));
+
+// Append-only business history. References intentionally survive resource/user deletion.
+export const businessAuditEvents = pgTable("business_audit_events", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  actorKind: text("actor_kind").notNull(),
+  actorId: text("actor_id"),
+  action: text("action").notNull(),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id").notNull(),
+  projectId: text("project_id"),
+  operationId: text("operation_id").notNull(),
+  changes: jsonb("changes").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  organizationTime: index("business_audit_org_time_idx").on(table.organizationId, table.occurredAt, table.id),
+  resourceTime: index("business_audit_resource_time_idx").on(table.organizationId, table.resourceType, table.resourceId, table.occurredAt),
+  operation: index("business_audit_operation_idx").on(table.organizationId, table.operationId),
+}));

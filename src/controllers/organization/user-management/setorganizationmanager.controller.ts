@@ -1,3 +1,4 @@
+import { setDrizzleAuditContext } from "@/modules/audit/context";
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
@@ -97,41 +98,45 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
         });
       }
 
-      if (userRecord) {
-        await database
-          .update(users)
+      await database.transaction(async tx => {
+        await setDrizzleAuditContext(tx, { organizationId, actorKind: "human", actorId: req.user!.id });
+        if (userRecord) {
+          await tx
+            .update(users)
+            .set({
+              role: USER_ROLE,
+              isOrganizationManager: true,
+              updatedAt: new Date(),
+            })
+            .where(eq(users.id, userRecord.id));
+        }
+
+        await tx
+          .update(userManagement)
           .set({
-            role: USER_ROLE,
-            isOrganizationManager: true,
+            userrole: USER_ROLE,
             updatedAt: new Date(),
           })
-          .where(eq(users.id, userRecord.id));
-      }
+          .where(eq(userManagement.id, memberId));
 
-      await database
-        .update(userManagement)
-        .set({
-          userrole: USER_ROLE,
-          updatedAt: new Date(),
-        })
-        .where(eq(userManagement.id, memberId));
+        if (userOrgRow) {
+          await tx
+            .update(userOrganizations)
+            .set({
+              role: USER_ROLE,
+              permissions: {
+                canManageUsers: true,
+                canManageProjects: true,
+                canManageBilling: true,
+                canViewAnalytics: true,
+                canInviteUsers: true,
+              },
+              updatedAt: new Date(),
+            })
+            .where(eq(userOrganizations.id, userOrgRow.id));
+        }
 
-      if (userOrgRow) {
-        await database
-          .update(userOrganizations)
-          .set({
-            role: USER_ROLE,
-            permissions: {
-              canManageUsers: true,
-              canManageProjects: true,
-              canManageBilling: true,
-              canViewAnalytics: true,
-              canInviteUsers: true,
-            },
-            updatedAt: new Date(),
-          })
-          .where(eq(userOrganizations.id, userOrgRow.id));
-      }
+      });
 
       const actorId = req.user?.id;
       if (organizationId && actorId) {
@@ -194,41 +199,45 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
       });
     }
 
-    if (userRecord) {
-      await database
-        .update(users)
+    await database.transaction(async tx => {
+      await setDrizzleAuditContext(tx, { organizationId, actorKind: "human", actorId: req.user!.id });
+      if (userRecord) {
+        await tx
+          .update(users)
+          .set({
+            role: VIEWER_ROLE,
+            isOrganizationManager: false,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, userRecord.id));
+      }
+
+      await tx
+        .update(userManagement)
         .set({
-          role: VIEWER_ROLE,
-          isOrganizationManager: false,
+          userrole: VIEWER_ROLE,
           updatedAt: new Date(),
         })
-        .where(eq(users.id, userRecord.id));
-    }
+        .where(eq(userManagement.id, memberId));
 
-    await database
-      .update(userManagement)
-      .set({
-        userrole: VIEWER_ROLE,
-        updatedAt: new Date(),
-      })
-      .where(eq(userManagement.id, memberId));
+      if (userOrgRow) {
+        await tx
+          .update(userOrganizations)
+          .set({
+            role: VIEWER_ROLE,
+            permissions: {
+              canManageUsers: false,
+              canManageProjects: false,
+              canManageBilling: false,
+              canViewAnalytics: true,
+              canInviteUsers: false,
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(userOrganizations.id, userOrgRow.id));
+      }
 
-    if (userOrgRow) {
-      await database
-        .update(userOrganizations)
-        .set({
-          role: VIEWER_ROLE,
-          permissions: {
-            canManageUsers: false,
-            canManageProjects: false,
-            canManageBilling: false,
-            canViewAnalytics: true,
-            canInviteUsers: false,
-          },
-          updatedAt: new Date(),
-        })
-        .where(eq(userOrganizations.id, userOrgRow.id));
-    }
+    });
 
     const actorId = req.user?.id;
     if (organizationId && actorId) {

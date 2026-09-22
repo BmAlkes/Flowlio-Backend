@@ -1,4 +1,5 @@
-﻿import { createHash, randomUUID } from "node:crypto";
+﻿import { setAuditContext } from "../audit/context";
+import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import { canReadProject, canManageClients, type Actor } from "../../security/resource-policy";
@@ -45,7 +46,7 @@ export function createDeliveryReviews(pool:Pool){
   if(!canManageClients(actor))throw new DeliveryError(403,"FORBIDDEN");
   const parsed=requestInput.safeParse(raw);if(!parsed.success)throw new DeliveryError(400,"INVALID_REVIEW");
   const input=parsed.data,client=await pool.connect();try{
-   await client.query('begin');const project=await authorize(client,actor,projectId,true);
+   await client.query('begin');await setAuditContext(client,{organizationId:actor.organizationId!,actorKind:'human',actorId:actor.id});const project=await authorize(client,actor,projectId,true);
    if(!project.clientId)throw new DeliveryError(409,"CLIENT_REQUIRED");
    const current=await milestone(client,actor,projectId,input.milestoneId,true);
    if(!current)throw new DeliveryError(404,"MILESTONE_NOT_FOUND");
@@ -61,7 +62,7 @@ export function createDeliveryReviews(pool:Pool){
   if(actor.role!=='client')throw new DeliveryError(403,"CLIENT_ONLY");
   const parsed=decisionInput.safeParse(raw);if(!parsed.success)throw new DeliveryError(400,"INVALID_DECISION");
   const input=parsed.data,client=await pool.connect();try{
-   await client.query('begin');const project=await authorize(client,actor,projectId,true);
+   await client.query('begin');await setAuditContext(client,{organizationId:actor.organizationId!,actorKind:'human',actorId:actor.id});const project=await authorize(client,actor,projectId,true);
    const row=(await client.query('select * from delivery_reviews where id=$1 and project_id=$2 and organization_id=$3 and client_id=$4',[reviewId,projectId,actor.organizationId,project.clientId])).rows[0];
    if(!row)throw new DeliveryError(404,"REVIEW_NOT_FOUND");
    const current=await milestone(client,actor,projectId,row.milestone_id,true);

@@ -1,3 +1,4 @@
+import { setDrizzleAuditContext } from "@/modules/audit/context";
 import { projectBudget } from "@/security/resource-access";
 import { Response } from "express";
 import { database } from "../../../configs/connection.config";
@@ -294,11 +295,12 @@ export const updateProject = async (
     updateData.projectFiles = projectFiles;
 
     // Update project
-    const updatedProject = await database
-      .update(projects)
-      .set(updateData)
-      .where(eq(projects.id, projectId))
-      .returning();
+    const updatedProject = await database.transaction(async tx => {
+      await setDrizzleAuditContext(tx, { organizationId, actorKind: "human", actorId: req.user!.id });
+      return tx.update(projects).set(updateData)
+        .where(and(eq(projects.id, projectId), eq(projects.organizationId, organizationId)))
+        .returning();
+    });
 
     if (updatedProject.length === 0) {
       res.status(500).json({
