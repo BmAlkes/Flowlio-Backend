@@ -5,6 +5,7 @@ if (__dirname.includes("dist")) {
 }
 import workflowsRoutes from "./routes/workflows.routes";
 import attentionRoutes from "./routes/attention.routes";
+import auditRoutes from "./routes/audit.routes";
 import capacityRoutes from "./routes/capacity.routes";
 import observabilityRoutes from "./routes/observability.routes";
 import { observeRequest } from "./middlewares/observability.middleware";
@@ -242,6 +243,7 @@ app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/attention", attentionRoutes);
+app.use("/api/audit", auditRoutes);
 app.use("/api/capacity", capacityRoutes);
 app.use("/api/workflows", workflowsRoutes);
 app.use("/api/leads", leadsRoutes);
