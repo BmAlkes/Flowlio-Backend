@@ -2764,3 +2764,16 @@ export const businessAuditEvents = pgTable("business_audit_events", {
   resourceTime: index("business_audit_resource_time_idx").on(table.organizationId, table.resourceType, table.resourceId, table.occurredAt),
   operation: index("business_audit_operation_idx").on(table.organizationId, table.operationId),
 }));
+
+export const attentionPreferences = pgTable("attention_preferences", {
+ organizationId:text("organization_id").primaryKey().references(()=>organizations.id,{onDelete:"cascade"}),
+ approvalDays:integer("approval_days").notNull().default(7),proposalDays:integer("proposal_days").notNull().default(14),
+ unbilledMinutes:integer("unbilled_minutes").notNull().default(60),budgetPercent:integer("budget_percent").notNull().default(80),
+ updatedBy:text("updated_by").references(()=>users.id,{onDelete:"set null"}),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+});
+export const attentionTriage = pgTable("attention_triage", {
+ organizationId:text("organization_id").notNull().references(()=>organizations.id,{onDelete:"cascade"}),
+ sourceKey:text("source_key").notNull(),sourceRevision:text("source_revision").notNull(),
+ assigneeId:text("assignee_id").references(()=>users.id,{onDelete:"set null"}),snoozedUntil:timestamp("snoozed_until",{withTimezone:true}),
+ updatedBy:text("updated_by").references(()=>users.id,{onDelete:"set null"}),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>({scope:primaryKey({columns:[t.organizationId,t.sourceKey]})}));

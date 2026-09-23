@@ -4,6 +4,7 @@ if (__dirname.includes("dist")) {
   require("module-alias/register");
 }
 import workflowsRoutes from "./routes/workflows.routes";
+import attentionRoutes from "./routes/attention.routes";
 import capacityRoutes from "./routes/capacity.routes";
 import observabilityRoutes from "./routes/observability.routes";
 import { observeRequest } from "./middlewares/observability.middleware";
@@ -240,6 +241,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/subscriptions", subscriptionRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/projects", projectRoutes);
+app.use("/api/attention", attentionRoutes);
 app.use("/api/capacity", capacityRoutes);
 app.use("/api/workflows", workflowsRoutes);
 app.use("/api/leads", leadsRoutes);
