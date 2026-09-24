@@ -2777,3 +2777,22 @@ export const attentionTriage = pgTable("attention_triage", {
  assigneeId:text("assignee_id").references(()=>users.id,{onDelete:"set null"}),snoozedUntil:timestamp("snoozed_until",{withTimezone:true}),
  updatedBy:text("updated_by").references(()=>users.id,{onDelete:"set null"}),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
 },t=>({scope:primaryKey({columns:[t.organizationId,t.sourceKey]})}));
+
+// Commercial change requests preserve the original project budget.
+export const scopeChangeRequests = pgTable("scope_change_requests", {
+ id:text("id").primaryKey(), organizationId:text("organization_id").notNull().references(()=>organizations.id,{onDelete:"cascade"}),
+ projectId:text("project_id").notNull().references(()=>projects.id,{onDelete:"cascade"}), clientId:text("client_id").notNull(),
+ requestedBy:text("requested_by").notNull(), title:text("title").notNull(), description:text("description").notNull(),
+ attachments:jsonb("attachments").notNull().default([]), source:jsonb("source"), requestHash:text("request_hash").notNull(),
+ state:text("state").notNull().default("requested"), revision:integer("revision").notNull().default(0),
+ cancellationReason:text("cancellation_reason"), application:jsonb("application"),
+ createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(), updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>({project:index("scope_changes_project_idx").on(t.organizationId,t.projectId,t.createdAt),state:check("scope_changes_state_check",sql`${t.state} in ('requested','analysis','awaiting','approved','rejected','applied','cancelled')`)}));
+export const scopeChangeVersions = pgTable("scope_change_versions", {
+ changeId:text("change_id").notNull().references(()=>scopeChangeRequests.id,{onDelete:"cascade"}), revision:integer("revision").notNull(),
+ classification:text("classification").notNull(), estimatedHours:decimal("estimated_hours",{precision:10,scale:2}).notNull(),
+ amount:decimal("amount",{precision:10,scale:2}).notNull(), currency:text("currency").notNull(),
+ endDate:text("end_date"), baseEndDate:timestamp("base_end_date"), note:text("note").notNull(),
+ createdBy:text("created_by").notNull(), createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+ decision:text("decision"), comment:text("comment"), decidedBy:text("decided_by"), decidedAt:timestamp("decided_at",{withTimezone:true}),
+},t=>({key:primaryKey({columns:[t.changeId,t.revision]}),amount:check("scope_versions_amount_check",sql`${t.amount} >= 0 and ${t.estimatedHours} >= 0 and (${t.classification} = 'additional' or (${t.classification} = 'included' and ${t.amount} = 0))`)}));

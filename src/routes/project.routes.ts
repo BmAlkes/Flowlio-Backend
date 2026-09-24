@@ -5,6 +5,7 @@ import { validateDomainStatus, contractResponse, apiErrorEnvelope } from "../mid
 import { projectsResponseSchema, projectResponseSchema, clientProjectsResponseSchema } from "../contracts/core-api";
 import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
+import { scopeChangesRoutes } from "../modules/scope/controller";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { createProject } from "../controllers/organization/projects/createproject.controller";
 import { updateProject } from "../controllers/organization/projects/updateproject.controller";
@@ -36,6 +37,7 @@ import { getProjectRiskAlerts, dismissProjectRiskAlert } from "../controllers/or
 import { getMilestones, createMilestone, updateMilestone, deleteMilestone } from "../controllers/organization/projects/milestones.controller";
 
 const router = Router();
+router.use("/:projectId/changes", isAuthenticated, scopeChangesRoutes);
 router.use(apiErrorEnvelope);
 
 // ==================== PROJECT ROUTES ====================

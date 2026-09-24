@@ -19,6 +19,7 @@ const values = {
 };
 Object.assign(process.env, values);
 const databases = {
+  SCOPE_TEST_DATABASE_URL: [55442, "flowlio_scope_test"],
   AUDIT_READ_TEST_DATABASE_URL: [55442, "flowlio_audit_read_test"],
   ATTENTION_TEST_DATABASE_URL: [55442, "flowlio_attention_test"],
   AUDIT_TEST_DATABASE_URL: [55442, "flowlio_audit_test"],
