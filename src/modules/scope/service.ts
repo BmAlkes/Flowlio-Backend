@@ -35,7 +35,15 @@ export function createScopeChanges(pool:Pool){
   await c.query(`insert into recent_activities(id,organization_id,user_id,actor_id,type,action,resource,resource_id,message,metadata,created_at) values($1,$2,$3,$3,'scope',$4,'project',$5,'Scope change updated',$6,now())`,[randomUUID(),a.organizationId,a.id,'scope_'+action,projectId,JSON.stringify({changeId:id,projectId})]);
  }
  async function transaction<T>(a:Actor,projectId:string,work:(c:PoolClient,p:any)=>Promise<T>){
-  const c=await pool.connect();try{await c.query('begin');await c.query("set local time zone 'UTC'");const p=await project(c,a,projectId,true);await setAuditContext(c,{organizationId:a.organizationId!,actorKind:'human',actorId:a.id});const result=await work(c,p);await c.query('commit');return result;}catch(e){await c.query('rollback');throw e;}finally{c.release();}
+  const c=await pool.connect();try{await c.query('begin');await c.query("set local time zone 'UTC'");await c.query('select pg_advisory_xact_lock(hashtextextended($1,0))',['proposal-conversion:'+a.organizationId]);const p=await project(c,a,projectId,true);await setAuditContext(c,{organizationId:a.organizationId!,actorKind:'human',actorId:a.id});const result=await work(c,p);await c.query('commit');return result;}catch(e){await c.query('rollback');throw e;}finally{c.release();}
+ }
+ async function taskQuota(c:PoolClient,a:Actor){
+  const row=(await c.query(`select o.override_max_tasks,coalesce(s.features,p.features) as features from organizations o left join subscription_plans p on p.id=o.subscription_plan_id
+   left join lateral(select sp.features from subscriptions sub join subscription_plans sp on sp.id=sub.plan_id where sub.organization_id=o.id order by sub.created_at desc,sub.id desc limit 1)s on true where o.id=$1`,[a.organizationId])).rows[0];
+  if(!row)throw new ScopeError(403,'FORBIDDEN');const limit=row.override_max_tasks??row.features?.maxTasks;
+  if(limit==null||limit===0)return;if(!Number.isInteger(limit)||limit<0)throw new ScopeError(503,'PLAN_UNAVAILABLE');
+  const count=(await c.query('select count(*)::int n from tasks t join projects p on p.id=t.project_id where p.organization_id=$1',[a.organizationId])).rows[0].n;
+  if(count>=limit)throw new ScopeError(403,'PLAN_LIMIT_REACHED');
  }
  async function create(a:Actor,projectId:string,raw:unknown){
   const parsed=createInput.safeParse(raw);if(!parsed.success)throw new ScopeError(400,'INVALID_REQUEST');const data=parsed.data;
@@ -114,6 +122,7 @@ export function createScopeChanges(pool:Pool){
     if(data.prepareBilling&&(old.classification!=='additional'||Number(old.amount)<=0))throw new ScopeError(400,'NO_ADDITIONAL_CHARGE');
     if(data.applyDate&&(!old.end_date||dateValue(p.end_date)!==dateValue(old.base_end_date)))throw new ScopeError(409,'DEADLINE_CHANGED');
     if((data.applyDate||data.createTask)&&old.end_date&&p.start_date&&old.end_date<dateValue(p.start_date)!.slice(0,10))throw new ScopeError(409,'DEADLINE_CHANGED');
+    if(data.createTask)await taskQuota(c,a);
     const taskId=data.createTask?randomUUID():null;
     if(taskId)await c.query(`insert into tasks(id,title,description,project_id,created_by,status,visibility,estimated_hours,end_date,created_at,updated_at) values($1,$2,$3,$4,$5,'todo','private',$6,$7,now(),now())`,[taskId,row.title,row.description,projectId,a.id,old.estimated_hours,old.end_date?old.end_date+'T00:00:00Z':null]);
     if(data.applyDate)await c.query('update projects set end_date=$2,updated_at=now() where id=$1',[projectId,old.end_date+'T00:00:00Z']);

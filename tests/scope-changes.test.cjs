@@ -94,6 +94,12 @@ else{
  test('disabled estimate guard prevents startup',async()=>{
   await pool.query('alter table scope_change_versions disable trigger scope_version_immutable');try{await assert.rejects(require('../src/utils/release-migrations.util').runReleaseMigrations(pool),/Required database guards unavailable/);}finally{await pool.query('alter table scope_change_versions enable trigger scope_version_immutable');}
  });
+ test('concurrent applications respect the plan task limit and failed quota applies nothing',async()=>{
+  const a=await approved(),b=await approved();await pool.query('update organizations set override_max_tasks=1');
+  const options={...apply,applyDate:false};const results=await Promise.allSettled([service.transition(owner,'project',a.id,options),service.transition(owner,'project',b.id,options)]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.find(r=>r.status==='rejected').reason.code,'PLAN_LIMIT_REACHED');
+  const rows=(await service.list(owner,'project',{})).items;assert.equal(rows.filter(r=>r.state==='applied').length,1);assert.equal(rows.find(r=>r.state==='approved').application,null);
+  const applied=rows.find(r=>r.state==='applied');assert.equal((await service.transition(owner,'project',applied.id,options)).existing,true);
+ });
  test('audit failure rolls back all application effects and can safely retry',async()=>{
   const r=await approved();await pool.query("create function fail_scope_audit() returns trigger language plpgsql as $$begin if NEW.action='change_request.applied' then raise exception 'test'; end if; return NEW;end$$;create trigger fail_scope before insert on business_audit_events for each row execute function fail_scope_audit()");
   try{await assert.rejects(service.transition(owner,'project',r.id,apply));assert.equal((await pool.query('select count(*)::int n from tasks')).rows[0].n,0);assert.equal((await service.list(owner,'project',{})).items[0].state,'approved');}finally{await pool.query('drop trigger fail_scope on business_audit_events;drop function fail_scope_audit()');}
