@@ -50,6 +50,8 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
       create table tasks (id text primary key, title text, project_id text references projects(id), created_by text, assigned_to text, visibility text);
       create table time_entries (id text primary key, user_id text references users(id), project_id text references projects(id), task_id text references tasks(id), client_id text references clients(id), description text, start_time timestamp, end_time timestamp, duration integer, billable boolean, hourly_rate numeric(10,2), status text);
     `);
+    // Minimal allocation dependency; real T29 guards are exercised in retainers.test.cjs.
+    await pool.query("create table retainer_entries (time_entry_id text unique references time_entries(id))");
     await prepareInvoiceNumbering(pool); await prepareTimeInvoicing(pool);
   });
   beforeEach(async () => {
@@ -64,7 +66,7 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
       insert into time_entries values ('one','alice','p','t','client-a',null,'2026-09-15','2026-09-15 01:00',60,true,50,'completed'),('two','bob','p','t',null,null,'2026-09-16','2026-09-16 00:30',30,true,null,'completed');
     `);
   });
-  after(async () => { try { await pool.query('drop table time_invoicing_requests, invoice_time_items, time_entries, tasks, projects, recent_activities, invoices, invoice_number_counters, clients, users, organizations cascade; drop function if exists protect_invoiced_time(); drop function if exists assign_invoice_number()'); } finally { await pool.end(); } });
+  after(async () => { try { await pool.query('drop table retainer_entries, time_invoicing_requests, invoice_time_items, time_entries, tasks, projects, recent_activities, invoices, invoice_number_counters, clients, users, organizations cascade; drop function if exists protect_invoiced_time(); drop function if exists assign_invoice_number()'); } finally { await pool.end(); } });
   test('team entries create one invoice with persisted per-entry prices and server total', async () => {
     const input=await request(); assert.equal(input.entries.length,2);
     const {invoice}=await createTimeInvoice(actor,input);
@@ -148,6 +150,15 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
     assert.equal(res.code,200); assert.equal(res.body.data[0].hasTrackedTime,true);
     await pool.query('update invoices set description=$1 where id=$2',['Time tracking (2026-08-01 to 2026-08-31), 1.00h total:\n- Design: 1.00h',invoice.id]);
     assert.equal((await listBillableTime(actor,filter)).hasLegacyTimeInvoices,true);
+  });
+  test('contract allocations are excluded and invalidate an earlier standalone invoice selection', async () => {
+    const input=await request();
+    await pool.query("insert into retainer_entries(time_entry_id) values('one')");
+    assert.deepEqual((await listBillableTime(actor,filter)).entries.map(e=>e.id),['two']);
+    await assert.rejects(createTimeInvoice(actor,input),e=>e.code==='TIME_CHANGED');
+    assert.equal(await count('invoices'),0);
+    const result=await createTimeInvoice(actor,await request());
+    assert.equal(result.invoice.amount,'20.00');
   });
   test('required migrations can run repeatedly', async () => { await prepareTimeInvoicing(pool); await prepareTimeInvoicing(pool); assert.equal((await request()).entries.length,2); });
 }
