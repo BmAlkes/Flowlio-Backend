@@ -2796,3 +2796,37 @@ export const scopeChangeVersions = pgTable("scope_change_versions", {
  createdBy:text("created_by").notNull(), createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
  decision:text("decision"), comment:text("comment"), decidedBy:text("decided_by"), decidedAt:timestamp("decided_at",{withTimezone:true}),
 },t=>({key:primaryKey({columns:[t.changeId,t.revision]}),amount:check("scope_versions_amount_check",sql`${t.amount} >= 0 and ${t.estimatedHours} >= 0 and (${t.classification} = 'additional' or (${t.classification} = 'included' and ${t.amount} = 0))`)}));
+
+// T29: monthly contracts, immutable period statements and exclusive time allocation.
+export const retainers = pgTable("retainers", {
+  id: text("id").primaryKey(), organizationId: text("organization_id").notNull().references(() => organizations.id),
+  clientId: text("client_id").notNull().references(() => clients.id), createdBy: text("created_by").notNull(),
+  name: text("name").notNull(), currency: text("currency").notNull(), monthlyAmount: decimal("monthly_amount", { precision: 10, scale: 2 }).notNull(),
+  includedMinutes: integer("included_minutes").notNull(), timezone: text("timezone").notNull(),
+  startMonth: text("start_month").notNull(), endMonth: text("end_month"), renewal: text("renewal").notNull(),
+  carryPolicy: text("carry_policy").notNull(), carryCap: integer("carry_cap").notNull(), carryMonths: integer("carry_months").notNull(),
+  overagePolicy: text("overage_policy").notNull(), overageRate: decimal("overage_rate", { precision: 10, scale: 2 }).notNull(),
+  recurringId: text("recurring_id").unique().references(() => recurringInvoices.id),
+  state: text("state").notNull().default("active"), revision: integer("revision").notNull().default(0), requestHash: text("request_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => ({ clientIdx: index("retainers_client_idx").on(t.organizationId, t.clientId),
+  valid: check("retainers_valid", sql`${t.includedMinutes} >= 0 and ${t.monthlyAmount} >= 0 and ${t.carryCap} >= 0 and ${t.carryMonths} between 0 and 12 and ${t.overageRate} >= 0 and ${t.state} in ('active','paused','cancelled') and ${t.renewal} in ('manual','automatic') and ${t.carryPolicy} in ('expire','carry') and ${t.overagePolicy} in ('waive','approval')`) }));
+export const retainerPeriods = pgTable("retainer_periods", {
+  id: text("id").primaryKey(), retainerId: text("retainer_id").notNull().references(() => retainers.id),
+  month: text("month").notNull(), startsAt: timestamp("starts_at", { withTimezone: true }).notNull(), endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  includedMinutes: integer("included_minutes").notNull(), carry: jsonb("carry").notNull().default(sql`'[]'::jsonb`),
+  state: text("state").notNull().default("open"), revision: integer("revision").notNull().default(0),
+  statement: jsonb("statement"), decision: text("decision"), decidedBy: text("decided_by"), decidedAt: timestamp("decided_at", { withTimezone: true }), decisionNote: text("decision_note"),
+  closedAt: timestamp("closed_at", { withTimezone: true }), closedBy: text("closed_by"),
+}, t => ({ monthKey: unique("retainer_period_month_key").on(t.retainerId,t.month), valid: check("retainer_period_valid",sql`${t.endsAt}>${t.startsAt} and ${t.state} in ('open','closed') and ${t.includedMinutes}>=0`) }));
+export const retainerEntries = pgTable("retainer_entries", {
+  id: text("id").primaryKey(), periodId: text("period_id").notNull().references(() => retainerPeriods.id),
+  timeEntryId: text("time_entry_id").unique().references(() => timeEntries.id, { onDelete: "restrict" }),
+  sourceEntryId: text("source_entry_id"), minutes: integer("minutes").notNull(), kind: text("kind").notNull(),
+  label: text("label").notNull(), startedAt: timestamp("started_at", { withTimezone: true }), createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+},t=>({ periodIdx:index("retainer_entries_period_idx").on(t.periodId,t.createdAt), valid:check("retainer_entry_valid",sql`${t.minutes}<>0 and ((${t.kind}='time' and ${t.minutes}>0 and ${t.timeEntryId} is not null and ${t.sourceEntryId} is null) or (${t.kind}='adjustment' and ${t.timeEntryId} is null and ${t.sourceEntryId} is not null))`) }));
+export const retainerCommands = pgTable("retainer_commands", {
+  id: text("id").primaryKey(), retainerId: text("retainer_id").notNull().references(() => retainers.id), actorId: text("actor_id").notNull(), fingerprint: text("fingerprint").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

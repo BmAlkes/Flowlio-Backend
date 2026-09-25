@@ -33,6 +33,7 @@ function eligibleQuery(tx: Transaction | typeof database, actor: Actor, filter: 
       eq(timeEntries.status, "completed"), eq(timeEntries.billable, true),
       sql`${timeEntries.endTime} is not null`, gt(timeEntries.duration, 0),
       gte(timeEntries.startTime, new Date(filter.start)), lt(timeEntries.startTime, new Date(filter.end)),
+      sql`not exists(select 1 from retainer_entries re where re.time_entry_id=${timeEntries.id})`,
       isNull(invoiceTimeItems.id), ids ? inArray(timeEntries.id, ids) : undefined,
     )).orderBy(timeEntries.id);
 }

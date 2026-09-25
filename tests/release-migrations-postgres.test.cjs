@@ -31,7 +31,7 @@ else{
   await runReleaseMigrations(pool);const first=await history();assert.equal(first.length,migrationCount);
   const tables=(await pool.query("select count(*) from pg_tables where schemaname='public'")).rows[0].count;assert.equal(Number(tables),Object.keys(generateDrizzleJson(require('../src/schema/schema'),undefined,['public'],'snake_case').tables).length);
   const triggers=(await pool.query("select tgname from pg_trigger where not tgisinternal order by tgname")).rows.map(r=>r.tgname);
-  assert.deepEqual(triggers,["business_audit_immutable","delivery_reviews_business_audit","invoices_assign_number","projects_business_audit","scope_version_immutable","time_entries_guard_active","time_entries_protect_billing","user_management_business_audit","user_organizations_business_audit"]);
+  assert.deepEqual(triggers,["business_audit_immutable","delivery_reviews_business_audit","invoices_assign_number","projects_business_audit","scope_version_immutable", "retainer_entries_guard", "time_entries_retainer_guard", "invoice_time_retainer_guard", "retainer_periods_guard", "retainers_terms_guard", "recurring_retainer_guard","time_entries_guard_active","time_entries_protect_billing","user_management_business_audit","user_organizations_business_audit"].sort());
   await runReleaseMigrations(pool);assert.deepEqual(await history(),first);
  });
  test('five instances starting together apply each migration once',async()=>{

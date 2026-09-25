@@ -1,3 +1,4 @@
+import { retainerRoutes } from '../modules/retainers/controller';
 import { validateDomainStatus, contractResponse, apiErrorEnvelope } from "../middlewares/api-contract.middleware";
 import { clientsResponseSchema } from "../contracts/core-api";
 import express from "express";
@@ -11,6 +12,7 @@ import { requireOrgOwnerAccess } from "@/middlewares/role.middleware";
 
 const router = express.Router();
 router.use(apiErrorEnvelope);
+router.use('/:clientId/retainers', isAuthenticated, retainerRoutes);
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 

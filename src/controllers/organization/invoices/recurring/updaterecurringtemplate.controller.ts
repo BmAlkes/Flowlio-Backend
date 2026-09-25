@@ -1,3 +1,4 @@
+import { retainerConstraint } from '@/utils/retainer-error.util';
 import { Response, Request } from "express";
 import { recurringInvoices } from "@/schema/schema";
 import { database } from "@/configs/connection.config";
@@ -40,6 +41,10 @@ export const updateRecurringTemplate = async (
       data: updatedTemplate,
     });
   } catch (error) {
+    if (retainerConstraint(error) === 'recurring') {
+      res.status(409).json({ success: false, code: 'RETAINER_LOCKED', message: "This recurring template belongs to a monthly contract. Its commercial terms are locked. Review the contract state before changing the billing schedule." });
+      return;
+    }
     if (error instanceof z.ZodError) {
       res.status(400).json({ success: false, message: "Validation failed", errors: error.errors });
       return;

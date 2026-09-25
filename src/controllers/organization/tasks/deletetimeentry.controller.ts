@@ -1,3 +1,4 @@
+import { retainerConstraint } from '@/utils/retainer-error.util';
 import { isInvoicedTimeConstraint } from "@/utils/invoiced-time-error.util";
 import { database } from "@/configs/connection.config";
 import { timeEntries, tasks, projects } from "@/schema/schema";
@@ -76,6 +77,10 @@ export const deleteTimeEntry = async (
     logger.info(`🗑️ Deleted time entry ${id} for user ${userId}`);
     res.status(200).json({ success: true, message: "Time entry deleted" });
   } catch (error) {
+    if (retainerConstraint(error) === 'time') {
+      res.status(409).json({ success: false, code: 'RETAINER_LOCKED', message: "This time is allocated to a contract. Remove its allocation from an open period, or record an adjustment for a closed period." });
+      return;
+    }
     if (isInvoicedTimeConstraint(error)) {
       res.status(409).json({ success: false, message: "This time entry belongs to an invoice and cannot be deleted while that invoice exists." });
       return;

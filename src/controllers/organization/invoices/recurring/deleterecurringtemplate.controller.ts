@@ -1,3 +1,4 @@
+import { retainerConstraint } from '@/utils/retainer-error.util';
 import { Response, Request } from "express";
 import { recurringInvoices } from "@/schema/schema";
 import { database } from "@/configs/connection.config";
@@ -30,6 +31,10 @@ export const deleteRecurringTemplate = async (
       message: "Recurring template deleted successfully",
     });
   } catch (error) {
+    if (retainerConstraint(error) === 'recurring') {
+      res.status(409).json({ success: false, code: 'RETAINER_LOCKED', message: "This recurring template belongs to a monthly contract. Its commercial terms are locked. Review the contract state before changing the billing schedule." });
+      return;
+    }
     logger.error("Error deleting recurring template:", error);
     res.status(status.INTERNAL_SERVER_ERROR).json({
       success: false,

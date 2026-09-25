@@ -4,7 +4,7 @@ import { canManageClients, canViewProjectFinancials, type Actor } from "../../se
 import { calendarDate } from "../capacity/calculation";
 export class AuditReadError extends Error { constructor(public status:number,public code:string){super(code);} }
 const identifier=z.string().max(128);
-export const auditQuery=z.object({from:calendarDate,to:calendarDate,actorId:identifier.optional(),person:z.string().trim().max(80).optional(),action:z.string().max(100).optional(),resourceType:z.enum(['project','delivery_review','organization_membership','organization_member','change_request']).optional(),resourceId:identifier.optional(),projectId:identifier.optional(),cursor:z.string().max(512).optional()}).strict().refine(p=>p.from<=p.to&&(Date.parse(p.to)-Date.parse(p.from))/86400000<=366);
+export const auditQuery=z.object({from:calendarDate,to:calendarDate,actorId:identifier.optional(),person:z.string().trim().max(80).optional(),action:z.string().max(100).optional(),resourceType:z.enum(['project','delivery_review','organization_membership','organization_member','change_request','retainer']).optional(),resourceId:identifier.optional(),projectId:identifier.optional(),cursor:z.string().max(512).optional()}).strict().refine(p=>p.from<=p.to&&(Date.parse(p.to)-Date.parse(p.from))/86400000<=366);
 const cursorSchema=z.object({time:z.string().datetime(),id:z.string().min(1).max(128)}).strict();
 export function csvCell(value:unknown){let s=typeof value==='object'&&value!==null?JSON.stringify(value):String(value??'');if(/^[\s]*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}
 const authorized=`with permitted as (
@@ -15,14 +15,15 @@ const authorized=`with permitted as (
  left join projects p on p.id=e.project_id and p.organization_id=e.organization_id
  left join users u on u.id=e.actor_id
  cross join lateral (select coalesce(jsonb_object_agg(d.key,d.value),'{}'::jsonb) changes from jsonb_each(e.changes) d where
-  (e.resource_type='change_request' and (d.key=any(array['state','revision','end_date','task_id','billing_draft_id']) or ($3::boolean and d.key=any(array['amount','currency']))))
+  (e.resource_type='retainer' and $3::boolean and d.key=any(array['state','included_minutes','currency','monthly_amount','month','period_id','minutes','source_entry_id','overage_amount','decision','reason']))
+  or (e.resource_type='change_request' and (d.key=any(array['state','revision','end_date','task_id','billing_draft_id']) or ($3::boolean and d.key=any(array['amount','currency']))))
   or (e.resource_type='project' and (d.key=any(array['start_date','end_date','status','visibility','assigned_to']) or ($3::boolean and d.key='budget')))
   or (e.resource_type='delivery_review' and d.key=any(array['state','source_version','milestone_id','client_id']))
   or ($3::boolean and e.resource_type='organization_membership' and d.key=any(array['role','status','permissions']))
   or ($3::boolean and e.resource_type='organization_member' and d.key='userrole')) masked
  where e.organization_id=$1 and e.occurred_at >= $4::date and e.occurred_at < $5::date+interval '1 day'
  and ((e.resource_type in ('project','delivery_review','change_request') and p.id is not null and (p.created_by=$2 or p.assigned_to=$2 or p.visibility='public'))
-  or ($3::boolean and e.resource_type in ('organization_membership','organization_member')))
+  or ($3::boolean and e.resource_type in ('organization_membership','organization_member','retainer')))
  and masked.changes<>'{}'::jsonb
  and ($6::text is null or e.actor_id=$6) and ($7::text is null or e.action=$7) and ($8::text is null or e.resource_type=$8)
  and ($9::text is null or e.resource_id=$9) and ($10::text is null or e.project_id=$10)
