@@ -1,3 +1,4 @@
+import { prepareScopeBilling } from '../workflows/service';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
@@ -126,7 +127,7 @@ export function createScopeChanges(pool:Pool){
     const taskId=data.createTask?randomUUID():null;
     if(taskId)await c.query(`insert into tasks(id,title,description,project_id,created_by,status,visibility,estimated_hours,end_date,created_at,updated_at) values($1,$2,$3,$4,$5,'todo','private',$6,$7,now(),now())`,[taskId,row.title,row.description,projectId,a.id,old.estimated_hours,old.end_date?old.end_date+'T00:00:00Z':null]);
     if(data.applyDate)await c.query('update projects set end_date=$2,updated_at=now() where id=$1',[projectId,old.end_date+'T00:00:00Z']);
-    const application={signature,appliedAt:new Date().toISOString(),appliedBy:a.id,taskId,dateApplied:data.applyDate,billingDraft:data.prepareBilling?{id:randomUUID(),state:'draft',amount:old.amount,currency:old.currency,description:row.title,clientId:p.clientId,projectId,changeId:id,revision:row.revision}:null};
+    const application={signature,appliedAt:new Date().toISOString(),appliedBy:a.id,taskId,dateApplied:data.applyDate,billingDraft:data.prepareBilling?{...(await prepareScopeBilling(c,a.organizationId!,id,row.revision)),state:'draft',amount:old.amount,currency:old.currency,description:row.title,clientId:p.clientId,projectId,changeId:id,revision:row.revision}:null};
     await c.query("update scope_change_requests set state='applied',application=$2,updated_at=now() where id=$1",[id,JSON.stringify(application)]);await audit(c,a,projectId,id,'applied',{state:row.state},{state:'applied',revision:row.revision,task_id:taskId,billing_draft_id:application.billingDraft?.id??null});
    }
    return{id,existing:false};

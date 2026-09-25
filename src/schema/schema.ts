@@ -2710,6 +2710,7 @@ export const memberCapacity = pgTable("member_capacity", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, table => ({ key: primaryKey({ columns: [table.organizationId, table.userId] }), minutesCheck: check("member_capacity_minutes_check", sql`${table.weeklyMinutes} >= 0 AND ${table.weeklyMinutes} <= 10080`) }));
 export const workflowRules = pgTable("workflow_rules", {
+  actionType:text("action_type").notNull().default("notify"), recipientId:text("recipient_id"), channel:text("channel").notNull().default("internal"), targetProjectId:text("target_project_id"),
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -2721,8 +2722,9 @@ export const workflowRules = pgTable("workflow_rules", {
   enabled: boolean("enabled").notNull().default(false),
   activatedAt: timestamp("activated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, table => ({ organizationIndex: index("workflow_rules_org_idx").on(table.organizationId) }));
+}, table => ({ organizationIndex: index("workflow_rules_org_idx").on(table.organizationId), valid:check("workflow_action_valid",sql`${table.actionType} in ('notify','create_task','assign_project','prepare_billing') and ${table.channel} in ('internal','email','push')`) }));
 export const workflowExecutions = pgTable("workflow_executions", {
+  resourceType:text("resource_type"),resourceId:text("resource_id"),details:jsonb("details"),jobId:text("job_id"),attempts:integer("attempts").notNull().default(1),
   id: text("id").primaryKey(),
   ruleId: text("rule_id").notNull().references(() => workflowRules.id, { onDelete: "cascade" }),
   eventId: text("event_id").notNull(),
@@ -2830,3 +2832,6 @@ export const retainerCommands = pgTable("retainer_commands", {
   id: text("id").primaryKey(), retainerId: text("retainer_id").notNull().references(() => retainers.id), actorId: text("actor_id").notNull(), fingerprint: text("fingerprint").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const workflowEvents=pgTable("workflow_events",{id:text("id").primaryKey(),organizationId:text("organization_id").notNull().references(()=>organizations.id,{onDelete:"cascade"}),trigger:text("trigger").notNull(),projectId:text("project_id"),clientId:text("client_id"),sourceId:text("source_id").notNull(),revision:integer("revision"),occurredAt:timestamp("occurred_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`)},t=>({scan:index("workflow_events_scan").on(t.organizationId,t.trigger,t.occurredAt,t.id)}));
+export const workflowBillingDrafts=pgTable("workflow_billing_drafts",{id:text("id").primaryKey(),organizationId:text("organization_id").notNull().references(()=>organizations.id,{onDelete:"cascade"}),sourceType:text("source_type").notNull(),sourceId:text("source_id").notNull(),revision:integer("revision").notNull(),amount:decimal("amount",{precision:10,scale:2}).notNull(),currency:text("currency").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()},t=>({source:unique("workflow_billing_source_key").on(t.organizationId,t.sourceType,t.sourceId,t.revision),amount:check("workflow_billing_drafts_amount_check",sql`${t.amount}>0`)}));

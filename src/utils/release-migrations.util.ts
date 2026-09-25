@@ -71,7 +71,9 @@ export async function runReleaseMigrations(pool: Pool, folder = path.resolve("dr
         ('public.invoice_time_items', 'invoice_time_retainer_guard'),
         ('public.retainer_periods', 'retainer_periods_guard'),
         ('public.retainers', 'retainers_terms_guard'),
-        ('public.recurring_invoices', 'recurring_retainer_guard')
+        ('public.recurring_invoices', 'recurring_retainer_guard'),
+        ('public.project_milestones', 'milestones_workflow_event'),
+        ('public.business_audit_events', 'audit_workflow_event')
       ) AS required(relation, name)
       LEFT JOIN pg_trigger t ON t.tgrelid = to_regclass(required.relation) AND t.tgname = required.name
       WHERE t.oid IS NULL OR t.tgenabled <> 'O'

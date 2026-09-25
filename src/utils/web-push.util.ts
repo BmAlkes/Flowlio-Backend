@@ -19,8 +19,8 @@ export const sendPushToUser = async (
   userId: string,
   payload: { title: string; body: string; icon?: string; data?: Record<string, unknown> },
   strict = false,
-): Promise<void> => {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+): Promise<boolean> => {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return false;
 
   let subscriptions: { endpoint: string; p256dh: string; auth: string }[];
   try {
@@ -31,10 +31,10 @@ export const sendPushToUser = async (
   } catch (err) {
     if (strict) throw err;
     logger.error("Failed to fetch push subscriptions:", err);
-    return;
+    return false;
   }
 
-  if (subscriptions.length === 0) return;
+  if (subscriptions.length === 0) return false;
 
   const payloadStr = JSON.stringify({
     icon: "/logo/logo.png",
@@ -49,6 +49,7 @@ export const sendPushToUser = async (
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payloadStr,
         );
+        return true;
       } catch (err: any) {
         if (err?.statusCode === 410 || err?.statusCode === 404) {
           try {
@@ -64,7 +65,9 @@ export const sendPushToUser = async (
           logger.error("Push notification send error:", err);
         }
       }
+      return false;
     }),
   );
   if (strict && outcomes.some(result=>result.status === "rejected")) throw new Error("Push delivery unconfirmed");
+  return outcomes.some(result=>result.status==='fulfilled'&&result.value===true);
 };

@@ -24,7 +24,7 @@ import {
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
 
-export type TransactionalTemplateKey =
+export type TransactionalTemplateKey = "workflow"
   | "task_overdue"
   | "project_risk"
   | "lead_follow_up"
@@ -89,6 +89,7 @@ interface WeeklySummaryData {
 }
 
 type TemplateDataMap = {
+  workflow: { title: string; message: string };
   task_overdue: TaskOverdueData;
   project_risk: ProjectRiskData;
   lead_follow_up: LeadFollowUpData;
@@ -115,6 +116,11 @@ function buildHtml<K extends TransactionalTemplateKey>(
   data: TemplateDataMap[K],
 ): string {
   switch (templateKey) {
+    case "workflow": {
+      const value=data as {title:string;message:string};
+      const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+      return '<h1>'+escape(value.title)+'</h1><p style="white-space:pre-wrap">'+escape(value.message)+'</p>';
+    }
     case "task_overdue":
       return taskOverdueTemplate(data as TaskOverdueData);
     case "project_risk":

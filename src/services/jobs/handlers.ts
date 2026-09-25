@@ -1,3 +1,4 @@
+import { deliverWorkflow } from '../../modules/workflows/delivery';
 import { processWorkflowOrganization } from "../../modules/workflows/service";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "../../schema/schema";
@@ -37,6 +38,12 @@ export const handlers: Record<string, Handler> = {
         const organizations = await client.query("select distinct organization_id from workflow_rules where enabled=true");
         for (const row of organizations.rows) await enqueue(client, "workflow-events", job.id + ":" + row.organization_id, { organizationId: row.organization_id }, job.scheduled_at);
     }),
+    "workflow-delivery": { transactional: false, retryable: false, run: async (job,client) => {
+        await deliverWorkflow(client,String(job.payload.executionId),async(channel,recipient,content)=>{
+            if(channel==='email'){const result=await sendTransactionalEmail({to:recipient.email,toName:recipient.name,templateKey:'workflow',data:content});return result.success&&!!result.messageId;}
+            return (await sendPushToUser(recipient.id,{title:content.title,body:content.message},true))===true;
+        });
+    } },
     "project-end": transactional(async () => { await automationService.handleProjectEndReminders(); }),
     "recurring-invoices": transactional(async () => { await RecurringInvoiceService.processRecurringInvoices(); }),
     "webhook-retries": transactional(async (_job, client) => { await retryWebhooks(client); }),
