@@ -3,6 +3,7 @@ import { runReleaseMigrations } from "./utils/release-migrations.util";
 if (__dirname.includes("dist")) {
   require("module-alias/register");
 }
+import { scenarioRoutes } from './modules/scenarios/controller';
 import { clientPendingRoutes } from './modules/client-pending/controller';
 import workflowsRoutes from "./routes/workflows.routes";
 import attentionRoutes from "./routes/attention.routes";
@@ -245,6 +246,7 @@ app.use("/api/clients", clientRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/attention", attentionRoutes);
 app.use("/api/audit", auditRoutes);
+app.use("/api/capacity-scenarios", scenarioRoutes);
 app.use("/api/capacity", capacityRoutes);
 app.use("/api/workflows", workflowsRoutes);
 app.use("/api/client-pending", clientPendingRoutes);

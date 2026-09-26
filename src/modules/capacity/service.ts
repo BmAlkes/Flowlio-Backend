@@ -1,4 +1,5 @@
-﻿import type {Pool} from "pg";
+﻿import {availability} from '../scenarios/calculation';
+import type {Pool} from "pg";
 import {z} from "zod";
 import {canManageClients,type Actor} from "../../security/resource-policy";
 import {allocateMinutes,calendarDate,weekBounds} from "./calculation";
@@ -29,9 +30,10 @@ export function createCapacity(pool:Pool){
     ((p.created_by=$2 or p.assigned_to=$2 or p.visibility='public') and (t.created_by=$2 or t.assigned_to=$2 or t.visibility='public')) as visible,
     ((nullif(t.start_after,'') is not null and not exists(select 1 from tasks d join projects dp on dp.id=d.project_id where d.id=t.start_after and dp.organization_id=$1 and d.status='completed'))
      or exists(select 1 from tasks d join projects dp on dp.id=d.project_id where d.finish_before=t.id and dp.organization_id=$1 and d.status is distinct from 'completed')) as blocked
-    from tasks t join projects p on p.id=t.project_id where p.organization_id=$1 and t.status is distinct from 'completed'
+    from tasks t join projects p on p.id=t.project_id where p.organization_id=$1 and t.status is distinct from 'completed' and not exists(select 1 from tasks child where child.parent_id=t.id)
     and (t.start_date is null or t.end_date is null or t.start_date>t.end_date or (t.start_date<$4::date+interval '1 day' and t.end_date>=$3::date)) order by t.end_date nulls last,t.id limit 10001`,[actor.organizationId,actor.id,from,to])).rows;
    if(tasks.length>10000)throw new CapacityError(400,'WORKLOAD_TOO_LARGE');
+   const absences=(await client.query('select user_id as "userId",start_date as "startDate",end_date as "endDate" from capacity_absences where organization_id=$1 and start_date<=$3 and end_date>=$2',[actor.organizationId,from,to])).rows;
    const summaries=new Map<string,TaskSummary[]>();let hiddenTasks=0,unassigned=0;
    for(const task of tasks){if(!task.visible){hiddenTasks++;continue;}const member=members.find(m=>m.id===task.assigned_to);if(!member){unassigned++;continue;}
     const value={id:task.id,title:task.title,projectId:task.project_id,projectName:task.project_name,blocked:task.blocked,...allocateMinutes(task.estimated_hours,task.start_date,task.end_date,from)};
@@ -39,8 +41,8 @@ export function createCapacity(pool:Pool){
    }
    const rows=members.map(member=>{
     const list=summaries.get(member.id)??[],plannedMinutes=list.reduce((sum,t)=>sum+t.minutes,0),unestimated=list.filter(t=>t.unestimated).length,unscheduled=list.filter(t=>t.unscheduled).length;
-    const availableMinutes=member.weekly_minutes??null,partial=hiddenTasks>0||unestimated>0||unscheduled>0;
-    return{id:member.id,name:member.name,team:member.team,availableMinutes,plannedMinutes,unestimated,unscheduled,blocked:list.filter(t=>t.blocked).length,taskCount:list.length,tasks:list.slice(0,10),partial,overloaded:availableMinutes!=null&&plannedMinutes>availableMinutes,remainingMinutes:!partial&&availableMinutes!=null?availableMinutes-plannedMinutes:null};
+    const {availableMinutes,absenceMinutes}=availability(member.weekly_minutes??null,absences.filter(a=>a.userId===member.id),from),partial=hiddenTasks>0||unassigned>0||unestimated>0||unscheduled>0;
+    return{id:member.id,name:member.name,team:member.team,weeklyMinutes:member.weekly_minutes??null,absenceMinutes,availableMinutes,plannedMinutes,unestimated,unscheduled,blocked:list.filter(t=>t.blocked).length,taskCount:list.length,tasks:list.slice(0,10),partial,overloaded:availableMinutes!=null&&plannedMinutes>availableMinutes,remainingMinutes:!partial&&availableMinutes!=null?availableMinutes-plannedMinutes:null};
    }).filter(member=>(!input.team||member.team===input.team)&&(!input.userId||member.id===input.userId));
    await client.query('commit');return{weekStart:from,weekEnd:to,timezone:'UTC',teams:[...new Set(members.map(m=>m.team).filter(Boolean))].sort(),members:rows,hiddenTasks,unassigned};
   }catch(error){await client.query('rollback');throw error;}finally{client.release();}

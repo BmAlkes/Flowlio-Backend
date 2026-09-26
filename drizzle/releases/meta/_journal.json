@@ -127,6 +127,13 @@
       "when": 1790319600000,
       "tag": "0017_client_pending",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790406000000,
+      "tag": "0018_capacity_scenarios",
+      "breakpoints": true
     }
   ]
 }
