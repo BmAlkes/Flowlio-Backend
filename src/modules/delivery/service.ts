@@ -26,12 +26,13 @@ export function createDeliveryReviews(pool:Pool){
   await client.query(`insert into recent_activities(id,organization_id,user_id,actor_id,type,action,resource,resource_id,message,metadata,created_at)
    values($1,$2,$3,$3,'delivery',$4,'project',$5,'Delivery review updated',$6,now())`,[randomUUID(),actor.organizationId,actor.id,action,projectId,JSON.stringify({reviewId:id,projectId})]);
  }
- async function list(actor:Actor,projectId:string,pageRaw:unknown=1){
+ async function list(actor:Actor,projectId:string,pageRaw:unknown=1,reviewRaw:unknown=undefined){
+  const review=identifier.optional().safeParse(reviewRaw);if(!review.success)throw new DeliveryError(400,"INVALID_REVIEW");
   const page=z.coerce.number().int().min(1).max(100000).safeParse(pageRaw);if(!page.success)throw new DeliveryError(400,"INVALID_PAGE");
   const client=await pool.connect();try{
    const project=await authorize(client,actor,projectId);const canRequest=canManageClients(actor);
    const filter=actor.role==='client'?project.clientId:null;
-   const rows=(await client.query(`select r.*,u.name as decided_name from delivery_reviews r left join users u on u.id=r.decided_by where r.project_id=$1 and r.organization_id=$2 and ($3::text is null or r.client_id=$3) order by r.requested_at desc,r.id desc limit 26 offset $4`,[projectId,actor.organizationId,filter,(page.data-1)*25])).rows;
+   const rows=(await client.query(`select r.*,u.name as decided_name from delivery_reviews r left join users u on u.id=r.decided_by where r.project_id=$1 and r.organization_id=$2 and ($3::text is null or r.client_id=$3) and ($5::text is null or r.id=$5) order by r.requested_at desc,r.id desc limit 26 offset $4`,[projectId,actor.organizationId,filter,review.data?0:(page.data-1)*25,review.data??null])).rows;
    const milestones=(await client.query('select * from project_milestones where project_id=$1 and organization_id=$2 order by position,id limit 201',[projectId,actor.organizationId])).rows;
    const reviews=[];
    for(const row of rows.slice(0,25)){

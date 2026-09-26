@@ -1,3 +1,4 @@
+import { scheduleClientReminders,deliverClientReminder } from '../../modules/client-pending/reminders';
 import { deliverWorkflow } from '../../modules/workflows/delivery';
 import { processWorkflowOrganization } from "../../modules/workflows/service";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -23,6 +24,7 @@ const automations = [
 ] as const;
 export const schedules: Schedule[] = [
     { kind: "workflow-events", minutes: 1 },
+    {kind:"client-request-scan",minutes:60},
     ...automations.map(([kind, , hour, weekday]) => ({ kind, minutes: hour === undefined ? 360 : 60, weekday })),
     { kind: "project-end", minutes: 1440, hour: 8 }, { kind: "recurring-invoices", minutes: 1440, hour: 8 },
     { kind: "ai-reset", minutes: 1440, hour: 0 }, { kind: "webhook-retries", minutes: 1 }, { kind: "followup-reminders", minutes: 60 },
@@ -44,6 +46,15 @@ export const handlers: Record<string, Handler> = {
             return (await sendPushToUser(recipient.id,{title:content.title,body:content.message},true))===true;
         });
     } },
+    "client-request-scan": transactional(async(job,client)=>{
+        if(job.payload.organizationId){await scheduleClientReminders(client,String(job.payload.organizationId));return;}
+        const rows=await client.query("select distinct organization_id from client_requests where state='open' and reminder_hours>0 and reminder_next_at<=now()");
+        for(const row of rows.rows)await enqueue(client,'client-request-scan',job.id+':'+row.organization_id,{organizationId:row.organization_id},job.scheduled_at);
+    }),
+    "client-request-reminder":{transactional:false,retryable:false,run:async(job,client)=>{await deliverClientReminder(client,String(job.payload.reminderId),async(channel,recipient,content)=>{
+        if(channel==='email'){const result=await sendTransactionalEmail({to:recipient.email,toName:recipient.name,templateKey:'workflow',data:content});return result.success&&!!result.messageId;}
+        return (await sendPushToUser(recipient.id,{title:content.title,body:content.message,data:{url:content.url}},true))===true;
+    });}},
     "project-end": transactional(async () => { await automationService.handleProjectEndReminders(); }),
     "recurring-invoices": transactional(async () => { await RecurringInvoiceService.processRecurringInvoices(); }),
     "webhook-retries": transactional(async (_job, client) => { await retryWebhooks(client); }),
