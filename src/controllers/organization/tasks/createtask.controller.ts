@@ -176,7 +176,7 @@ export const createTask = async (
       createdBy: userId,
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
-      estimatedHours: estimatedHours ? estimatedHours.toString() : null,
+      estimatedHours: estimatedHours != null ? estimatedHours.toString() : null,
       actualHours: actualHours ? actualHours.toString() : null,
       attachments: processedAttachments,
       parentId: normalizedParentId,

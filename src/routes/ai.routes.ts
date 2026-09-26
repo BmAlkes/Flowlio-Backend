@@ -1,3 +1,4 @@
+import { agentRoutes } from "../modules/agent/controller";
 import { Router } from "express";
 import {
   generateEventSuggestions,
@@ -21,6 +22,7 @@ import { aiRateLimit } from "@/middlewares/ai-rate-limit.middleware";
 import { generateWeeklyProjectSummary } from "@/controllers/ai/generateweeklyprojectsummary.controller";
 
 const router = Router();
+router.use("/agent", agentRoutes);
 
 const aiMiddleware = [isAuthenticated, checkAIAccess, requireAIOrganization, requirePlanFeature("aiAssist"), aiRateLimit, checkAITokenLimit, logAIUsage];
 

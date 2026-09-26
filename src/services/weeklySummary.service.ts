@@ -1,6 +1,7 @@
+// SHARED_SUMMARY_SCOPE: shared mailings contain public workspace records only.
 import { database } from "@/configs/connection.config";
-import { projects, tasks, timeEntries, clientInteractions, userOrganizations } from "@/schema/schema";
-import { eq, gte, lte, and, inArray, or, count } from "drizzle-orm";
+import { projects, tasks, timeEntries, clientInteractions, userOrganizations, users } from "@/schema/schema";
+import { eq, gte, lte, and, inArray, or, count, sql } from "drizzle-orm";
 import { aiContext } from "@/utils/ai-context.util";
 import { hasFeatureAccess } from "@/utils/plan-access.util";
 import { logger } from "@/utils/logger.util";
@@ -39,7 +40,7 @@ export async function checkOrgHasWeeklyActivity(
   const projectIds = await database
     .select({ id: projects.id })
     .from(projects)
-    .where(eq(projects.organizationId, organizationId));
+    .where(and(eq(projects.organizationId, organizationId), eq(projects.visibility, "public")));
 
   if (projectIds.length === 0) return false;
   const ids = projectIds.map((p) => p.id);
@@ -100,7 +101,7 @@ export async function generateWeeklySummary(
       description: projects.description,
     })
     .from(projects)
-    .where(eq(projects.organizationId, organizationId));
+    .where(and(eq(projects.organizationId, organizationId), eq(projects.visibility, "public")));
 
   if (organizationProjects.length === 0) return null;
 
@@ -137,6 +138,7 @@ export async function generateWeeklySummary(
       .where(
         and(
           inArray(tasks.projectId, projectIds),
+          eq(tasks.visibility, "public"),
           or(gte(tasks.createdAt, weekStart), gte(tasks.updatedAt, weekStart)),
         ),
       );
@@ -155,7 +157,7 @@ export async function generateWeeklySummary(
         actualHours: tasks.actualHours,
       })
       .from(tasks)
-      .where(inArray(tasks.projectId, projectIds));
+      .where(and(inArray(tasks.projectId, projectIds), eq(tasks.visibility, "public")));
   }
 
   const organizationTimeEntries = await database
@@ -172,6 +174,7 @@ export async function generateWeeklySummary(
     .where(
       and(
         inArray(timeEntries.projectId, projectIds),
+        or(sql`${timeEntries.taskId} is null`, inArray(timeEntries.taskId, database.select({id:tasks.id}).from(tasks).where(and(inArray(tasks.projectId, projectIds), eq(tasks.visibility, "public"))))),
         gte(timeEntries.startTime, weekStart),
         lte(timeEntries.startTime, weekEnd),
       ),
@@ -186,7 +189,8 @@ export async function generateWeeklySummary(
     }
 
     if (!(await hasFeatureAccess(organizationId, "aiAssist")).hasAccess) return null;
-    const [owner] = await database.select({ userId: userOrganizations.userId }).from(userOrganizations).where(and(
+    const [owner] = await database.select({ userId: userOrganizations.userId }).from(userOrganizations).innerJoin(users, eq(users.id, userOrganizations.userId)).where(and(
+      eq(users.status, "active"), inArray(users.role, ["user", "operator", "viewer"]),
       eq(userOrganizations.organizationId, organizationId), eq(userOrganizations.role, "owner"),
       eq(userOrganizations.status, "active"),
     )).limit(1);

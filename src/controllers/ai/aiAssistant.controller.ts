@@ -1,3 +1,5 @@
+import { projectReadScope } from "../../security/resource-access";
+import { aiTaskScope, aiTimeScope } from "../../modules/agent/legacy-scope";
 // Conditional logging helper
 const isDevelopment = process.env.NODE_ENV === "development";
 const isDebugMode = process.env.DEBUG_LOGGING === "true";
@@ -21,11 +23,11 @@ import {
   calendarEvents,
   users,
   projects,
-  userManagement,
+  userOrganizations,
   tasks,
   timeEntries,
 } from "@/schema/schema";
-import { eq, gte, inArray, lte } from "drizzle-orm";
+import { eq, gte, inArray, and } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -84,8 +86,7 @@ export const generateEventSuggestions = async (
       .select()
       .from(calendarEvents)
       .where(
-        eq(calendarEvents.userId, req.user.id) &&
-          lte(calendarEvents.date, startDate)
+        and(eq(calendarEvents.userId, req.user.id), eq(calendarEvents.organizationId, req.user.organizationId), gte(calendarEvents.date, startDate))
       )
       .limit(10)
       .orderBy(calendarEvents.date);
@@ -287,8 +288,7 @@ export const getCalendarInsights = async (
       .select()
       .from(calendarEvents)
       .where(
-        eq(calendarEvents.userId, req.user.id) &&
-          gte(calendarEvents.date, startDate)
+        and(eq(calendarEvents.userId, req.user.id), eq(calendarEvents.organizationId, req.user.organizationId), gte(calendarEvents.date, startDate))
       )
       .orderBy(calendarEvents.date);
 
@@ -359,7 +359,7 @@ export const getProjectInsights = async (
     const allProjects = await database
       .select()
       .from(projects)
-      .where(eq(projects.organizationId, organizationId));
+      .where(projectReadScope(req.user));
 
     // Fetch all tasks for these projects
     const projectIds = allProjects.map((p) => p.id);
@@ -368,7 +368,7 @@ export const getProjectInsights = async (
         ? await database
             .select()
             .from(tasks)
-            .where(inArray(tasks.projectId, projectIds))
+            .where(and(inArray(tasks.projectId, projectIds), aiTaskScope(req.user)))
         : [];
 
     // Fetch time entries for analysis
@@ -377,7 +377,7 @@ export const getProjectInsights = async (
         ? await database
             .select()
             .from(timeEntries)
-            .where(inArray(timeEntries.projectId, projectIds))
+            .where(and(inArray(timeEntries.projectId, projectIds), aiTimeScope(req.user)))
         : [];
 
     const now = new Date();
@@ -952,6 +952,12 @@ export const advancedConversation = async (
     //   hasFiles: !!req.files,
     // });
 
+    // AI_INPUT_LIMIT: history is conversation data, never a second system prompt.
+    if (userInput.length > 8000 || (parsedConversationHistory != null && (!Array.isArray(parsedConversationHistory) || parsedConversationHistory.length > 40 || parsedConversationHistory.some((m: any) => !m || !["user", "assistant", "ai"].includes(m.role) || typeof m.content !== "string" || m.content.length > 16000)))) {
+      res.status(400).json({ success: false, message: "Conversation input is too large or invalid" }); return;
+    }
+    parsedConversationHistory = (parsedConversationHistory ?? []).slice(-12);
+
     // Process uploaded files if any
     let fileContext = [];
     if (req.files && req.files.length > 0) {
@@ -1231,27 +1237,13 @@ export const generateTaskFromNaturalLanguage = async (
         projectNumber: projects.projectNumber,
       })
       .from(projects)
-      .where(eq(projects.organizationId, organizationId))
+      .where(projectReadScope(req.user))
       .limit(50); // Limit to prevent too much context
 
     // Fetch available users for context from userManagement table
-    const availableUserMembers = await database
-      .select({
-        id: userManagement.id,
-        firstname: userManagement.firstname,
-        lastname: userManagement.lastname,
-        email: userManagement.email,
-      })
-      .from(userManagement)
-      .where(eq(userManagement.organizationId, organizationId))
-      .limit(50); // Limit to prevent too much context
-
-    // Format users for AI context
-    const availableUsers = availableUserMembers.map((um) => ({
-      id: um.id,
-      name: `${um.firstname} ${um.lastname}`,
-      email: um.email,
-    }));
+    const availableUsers = await database.select({ id: users.id, name: users.name, email: users.email })
+      .from(users).innerJoin(userOrganizations, eq(userOrganizations.userId, users.id))
+      .where(and(eq(userOrganizations.organizationId, organizationId), eq(userOrganizations.status, "active"), eq(users.status, "active"), inArray(users.role, ["user", "operator", "viewer"]))).limit(50);
 
     // Lazy load OpenAI service
     const { openaiService } = await import("@/services/openai.service");

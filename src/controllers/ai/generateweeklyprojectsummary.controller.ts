@@ -1,3 +1,5 @@
+import { projectReadScope } from "../../security/resource-access";
+import { aiTaskScope, aiTimeScope } from "../../modules/agent/legacy-scope";
 // Conditional logging helper
 const isDevelopment = process.env.NODE_ENV === "development";
 const isDebugMode = process.env.DEBUG_LOGGING === "true";
@@ -18,7 +20,7 @@ import { Response } from "express";
 import { logger } from "@/utils/logger.util";
 import { database } from "@/configs/connection.config";
 import { projects, tasks, timeEntries } from "@/schema/schema";
-import { eq, gte, lte, and, inArray, or } from "drizzle-orm";
+import { gte, lte, and, inArray, or } from "drizzle-orm";
 
 /**
  * Generate weekly project summary using AI
@@ -80,7 +82,7 @@ export const generateWeeklyProjectSummary = async (
         description: projects.description,
       })
       .from(projects)
-      .where(eq(projects.organizationId, organizationId));
+      .where(projectReadScope(req.user));
 
     // Fetch tasks for these projects that were active during the week
     // (created, updated, or have dates within the week)
@@ -119,6 +121,8 @@ export const generateWeeklyProjectSummary = async (
           .where(
             and(
               inArray(tasks.projectId, projectIds),
+              aiTaskScope(req.user),
+              lte(tasks.createdAt, customWeekEnd),
               or(
                 gte(tasks.createdAt, customWeekStart),
                 gte(tasks.updatedAt, customWeekStart)
@@ -142,7 +146,7 @@ export const generateWeeklyProjectSummary = async (
             actualHours: tasks.actualHours,
           })
           .from(tasks)
-          .where(inArray(tasks.projectId, projectIds));
+          .where(and(inArray(tasks.projectId, projectIds), aiTaskScope(req.user)));
       }
     }
 
@@ -173,6 +177,7 @@ export const generateWeeklyProjectSummary = async (
         .where(
           and(
             inArray(timeEntries.projectId, projectIds),
+            aiTimeScope(req.user),
             gte(timeEntries.startTime, customWeekStart),
             lte(timeEntries.startTime, customWeekEnd)
           )

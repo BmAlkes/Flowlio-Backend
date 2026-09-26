@@ -869,14 +869,12 @@ export class AutomationService {
             and(
               eq(userOrganizations.organizationId, org.id),
               inArray(userOrganizations.role, ["org", "owner", "admin"]),
+              // ACTIVE_INTERNAL_SUMMARY
+              eq(userOrganizations.status, "active"), eq(users.status, "active"), inArray(users.role, ["user", "operator", "viewer"]),
             ),
           );
 
-        if (ownerRows.length === 0) {
-          // Fallback: any member
-          const fallback = await this.getOrgOwnerUser(org.id);
-          if (fallback) ownerRows.push(fallback as typeof ownerRows[0]);
-        }
+        if (ownerRows.length === 0) continue;
 
         for (const owner of ownerRows) {
           // In-app notification — independent of email outcome
