@@ -6,6 +6,12 @@ import { authorize,hash,generationInput,applyInput,validateOutput,AgentError,typ
 
 type Provider=(input:Generation,context:Context,signal:AbortSignal)=>Promise<unknown>;
 const permissionKey=(a:Actor)=>hash([a.role,!!a.isOrganizationOwner,!!a.isOrganizationManager]);
+// JSONB does not preserve object-key order; compare values, including nested reports.
+// JSON serialization also normalizes Date objects from fresh PostgreSQL queries.
+const snapshotHash=(value:unknown)=>hash(JSON.parse(JSON.stringify(value??null,(_key,item)=>{
+ if(item&&typeof item==='object'&&!Array.isArray(item))return Object.fromEntries(Object.entries(item).sort(([left],[right])=>left.localeCompare(right)));
+ return item;
+})));
 export function createAgent(pool:Pool,provider:Provider){
  async function row(a:Actor,id:string){authorize(a);await requireMember(pool,a);const r=(await pool.query('select * from ai_agent_runs where id=$1 and organization_id=$2 and actor_id=$3',[id,a.organizationId,a.id])).rows[0];if(!r)throw new AgentError(404,'RUN_NOT_FOUND');if(r.actor_scope!==permissionKey(a))throw new AgentError(403,'ACCESS_CHANGED');return r;}
  async function visible(a:Actor,r:any){
@@ -13,7 +19,7 @@ export function createAgent(pool:Pool,provider:Provider){
   if((r.context as Context).sources.some(s=>!keys.has(s.key)))throw new AgentError(403,'ACCESS_CHANGED');
   // Aggregate sources can embed task names and financial details. Their entire snapshot
   // must still match, so revoked nested resources cannot survive behind a stable report key.
-  for(const source of (r.context as Context).sources)if(['capacity','margin','attention','retainer'].includes(source.kind)&&hash(source.data)!==hash(current.sources.find(s=>s.key===source.key)?.data))throw new AgentError(403,'ACCESS_CHANGED');
+  for(const source of (r.context as Context).sources)if(['capacity','margin','attention','retainer'].includes(source.kind)&&snapshotHash(source.data)!==snapshotHash(current.sources.find(s=>s.key===source.key)?.data))throw new AgentError(403,'ACCESS_CHANGED');
  }
  function view(r:any){return{id:r.id,state:r.state,createdAt:r.created_at,input:r.input,error:r.error_code,result:r.result,receipts:r.receipts,sources:(r.context as Context).sources.map(({key,kind,id,title,href})=>({key,kind,id,title,href})),limits:r.context.limits,members:r.context.members};}
  async function detail(a:Actor,id:string){const r=await row(a,id);await visible(a,r);return view(r);}
