@@ -393,6 +393,7 @@ export const updateProject = async (
         progress: project.progress,
         address: project.address,
         budget: projectBudget(req.user!, project.budget),
+        currencyCode: project.currencyCode,
         contractfile: project.contractfile,
         contractfilePublicId: project.contractfilePublicId,
         organizationId: project.organizationId,

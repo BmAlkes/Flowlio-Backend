@@ -431,6 +431,7 @@ export const createProject = async (
         progress: createdProject.progress,
         address: createdProject.address,
         budget: projectBudget(req.user!, createdProject.budget),
+        currencyCode: createdProject.currencyCode,
         contractfile: createdProject.contractfile,
         contractfilePublicId: createdProject.contractfilePublicId,
         organizationId: createdProject.organizationId,

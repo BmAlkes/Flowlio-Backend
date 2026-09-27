@@ -303,7 +303,7 @@ function generateInvoiceExportHTML(invoices: any[]): string {
             <tr>
               <td>${invoice.invoiceNumber}</td>
               <td>${invoice.clientname || "N/A"}</td>
-              <td class="amount">$${invoice.amount?.toFixed(2) || "0.00"}</td>
+              <td class="amount">${invoice.currencyCode ? new Intl.NumberFormat('en',{style:'currency',currency:invoice.currencyCode,currencyDisplay:'code'}).format(Number(invoice.amount)) : 'Currency not configured'}</td>
               <td>${
                 invoice.dueDate
                   ? new Date(invoice.dueDate).toLocaleDateString()
@@ -325,9 +325,7 @@ function generateInvoiceExportHTML(invoices: any[]): string {
       <div class="summary">
         <h3>Export Summary</h3>
         <p><strong>Total Invoices:</strong> ${invoices.length}</p>
-        <p><strong>Total Amount:</strong> $${invoices
-          .reduce((sum, invoice) => sum + (invoice.amount || 0), 0)
-          .toFixed(2)}</p>
+        <p>Amounts are reported in each invoice's recorded currency. No cross-currency total is calculated.</p>
         <p><strong>Paid Invoices:</strong> ${
           invoices.filter((invoice) => invoice.datepaid).length
         }</p>

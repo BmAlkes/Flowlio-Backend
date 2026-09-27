@@ -1,7 +1,8 @@
+import {isCurrency} from '@/utils/financial-currency';
 import { projectReadScope } from "@/security/resource-access";
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { revenueEntries, projectExpenses, projects } from "@/schema/schema";
+import { revenueEntries, projectExpenses, projects, organizations } from "@/schema/schema";
 import { eq, and, sql, desc, gte, lte } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import { resolveDateRange, previousRange, pctChange, getGranularity, DateRange } from "@/utils/dateRange.util";
@@ -81,6 +82,12 @@ export const getFinancialOverview = async (req: Request, res: Response) => {
     const { organizationId } = req.user as any;
     if (!organizationId) return res.status(400).json({ success: false, message: "Organization ID is required" });
 
+    const [org]=await database.select({settings:organizations.settings}).from(organizations).where(eq(organizations.id,organizationId));
+    const currencyCode=org?.settings?.currency;
+    if(!isCurrency(currencyCode))return res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured'});
+    const mismatches=await database.execute(sql`select 1 from revenue_entries where organization_id=${organizationId} and currency is distinct from ${currencyCode}
+      union all select 1 from project_expenses e join projects p on p.id=e.project_id where p.organization_id=${organizationId} and p.currency_code is distinct from ${currencyCode} limit 1`);
+    if(mismatches.rows.length)return res.status(422).json({success:false,code:'CURRENCY_MISMATCH',message:'Financial records have different or missing currencies. Reconcile currencies before generating a consolidated report.'});
     const range = resolveDateRange(req.query as any);
     const prev = previousRange(range);
     const granularity = getGranularity(range);
@@ -102,7 +109,7 @@ export const getFinancialOverview = async (req: Request, res: Response) => {
 
     const projectPerformance = await database
       .select({
-        id: projects.id, name: projects.name, budget: projects.budget,
+        id: projects.id, name: projects.name, budget: projects.budget, currencyCode: projects.currencyCode,
         spent: sql<number>`COALESCE(SUM(CAST(${projectExpenses.amount} AS DECIMAL)), 0)`,
       })
       .from(projects)
@@ -119,6 +126,7 @@ export const getFinancialOverview = async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       data: {
+        currencyCode,
         totalRevenue,
         totalExpenses,
         netProfit,

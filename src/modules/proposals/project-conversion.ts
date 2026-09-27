@@ -1,3 +1,4 @@
+import {currencyCodeSchema,isCurrency,proposalCurrency} from '../../utils/financial-currency';
 import { createHash, randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
@@ -12,6 +13,7 @@ export const conversionInput = z.object({
   projectNumber: z.string().trim().max(50).default(""),
   description: z.string().max(10000).default(""),
   budget: decimal.nullable().optional(),
+  currencyCode: currencyCodeSchema.optional(),
   tasks: z.array(z.object({ title, estimatedHours: decimal.nullable().optional() }).strict()).max(100),
   milestones: z.array(title).max(30),
 }).strict();
@@ -47,15 +49,17 @@ export function createProposalConversion(pool: Pool) {
       if (templateTasks.length > 100) throw new ConversionError(400, "TEMPLATE_TOO_LARGE");
     }
     const data = proposal.proposal_data ?? {};
+    const org=(await client.query('select settings from organizations where id=$1',[actor.organizationId])).rows[0];
+    const currencyCode=proposalCurrency(data)??(isCurrency(org?.settings?.currency)?org.settings.currency:null);
     const sourceTasks = templateId ? templateTasks : cleanTitles(data.scopeOfWork,100).map(title=>({title,estimatedHours:null}));
     const phases = Array.isArray(data.timeline?.phases) ? data.timeline.phases : [];
     if ((!templateId && Array.isArray(data.scopeOfWork) && data.scopeOfWork.length > 100) || phases.length > 30) throw new ConversionError(400, "DRAFT_TOO_LARGE");
     const milestones = cleanTitles(phases.map((phase: {phase?:unknown})=>phase?.phase),30);
     const budgetText = canViewProjectFinancials(actor) && typeof data.investment?.totalBudget === "string" ? data.investment.totalBudget.slice(0,250) : "";
     return {
-      version: createHash("sha256").update(JSON.stringify([proposal.id,proposal.updated_at,proposal.status,proposal.project_title,proposal.client_id,data,templateId??null,templateTasks])).digest("hex"),
+      version: createHash("sha256").update(JSON.stringify([proposal.id,proposal.updated_at,proposal.status,proposal.project_title,proposal.client_id,data,currencyCode,templateId??null,templateTasks])).digest("hex"),
       clientId: proposal.client_id, name: proposal.project_title, description: typeof data.projectOverview === "string" ? data.projectOverview.slice(0,10000) : "",
-      budgetText, budget: decimal.safeParse(budgetText).success ? budgetText : "", canSetBudget: canViewProjectFinancials(actor),
+      currencyCode, budgetText, budget: decimal.safeParse(budgetText).success ? budgetText : "", canSetBudget: canViewProjectFinancials(actor),
       tasks: sourceTasks, milestones, templates,
     };
   }
@@ -98,9 +102,11 @@ export function createProposalConversion(pool: Pool) {
       if (source.version!==input.version) throw new ConversionError(409,"SOURCE_CHANGED");
       await checkLimits(client,actor,input.tasks.length);
       if ((await client.query('select id from projects where organization_id=$1 and name=$2 limit 1',[actor.organizationId,input.name])).rowCount) throw new ConversionError(409,"PROJECT_NAME_EXISTS");
+      const currencyCode=source.currencyCode??input.currencyCode??null;
+      if(source.currencyCode&&input.currencyCode&&source.currencyCode!==input.currencyCode)throw new ConversionError(409,'CURRENCY_MISMATCH');
       const projectId=randomUUID();
-      await client.query(`insert into projects(id,name,project_number,client_id,description,organization_id,created_by,status,visibility,progress,budget,created_at,updated_at)
-        values($1,$2,$3,$4,$5,$6,$7,'pending','private',0,$8,now(),now())`,[projectId,input.name,input.projectNumber,source.clientId,input.description,actor.organizationId,actor.id,input.budget??null]);
+      await client.query(`insert into projects(id,name,project_number,client_id,description,organization_id,created_by,status,visibility,progress,budget,currency_code,created_at,updated_at)
+        values($1,$2,$3,$4,$5,$6,$7,'pending','private',0,$8,$9,now(),now())`,[projectId,input.name,input.projectNumber,source.clientId,input.description,actor.organizationId,actor.id,input.budget??null,currencyCode]);
       for (const task of input.tasks) await client.query(`insert into tasks(id,title,project_id,created_by,status,visibility,estimated_hours,created_at,updated_at)
         values($1,$2,$3,$4,'todo','private',$5,now(),now())`,[randomUUID(),task.title,projectId,actor.id,task.estimatedHours??null]);
       for (const [position,title] of input.milestones.entries()) await client.query(`insert into project_milestones(id,project_id,organization_id,title,status,position,created_at,updated_at)

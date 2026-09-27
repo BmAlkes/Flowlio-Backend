@@ -1,3 +1,4 @@
+import {currencyCodeSchema} from '../utils/financial-currency';
 import { clientStatusSchema, projectStatusSchema } from "../contracts/core-api";
 import { z } from "zod";
 
@@ -269,6 +270,7 @@ export const deletePaymentLinkSchema = z.object({
 // ==================== INVOICE VALIDATION SCHEMAS ====================
 
 export const createInvoiceSchema = z.object({
+  currencyCode: currencyCodeSchema.optional(),
   clientId: z.string().min(1, "Client is required"),
   amount: z.number().min(0.01, "Amount must be greater than 0"),
   description: z.string().optional(),

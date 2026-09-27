@@ -17,7 +17,7 @@ const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(valu
 
 function eligibleQuery(tx: Transaction | typeof database, actor: Actor, filter: TimeBillingFilter, ids?: string[]) {
   return tx.select({
-    id: timeEntries.id, userName: users.name, projectName: projects.name,
+    id: timeEntries.id, userName: users.name, projectName: projects.name, currencyCode: projects.currencyCode,
     taskTitle: tasks.title, description: timeEntries.description,
     startTime: timeEntries.startTime, endTime: timeEntries.endTime,
     duration: timeEntries.duration, hourlyRate: timeEntries.hourlyRate,
@@ -79,6 +79,8 @@ export async function createTimeInvoice(actor: Actor, input: TimeInvoiceInput) {
     const versions = new Map(input.entries.map(entry => [entry.id, entry.version]));
     const items = rows.map(row => {
       if (versions.get(row.id) !== hash(row)) throw new TimeInvoicingError(409, "TIME_CHANGED", "Selected time or rates changed. Refresh and review the updated values.");
+      if(!row.currencyCode)throw new TimeInvoicingError(400,'CURRENCY_REQUIRED','Currency not configured for the selected project.');
+      if(row.currencyCode!==input.currencyCode)throw new TimeInvoicingError(409,'CURRENCY_MISMATCH','Invoice and selected project currencies must match. Invoice each currency separately.');
       const price = priceTime(row.duration!, row.hourlyRate, input.fallbackRate);
       return { row, ...price };
     });
@@ -89,12 +91,12 @@ export async function createTimeInvoice(actor: Actor, input: TimeInvoiceInput) {
       " - " + item.row.duration + " min x " + item.hourlyRate + "/h = " + item.amount).join("\n");
     const invoice = await insertNumberedInvoice(tx, "S1", { id: randomUUID(), organizationId: actor.organizationId,
       clientId: client.id, createdBy: actor.id, clientname: client.name.trim(), amount: formatCents(totalCents),
-      status: "draft", description, dueDate: input.dueDate ? new Date(input.dueDate + "T00:00:00Z") : null });
+      currencyCode: input.currencyCode, status: "draft", description, dueDate: input.dueDate ? new Date(input.dueDate + "T00:00:00Z") : null });
     await tx.insert(invoiceTimeItems).values(items.map(item => ({
       id: randomUUID(), invoiceId: invoice.id, timeEntryId: item.row.id,
       userName: item.row.userName, projectName: item.row.projectName, taskTitle: item.row.taskTitle,
       description: item.row.description, startedAt: item.row.startTime, minutes: item.row.duration!,
-      hourlyRate: item.hourlyRate, amount: item.amount,
+      hourlyRate: item.hourlyRate, amount: item.amount, currencyCode: input.currencyCode,
     })));
     await tx.insert(timeInvoicingRequests).values({ organizationId: actor.organizationId, requestKey: input.requestKey,
       actorId: actor.id, requestHash, invoiceId: invoice.id });

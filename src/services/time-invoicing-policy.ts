@@ -1,3 +1,4 @@
+import {currencyCodeSchema} from '../utils/financial-currency';
 import { z } from "zod";
 
 export class TimeInvoicingError extends Error {
@@ -13,6 +14,7 @@ export const timeBillingFilterSchema = z.object(period).strict().refine(validPer
 export const timeInvoiceSchema = z.object({
   ...period,
   requestKey: z.string().uuid(),
+  currencyCode: currencyCodeSchema.refine(value => currencyCodeSchema.safeParse(value).success && new Intl.NumberFormat('en', {style:'currency',currency:value}).resolvedOptions().maximumFractionDigits === 2, 'This billing flow requires a currency with two decimal places'),
   entries: z.array(z.object({ id: z.string().min(1).max(128), version: z.string().regex(/^[a-f0-9]{64}$/) }).strict()).min(1).max(500),
   fallbackRate: z.string().regex(/^\d{1,8}(\.\d{1,2})?$/).optional(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {

@@ -97,6 +97,7 @@ export const createInvoice = async (
 
     // Create invoice
     const invoiceData = {
+      currencyCode: validatedData.currencyCode,
       id: randomUUID(),
       organizationId: organizationId,
       clientId: validatedData.clientId,
@@ -137,6 +138,7 @@ export const createInvoice = async (
       data: newInvoice,
     });
   } catch (error) {
+    if(error instanceof Error && (error.message==='Currency not configured'||error.message.startsWith('This billing flow requires'))){res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:error.message});return;}
     if (error instanceof z.ZodError) {
       res.status(400).json({
         success: false,

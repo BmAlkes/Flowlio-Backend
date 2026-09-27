@@ -22,7 +22,7 @@ else {
  before(async()=>{await runReleaseMigrations(pool);});
  beforeEach(async()=>{await reset();await pool.query(`
   INSERT INTO users(id,name,email,email_verified,two_factor_enabled,is_super_admin,timezone,created_at,updated_at) VALUES ('owner','Owner','owner@example.test',true,false,false,'UTC',now(),now());
-  INSERT INTO organizations(id,name,slug,created_at,updated_at) VALUES ('org','Test','test',now(),now());
+  INSERT INTO organizations(id,name,slug,settings,created_at,updated_at) VALUES ('org','Test','test','{"currency":"USD"}',now(),now());
   INSERT INTO user_organizations(id,user_id,organization_id,role,status,created_at,updated_at) VALUES ('membership','owner','org','owner','active',now(),now());
   INSERT INTO clients(id,organization_id,name,email,created_by,status,type,follow_up_at,created_at,updated_at) VALUES ('client','org','Client','client@example.test','owner','Active','client',now()-interval '2 days',now(),now());
  `);});

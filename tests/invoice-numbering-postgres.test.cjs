@@ -49,13 +49,13 @@ if (!process.env.INVOICE_TEST_DATABASE_URL) {
   };
   before(async () => {
     await pool.query(`
-      create table organizations (id text primary key);
+      create table organizations (id text primary key, settings json default '{"currency":"USD"}');
       create table users (id text primary key);
       create table clients (id text primary key, organization_id text not null references organizations(id), name text not null);
       create table invoices (
         id text primary key, organization_id text not null references organizations(id),
         client_id text not null references clients(id), created_by text not null references users(id),
-        invoice_number text not null, client_name text not null, amount numeric(10,2) not null,
+        invoice_number text not null, client_name text not null, amount numeric(10,2) not null, currency_code text,
         status text not null, date_paid timestamp, due_date timestamp, description text,
         pdf_url text, pdf_file_name text, pdf_file_size integer, payment_url text, overdue_notified_at timestamp,
         created_at timestamp not null, updated_at timestamp not null,
@@ -86,6 +86,15 @@ if (!process.env.INVOICE_TEST_DATABASE_URL) {
     await createInvoice({ user: { id: 'alice', role: 'user', organizationId: org }, body: { clientId, amount: 25 } }, res);
     return res;
   }
+  test('manual invoices require currency and preserve an explicit denomination without an organization default',async()=>{
+    await pool.query('update organizations set settings=null');
+    assert.equal((await manual()).code,400);assert.equal(await count(),0);
+    for(const currencyCode of ['ILS','USD','EUR']){
+      const res={code:200,status(code){this.code=code;return this;},json(body){this.body=body;}};
+      await createInvoice({user:{id:'alice',role:'user',organizationId:'org-a'},body:{clientId:'client-org-a',amount:2,currencyCode}},res);
+      assert.equal(res.code,201,JSON.stringify(res.body));assert.equal(res.body.data.currencyCode,currencyCode);assert.equal(res.body.data.amount,'2.00');
+    }
+  });
   async function template() {
     return (await db.insert(schema.recurringInvoices).values({ ...data(), templateName: 'Monthly',
       frequency: 'monthly', startDate: new Date('2026-01-01'), nextRunDate: new Date('2026-01-01'), status: 'active' }).returning())[0];

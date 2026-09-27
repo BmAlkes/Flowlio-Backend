@@ -28,17 +28,17 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
   Module._load = original;
   const actor = { id: 'alice', role: 'user', organizationId: 'org-a', isOrganizationOwner: true };
   const filter = { clientId: 'client-a', start: '2026-09-01T00:00:00Z', end: '2026-10-01T00:00:00Z' };
-  const request = async () => ({ ...filter, requestKey: randomUUID(), entries: (await listBillableTime(actor,filter)).entries.map(({id,version}) => ({id,version})), fallbackRate: '40.00' });
+  const request = async () => ({ ...filter, currencyCode:'USD', requestKey: randomUUID(), entries: (await listBillableTime(actor,filter)).entries.map(({id,version}) => ({id,version})), fallbackRate: '40.00' });
   const count = async table => Number((await pool.query('select count(*) from ' + table)).rows[0].count);
   const response = () => ({ code: 200, status(code) { this.code=code; return this; }, json(body) { this.body=body; return this; } });
   before(async () => {
-    await pool.query(`      create table organizations (id text primary key);
+    await pool.query(`      create table organizations (id text primary key, settings json default '{"currency":"USD"}');
       create table users (id text primary key, name text not null);
       create table clients (id text primary key, organization_id text not null references organizations(id), name text not null);
       create table invoices (
         id text primary key, organization_id text not null references organizations(id),
         client_id text not null references clients(id), created_by text not null references users(id),
-        invoice_number text not null, client_name text not null, amount numeric(10,2) not null,
+        invoice_number text not null, client_name text not null, amount numeric(10,2) not null, currency_code text,
         status text not null, date_paid timestamp, due_date timestamp, description text,
         pdf_url text, pdf_file_name text, pdf_file_size integer, payment_url text, overdue_notified_at timestamp,
         created_at timestamp not null, updated_at timestamp not null,
@@ -46,13 +46,13 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
       );
       create table recent_activities (id text primary key, organization_id text, actor_id text, user_id text, type text, resource text, resource_id text, action text, message text, metadata json, created_at timestamp);
 
-      create table projects (id text primary key, name text, organization_id text references organizations(id), client_id text references clients(id), created_by text, assigned_to text, visibility text);
+      create table projects (id text primary key, name text, organization_id text references organizations(id), client_id text references clients(id), created_by text, assigned_to text, visibility text, currency_code text default 'USD');
       create table tasks (id text primary key, title text, project_id text references projects(id), created_by text, assigned_to text, visibility text);
       create table time_entries (id text primary key, user_id text references users(id), project_id text references projects(id), task_id text references tasks(id), client_id text references clients(id), description text, start_time timestamp, end_time timestamp, duration integer, billable boolean, hourly_rate numeric(10,2), status text);
     `);
     // Minimal allocation dependency; real T29 guards are exercised in retainers.test.cjs.
     await pool.query("create table retainer_entries (time_entry_id text unique references time_entries(id))");
-    await prepareInvoiceNumbering(pool); await prepareTimeInvoicing(pool);
+    await prepareInvoiceNumbering(pool); await prepareTimeInvoicing(pool);await pool.query('alter table invoice_time_items add column currency_code text');
   });
   beforeEach(async () => {
     quota=true;
@@ -67,6 +67,14 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
     `);
   });
   after(async () => { try { await pool.query('drop table retainer_entries, time_invoicing_requests, invoice_time_items, time_entries, tasks, projects, recent_activities, invoices, invoice_number_counters, clients, users, organizations cascade; drop function if exists protect_invoiced_time(); drop function if exists assign_invoice_number()'); } finally { await pool.end(); } });
+  for(const currencyCode of ['ILS','USD','EUR']) test('one minute at 120/h preserves '+currencyCode+' on invoice and time snapshot',async()=>{
+    await pool.query('update projects set currency_code=$1',[currencyCode]);await pool.query("delete from time_entries where id='two';update time_entries set duration=1,hourly_rate=120 where id='one'");
+    const body={...await request(),currencyCode};const {invoice}=await createTimeInvoice(actor,body);assert.equal(invoice.amount,'2.00');assert.equal(invoice.currencyCode,currencyCode);assert.equal((await getInvoiceTimeItems(actor,invoice.id))[0].currencyCode,currencyCode);
+  });
+  test('missing or mismatched currency cannot issue an invoice or consume time',async()=>{
+    let body=await request();const res=response();await invoiceFromTime({user:actor,body:{...body,currencyCode:undefined}},res);assert.equal(res.code,400);assert.equal(await count('invoices'),0);
+    await assert.rejects(createTimeInvoice(actor,{...body,currencyCode:'ILS'}),{code:'CURRENCY_MISMATCH'});await pool.query('update projects set currency_code=null');body=await request();await assert.rejects(createTimeInvoice(actor,body),{code:'CURRENCY_REQUIRED'});assert.equal(await count('invoice_time_items'),0);
+  });
   test('team entries create one invoice with persisted per-entry prices and server total', async () => {
     const input=await request(); assert.equal(input.entries.length,2);
     const {invoice}=await createTimeInvoice(actor,input);

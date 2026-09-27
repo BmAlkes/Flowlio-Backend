@@ -6,6 +6,20 @@ else {
  assert.ok(["localhost","127.0.0.1"].includes(url.hostname)&&url.port==="55442"&&url.pathname==="/flowlio_proposal_project_test","Dedicated local database only");
  const {Pool}=require("pg");const pool=new Pool({connectionString:url.toString()});
  const service=require("../src/modules/proposals/project-conversion").createProposalConversion(pool);
+ const Module=require('node:module');const load=Module._load;
+ const database=require('drizzle-orm/node-postgres').drizzle(pool,{schema:require('../src/schema/schema'),casing:'snake_case'});
+ Module._load=function(id,...args){
+  if(id.includes('configs/connection.config'))return {database,connection:pool};
+  if(id.includes('utils/logger.util'))return {logger:{info(){},error(){},warn(){}}};
+  if(id.includes('utils/cloudinary.util'))return {uploadToCloudinary:async()=>{throw Error('No external upload in regression');}};
+  if(id.includes('utils/activity.util'))return {logActivity:async()=>{}};
+  if(id.includes('utils/superadmin-notification.util'))return {notifySuperAdmins:async()=>{}};
+  return load.call(this,id,...args);
+ };
+ const {updateProject}=require('../src/controllers/organization/projects/updateproject.controller');
+ const {listProjects}=require('../src/modules/projects/read-projects');
+ const {getFinancialOverview}=require('../src/controllers/reports/financial-overview.controller');
+ Module._load=load;
  const actor={id:"owner",role:"user",organizationId:"org-a",isOrganizationOwner:true};
  const count=async table=>Number((await pool.query("select count(*) n from "+table)).rows[0].n);
  before(async()=>{await pool.query("drop schema public cascade;create schema public;drop schema if exists flowlio_releases cascade;drop schema if exists drizzle cascade");await require("../src/utils/release-migrations.util").runReleaseMigrations(pool)});
@@ -23,6 +37,27 @@ else {
  });
  after(()=>pool.end());
  async function input(templateId){const p=await service.preview(actor,"proposal",templateId);return {version:p.version,templateId:templateId??null,name:p.name,description:p.description,budget:p.budget,tasks:p.tasks,milestones:p.milestones}}
+ for(const currencyCode of ['ILS','USD','EUR']) test('conversion records proposal currency '+currencyCode+' and zero budget',async()=>{
+   await pool.query("update organizations set settings=$1 where id='org-a'",[JSON.stringify({currency:'EUR'})]);await pool.query("update proposals set proposal_data=$1 where id='proposal'",[JSON.stringify({investment:{totalBudget:'4000',currencyCode}})]);
+   const preview=await service.preview(actor,'proposal');assert.equal(preview.currencyCode,currencyCode);const result=await service.convert(actor,'proposal',{...await input(),budget:'4000'});
+   const res={code:200,status(code){this.code=code;return this;},json(body){this.body=body;return this;}};
+   await updateProject({user:actor,params:{id:result.projectId},body:{budget:0}},res);assert.equal(res.code,200,JSON.stringify(res.body));
+   const reloaded=(await listProjects(actor)).find(p=>p.id===result.projectId);assert.equal(Number(reloaded.budget),0);assert.equal(reloaded.currencyCode,currencyCode);
+   const report=await require('../src/modules/profitability/service').createProfitability(pool).report(actor,result.projectId,{from:'2026-09-01',to:'2026-09-30'});assert.equal(report.settings.currency,currencyCode);
+   const row=(await pool.query('select budget,currency_code from projects where id=$1',[result.projectId])).rows[0];assert.equal(row.budget,'0.00');assert.equal(row.currency_code,currencyCode);
+ });
+ test('consolidated reports reject missing and mixed currencies',async()=>{
+   const response=()=>({code:200,status(code){this.code=code;return this;},json(body){this.body=body;return this;}});
+   let res=response();await getFinancialOverview({user:actor,query:{}},res);assert.equal(res.code,400);assert.equal(res.body.code,'CURRENCY_REQUIRED');
+   await pool.query("update organizations set settings='{\"currency\":\"ILS\"}' where id='org-a'");
+   res=response();await getFinancialOverview({user:actor,query:{}},res);assert.equal(res.code,200,JSON.stringify(res.body));assert.equal(res.body.data.currencyCode,'ILS');
+   await pool.query("insert into revenue_entries(id,organization_id,date,amount,currency,category,source,created_by,created_at,updated_at) values('rev','org-a','2026-09-27',10,'USD','service','manual','owner',now(),now())");
+   res=response();await getFinancialOverview({user:actor,query:{}},res);assert.equal(res.code,422);assert.equal(res.body.code,'CURRENCY_MISMATCH');
+ });
+ test('organization currency is explicit fallback and later settings cannot relabel a project',async()=>{
+   await pool.query("update organizations set settings=$1 where id='org-a'",[JSON.stringify({currency:'ILS'})]);const result=await service.convert(actor,'proposal',await input());await pool.query("update organizations set settings=$1 where id='org-a'",[JSON.stringify({currency:'USD'})]);assert.equal((await pool.query('select currency_code from projects where id=$1',[result.projectId])).rows[0].currency_code,'ILS');
+   await assert.rejects(pool.query("insert into project_financial_settings(project_id,currency) values($1,'USD')",[result.projectId]));
+ });
  test("preview uses approved source and an authorized template without writing",async()=>{
   const p=await service.preview(actor,"proposal","template");assert.equal(p.tasks[0].title,"Template task");assert.equal(p.tasks[0].estimatedHours,"3.50");assert.equal(p.budget,"1000.00");assert.equal(p.milestones.length,2);assert.ok(!p.templates.some(t=>t.id==="foreign-template"));assert.equal(await count("projects"),0);
  });

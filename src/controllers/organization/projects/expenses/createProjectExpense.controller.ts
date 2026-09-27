@@ -60,6 +60,7 @@ export const createProjectExpense = async (
       return;
     }
 
+    if(!project.currencyCode){res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured. Configure project profitability before adding expenses.'});return;}
     // Create the expense
     const [newExpense] = await database
       .insert(projectExpenses)

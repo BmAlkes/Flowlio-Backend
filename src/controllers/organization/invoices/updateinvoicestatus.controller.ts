@@ -1,3 +1,4 @@
+import {isCurrency} from '@/utils/financial-currency';
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
 import { invoices, revenueEntries } from "@/schema/schema";
@@ -25,6 +26,8 @@ export const updateInvoiceStatus = async (
       return;
     }
 
+    const [existing]=await database.select().from(invoices).where(and(eq(invoices.id,id),eq(invoices.organizationId,organizationId)));
+    if(existing&&['sent','paid'].includes(normalizedStatus)&&!isCurrency(existing.currencyCode)){res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured. This legacy invoice must be reconciled before sending or recording payment.'});return;}
     const now = new Date();
 
     const [updatedInvoice] = await database
@@ -51,7 +54,7 @@ export const updateInvoiceStatus = async (
           organizationId,
           date: dateStr,
           amount: updatedInvoice.amount ?? "0",
-          currency: "USD",
+          currency: updatedInvoice.currencyCode!,
           category: "service",
           source: "invoice",
           description: updatedInvoice.invoiceNumber ?? null,
@@ -63,7 +66,7 @@ export const updateInvoiceStatus = async (
         })
         .onConflictDoUpdate({
           target: revenueEntries.invoiceId,
-          set: { amount: updatedInvoice.amount ?? "0", date: dateStr, updatedAt: now },
+          set: { currency: updatedInvoice.currencyCode!, amount: updatedInvoice.amount ?? "0", date: dateStr, updatedAt: now },
         });
     } else {
       // Remove revenue entry if invoice is un-paid

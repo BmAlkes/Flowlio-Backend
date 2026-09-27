@@ -108,7 +108,7 @@ export const generateInvoicePDF = async (
         </div>
         
         <div class="amount">
-          <p>Amount: $${parseFloat(invoiceData.amount).toFixed(2)}</p>
+          <p>Amount: ${invoiceData.currencyCode ? new Intl.NumberFormat('en',{style:'currency',currency:invoiceData.currencyCode,currencyDisplay:'code'}).format(Number(invoiceData.amount)) : 'Currency not configured'}</p>
         </div>
         
         ${

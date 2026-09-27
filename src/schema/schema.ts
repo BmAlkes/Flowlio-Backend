@@ -355,6 +355,7 @@ export const projects = pgTable(
     progress: integer("progress").$defaultFn(() => 0),
     address: text("address"),
     budget: decimal("budget", { precision: 10, scale: 2 }),
+    currencyCode: text("currency_code"),
     contractfile: text("contractfile"),
     contractfilePublicId: text("contractfile_public_id"), // For Cloudinary
     projectFiles: json("project_files").$type<{
@@ -555,6 +556,7 @@ export const invoices = pgTable(
       .references(() => users.id),
     invoiceNumber: text("invoice_number").notNull(),
     clientname: text("client_name").notNull(),
+    currencyCode: text("currency_code"),
     amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
     status: text("status")
       .$defaultFn(() => "draft")
@@ -1021,6 +1023,7 @@ export const timeEntries = pgTable(
 );
 
 export const invoiceTimeItems = pgTable("invoice_time_items", {
+  currencyCode: text("currency_code"),
   id: text("id").primaryKey(),
   invoiceId: text("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
   timeEntryId: text("time_entry_id").notNull().unique().references(() => timeEntries.id, { onDelete: "restrict" }),
