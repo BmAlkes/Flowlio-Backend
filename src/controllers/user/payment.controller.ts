@@ -1233,7 +1233,7 @@ export const capturePayPalOrder = async (
                 settings: {
                   timezone: "UTC",
                   dateFormat: "MM/DD/YYYY",
-                  currency: "USD",
+                  // Business currency is explicitly selected by the organization owner.
                   language: "en",
                   notifications: {
                     email: true,

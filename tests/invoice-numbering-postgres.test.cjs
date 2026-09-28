@@ -65,7 +65,7 @@ if (!process.env.INVOICE_TEST_DATABASE_URL) {
       create table recurring_invoices (
         id text primary key, organization_id text not null references organizations(id),
         client_id text not null references clients(id), created_by text not null references users(id),
-        template_name text not null, client_name text not null, amount numeric(10,2) not null, description text,
+        currency_code text, template_name text not null, client_name text not null, amount numeric(10,2) not null, description text,
         frequency text not null, start_date timestamp not null, end_date timestamp, last_run_date timestamp,
         next_run_date timestamp not null, status text not null, created_at timestamp not null, updated_at timestamp not null
       );
@@ -96,7 +96,7 @@ if (!process.env.INVOICE_TEST_DATABASE_URL) {
     }
   });
   async function template() {
-    return (await db.insert(schema.recurringInvoices).values({ ...data(), templateName: 'Monthly',
+    return (await db.insert(schema.recurringInvoices).values({ ...data(), currencyCode: 'USD', templateName: 'Monthly',
       frequency: 'monthly', startDate: new Date('2026-01-01'), nextRunDate: new Date('2026-01-01'), status: 'active' }).returning())[0];
   }
   test('manual controller: 30 simultaneous invoices get distinct sequential numbers', async () => {

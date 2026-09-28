@@ -92,6 +92,7 @@ export const getClients = async (
         updatedAt: clients.updatedAt,
         position: clients.position,
         leadValue: clients.leadValue,
+        currencyCode: clients.currencyCode,
         leadTemperature: clients.leadTemperature,
         lastInteractionAt: clients.lastInteractionAt,
         followUpAt: clients.followUpAt,

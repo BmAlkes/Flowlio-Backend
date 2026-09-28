@@ -148,6 +148,13 @@
       "when": 1790467200000,
       "tag": "0020_explicit_financial_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790553600000,
+      "tag": "0021_organization_currency",
+      "breakpoints": true
     }
   ]
 }

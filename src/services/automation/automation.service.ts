@@ -1,3 +1,4 @@
+import {recordedMoney} from '@/utils/financial-currency';
 import { setDrizzleAuditContext } from "../../modules/audit/context";
 import { scopedDatabase, jobContext } from "../jobs/context";
 import { database as baseDatabase } from "../../configs/connection.config";
@@ -1026,6 +1027,7 @@ export class AutomationService {
           invoiceNumber: invoices.invoiceNumber,
           clientname: invoices.clientname,
           amount: invoices.amount,
+          currencyCode: invoices.currencyCode,
           dueDate: invoices.dueDate,
           organizationId: invoices.organizationId,
           overdueNotifiedAt: invoices.overdueNotifiedAt,
@@ -1059,7 +1061,7 @@ export class AutomationService {
           organizationId: invoice.organizationId,
           type: "invoice_overdue",
           title: "Invoice Overdue",
-          message: `Invoice ${invoice.invoiceNumber} for ${invoice.clientname} of $${invoice.amount} is overdue since ${dueDateStr}.`,
+          message: `Invoice ${invoice.invoiceNumber} for ${invoice.clientname} of ${recordedMoney(invoice.amount, invoice.currencyCode)} is overdue since ${dueDateStr}.`,
           data: { invoiceId: invoice.id },
         });
 
@@ -1073,7 +1075,7 @@ export class AutomationService {
               recipientName: recipient.name ?? recipient.email,
               invoiceNumber: invoice.invoiceNumber,
               clientname: invoice.clientname,
-              amount: `$${invoice.amount}`,
+              amount: `${recordedMoney(invoice.amount, invoice.currencyCode)}`,
               dueDate: dueDateStr,
               invoiceUrl,
             },
@@ -1113,6 +1115,7 @@ export class AutomationService {
           id: paymentLinks.id,
           clientname: paymentLinks.clientname,
           amount: paymentLinks.amount,
+          currencyCode: paymentLinks.currencyCode,
           organizationId: paymentLinks.organizationId,
           createdAt: paymentLinks.createdAt,
           reminderNotifiedAt: paymentLinks.reminderNotifiedAt,
@@ -1143,7 +1146,7 @@ export class AutomationService {
           organizationId: link.organizationId,
           type: "payment_link_reminder",
           title: "Payment Link Reminder",
-          message: `Payment link for ${link.clientname} ($${link.amount}) created on ${createdStr} is still unpaid.`,
+          message: `Payment link for ${link.clientname} (${recordedMoney(link.amount, link.currencyCode)}) created on ${createdStr} is still unpaid.`,
           data: { paymentLinkId: link.id },
         });
 
@@ -1156,7 +1159,7 @@ export class AutomationService {
             data: {
               recipientName: recipient.name ?? recipient.email,
               clientname: link.clientname,
-              amount: `$${link.amount}`,
+              amount: `${recordedMoney(link.amount, link.currencyCode)}`,
               createdAt: createdStr,
               paymentUrl: link.paymentLink ?? undefined,
             },

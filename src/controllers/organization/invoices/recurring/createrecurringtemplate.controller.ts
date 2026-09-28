@@ -1,3 +1,4 @@
+import {organizationCurrency} from '@/services/organization-currency.service';
 import { Response, Request } from "express";
 import { recurringInvoices } from "@/schema/schema";
 import { database } from "@/configs/connection.config";
@@ -43,7 +44,10 @@ export const createRecurringTemplate = async (
       return;
     }
 
+    const currencyCode=await organizationCurrency(organizationId);
+    if(!currencyCode){res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured'});return;}
     const templateData = {
+      currencyCode,
       id: randomUUID(),
       organizationId,
       clientId: validatedData.clientId,

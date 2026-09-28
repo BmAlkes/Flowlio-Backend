@@ -58,6 +58,11 @@ export async function runReleaseMigrations(pool: Pool, folder = path.resolve("dr
     const missing = await client.query<{ name: string }>(`
       SELECT required.name FROM (VALUES
         ('public.invoices', 'invoices_assign_number'),
+        ('public.clients', 'clients_currency_guard'),
+        ('public.recurring_invoices', 'recurring_currency_guard'),
+        ('public.payment_links', 'payment_links_currency_guard'),
+        ('public.projects', 'projects_currency_guard'),
+        ('public.project_financial_settings', 'financial_settings_currency_guard'),
         ('public.time_entries', 'time_entries_protect_billing'),
         ('public.time_entries', 'time_entries_guard_active'),
         ('public.projects', 'projects_business_audit'),

@@ -31,8 +31,52 @@ else{
   await runReleaseMigrations(pool);const first=await history();assert.equal(first.length,migrationCount);
   const tables=(await pool.query("select count(*) from pg_tables where schemaname='public'")).rows[0].count;assert.equal(Number(tables),Object.keys(generateDrizzleJson(require('../src/schema/schema'),undefined,['public'],'snake_case').tables).length);
   const triggers=(await pool.query("select tgname from pg_trigger where not tgisinternal order by tgname")).rows.map(r=>r.tgname);
-  assert.deepEqual(triggers,["financial_settings_currency_guard","projects_currency_guard","audit_workflow_event","milestones_workflow_event","business_audit_immutable","delivery_reviews_business_audit","invoices_assign_number","projects_business_audit","scope_version_immutable", "retainer_entries_guard", "time_entries_retainer_guard", "invoice_time_retainer_guard", "retainer_periods_guard", "retainers_terms_guard", "recurring_retainer_guard","time_entries_guard_active","time_entries_protect_billing","user_management_business_audit","user_organizations_business_audit"].sort());
+  assert.deepEqual(triggers,["clients_currency_guard","recurring_currency_guard","payment_links_currency_guard","financial_settings_currency_guard","projects_currency_guard","audit_workflow_event","milestones_workflow_event","business_audit_immutable","delivery_reviews_business_audit","invoices_assign_number","projects_business_audit","scope_version_immutable", "retainer_entries_guard", "time_entries_retainer_guard", "invoice_time_retainer_guard", "retainer_periods_guard", "retainers_terms_guard", "recurring_retainer_guard","time_entries_guard_active","time_entries_protect_billing","user_management_business_audit","user_organizations_business_audit"].sort());
   await runReleaseMigrations(pool);assert.deepEqual(await history(),first);
+ });
+ test('organization currency snapshots survive setting changes and legacy rows stay unknown',async()=>{
+  await runReleaseMigrations(pool);await seed();
+  assert.equal((await pool.query("select currency_code from clients where id='client'")).rows[0].currency_code,null);
+  await pool.query("update organizations set settings='{\"currency\":\"ILS\"}' where id='org'");
+  await pool.query("insert into clients(id,organization_id,name,email,created_by,created_at,updated_at) values ('ils','org','ILS','ils@example.test','owner',now(),now())");
+  assert.equal((await pool.query("select currency_code from clients where id='ils'")).rows[0].currency_code,'ILS');
+  await pool.query("update organizations set settings='{\"currency\":\"EUR\"}' where id='org'");
+  assert.equal((await pool.query("select currency_code from clients where id='ils'")).rows[0].currency_code,'ILS');
+  await assert.rejects(pool.query("update clients set currency_code='EUR' where id='ils'"),/reconciliation/);
+  assert.equal((await pool.query("select currency_code from clients where id='client'")).rows[0].currency_code,null);
+ });
+ test('currency settings enforce owner, tenant, confirmation and stale-write boundaries',async()=>{
+  await runReleaseMigrations(pool);await seed();
+  await pool.query("update organizations set settings='{\"keep\":true}' where id='org'; insert into organizations(id,name,slug,settings,created_at,updated_at) values ('other','Other','other','{\"currency\":\"USD\"}',now(),now())");
+  const Module=require('node:module'),original=Module._load;
+  const db=require('drizzle-orm/node-postgres').drizzle(pool,{schema:require('../src/schema/schema'),casing:'snake_case'});
+  Module._load=function(id,...args){if(id.endsWith('configs/connection.config'))return{database:db,connection:pool};return original.call(this,id,...args);};
+  const controller=require('../src/controllers/organization/financial-settings.controller');const revenue=require('../src/controllers/organization/revenue/revenue.controller');Module._load=original;
+  const response=()=>({code:200,status(code){this.code=code;return this},json(body){this.body=body;return this}});
+  const user={id:'owner',organizationId:'org',role:'user',isOrganizationOwner:true};
+  for(const currencyCode of ['ILS','EUR','BRL']){
+   const previousCurrencyCode=(await pool.query("select settings->>'currency' as code from organizations where id='org'")).rows[0].code;
+   const res=response();await controller.updateFinancialSettings({user,body:{currencyCode,previousCurrencyCode,confirm:true}},res);assert.equal(res.code,200);
+  }
+  for(const [actor,body,expected]of [[{...user,isOrganizationOwner:false},{currencyCode:'USD',previousCurrencyCode:'BRL',confirm:true},403],[{...user,role:'client'},{currencyCode:'USD',previousCurrencyCode:'BRL',confirm:true},403],[user,{currencyCode:'USD',previousCurrencyCode:'ILS',confirm:true},409],[user,{currencyCode:'USD',previousCurrencyCode:'BRL',confirm:false},400],[user,{currencyCode:'XYZ',previousCurrencyCode:'BRL',confirm:true},400],[user,{currencyCode:'USD',previousCurrencyCode:'BRL',confirm:true,organizationId:'other'},400]]){
+   const res=response();await controller.updateFinancialSettings({user:actor,body},res);assert.equal(res.code,expected);
+  }
+  assert.deepEqual((await pool.query("select settings from organizations where id='org'")).rows[0].settings,{keep:true,currency:'BRL'});
+  await db.insert(require('../src/schema/schema').revenueEntries).values(['BRL','ILS',''].map((currency,i)=>({id:'revenue-'+i,organizationId:'org',date:'2026-09-28',amount:'10.00',currency,category:'service',source:'manual',createdBy:'owner'})));
+  const report=response();await revenue.getRevenue({user,query:{from:'2026-09-01',to:'2026-10-01'}},report);assert.equal(report.code,200);assert.equal(report.body.data.summary.total,10);assert.equal(report.body.data.summary.currencyCode,'BRL');assert.equal(report.body.data.summary.excludedEntries,2);assert.equal(report.body.data.entries.length,3);
+  const mismatched=response();await revenue.createRevenueEntry({user,body:{date:'2026-09-28',amount:20,currency:'ILS'}},mismatched);assert.equal(mismatched.code,400);
+  const relabel=response();await revenue.updateRevenueEntry({user,params:{entryId:'revenue-0'},body:{currency:'ILS'}},relabel);assert.equal(relabel.code,409);
+  assert.equal((await pool.query("select count(*) from recent_activities where resource='financial-settings'")).rows[0].count,'3');
+  const unresolved=response();await controller.unresolvedFinancialCurrencies({user},unresolved);assert.equal(unresolved.code,200);
+  const invoice=unresolved.body.data.records.find(r=>r.type==='invoice'&&r.id==='invoice');assert.equal(invoice.amount,'123.45');
+  const record={type:invoice.type,id:invoice.id,amount:invoice.amount,version:invoice.version};
+  const forbidden=response();await controller.reconcileFinancialCurrencies({user:{...user,role:'client'},body:{currencyCode:'BRL',confirm:true,records:[record]}},forbidden);assert.equal(forbidden.code,403);
+  const partial=response();await controller.reconcileFinancialCurrencies({user,body:{currencyCode:'BRL',confirm:true,records:[record,{...record,id:'zz-unavailable'}]}},partial);assert.equal(partial.code,409);assert.equal((await pool.query("select currency_code from invoices where id='invoice'")).rows[0].currency_code,null);
+  const stale=response();await controller.reconcileFinancialCurrencies({user,body:{currencyCode:'BRL',confirm:true,records:[{...record,amount:'999.00'}]}},stale);assert.equal(stale.code,409);
+  const reviewed=response();await controller.reconcileFinancialCurrencies({user,body:{currencyCode:'BRL',confirm:true,records:[record]}},reviewed);assert.equal(reviewed.code,200);
+  assert.deepEqual((await pool.query("select amount::text,currency_code from invoices where id='invoice'")).rows[0],{amount:'123.45',currency_code:'BRL'});
+  const repeated=response();await controller.reconcileFinancialCurrencies({user,body:{currencyCode:'EUR',confirm:true,records:[record]}},repeated);assert.equal(repeated.code,409);
+  assert.equal((await pool.query("select settings->>'currency' as code from organizations where id='other'")).rows[0].code,'USD');
  });
  test('five instances starting together apply each migration once',async()=>{
   await Promise.all(Array.from({length:5},()=>runReleaseMigrations(pool)));assert.equal((await history()).length,migrationCount);

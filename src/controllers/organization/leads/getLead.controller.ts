@@ -25,6 +25,7 @@ export const getLead = async (req: Request, res: Response): Promise<void> => {
           c.type,
           c.custom_fields         AS "customFields",
           c.lead_value            AS "leadValue",
+          c.currency_code AS "currencyCode",
           c.lead_probability      AS "leadProbability",
           c.lead_temperature      AS "leadTemperature",
           c.follow_up_at          AS "followUpAt",

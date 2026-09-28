@@ -23,3 +23,7 @@ export function invoiceCurrency(value: unknown): string {
   }
   return value;
 }
+
+export function recordedMoney(value: string | number, currency: unknown): string {
+  return isCurrency(currency) ? new Intl.NumberFormat('en', {style:'currency',currency,currencyDisplay:'code'}).format(Number(value)) : 'Currency not recorded';
+}

@@ -1,6 +1,6 @@
 import { database } from "@/configs/connection.config";
 import { paymentLinks } from "@/schema/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { updatePaymentLinkStatusSchema } from "@/schema/validation";
 import type { z } from "zod";
 
@@ -15,6 +15,7 @@ export async function changePaymentLinkStatus(organizationId: string, id: string
       and(
         eq(paymentLinks.id, id),
         eq(paymentLinks.organizationId, organizationId),
+        newStatus === 'paid' ? sql`valid_financial_currency(${paymentLinks.currencyCode})` : undefined,
       ),
     )
     .returning();

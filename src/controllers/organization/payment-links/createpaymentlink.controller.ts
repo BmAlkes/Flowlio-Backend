@@ -79,6 +79,7 @@ export const createPaymentLink = async (
       return;
     }
 
+    if(!project.currencyCode){res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured for project'});return;}
     // Generate unique payment link pointing to the public /pay/:id page
     const paymentLinkId = randomUUID();
     const frontendUrl = env.FRONTEND_DOMAIN || "http://localhost:4000";
@@ -86,6 +87,7 @@ export const createPaymentLink = async (
 
     // Create payment link
     const paymentLinkData = {
+      currencyCode: project.currencyCode,
       id: paymentLinkId,
       organizationId: organizationId,
       clientId: validatedData.clientId,

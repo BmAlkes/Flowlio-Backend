@@ -1,3 +1,5 @@
+import {organizationCurrency} from '@/services/organization-currency.service';
+import {proposalCurrency} from '@/utils/financial-currency';
 import { Response } from "express";
 import { database } from "@/configs/connection.config";
 import { logger } from "@/utils/logger.util";
@@ -55,6 +57,8 @@ export const createProposal = async (
       return;
     }
 
+    const currencyCode=proposalCurrency(proposalData)??await organizationCurrency(organizationId);
+    if(!currencyCode){res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured'});return;}
     // Insert proposal
     const [newProposal] = await database
       .insert(proposals)
@@ -66,7 +70,7 @@ export const createProposal = async (
         projectTitle,
         clientName: clientName || client.name,
         companyName: companyName || "",
-        proposalData,
+        proposalData: {...proposalData,currencyCode},
         status: "pending",
       })
       .returning();

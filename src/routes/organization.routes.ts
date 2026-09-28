@@ -1,3 +1,4 @@
+import {getFinancialSettings,updateFinancialSettings,unresolvedFinancialCurrencies,reconcileFinancialCurrencies} from '../controllers/organization/financial-settings.controller';
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { requireOrgOwnerAccess, requireSuperAdmin } from "../middlewares/role.middleware";
@@ -37,6 +38,10 @@ import { getTeamProductivity } from "../controllers/organization/stats/getteampr
 const router = Router();
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
+router.get("/financial-settings/unresolved",...orgOwner,unresolvedFinancialCurrencies as any);
+router.post("/financial-settings/reconcile",...orgOwner,reconcileFinancialCurrencies as any);
+router.get("/financial-settings",isAuthenticated,getFinancialSettings as any);
+router.put("/financial-settings",...orgOwner,updateFinancialSettings as any);
 
 router.post("/create-with-plan", isAuthenticated, createOrganizationWithPlan as any);
 router.get("/user-organizations", isAuthenticated, getUserOrganizations as any);

@@ -45,7 +45,7 @@ export const updatePaymentLink = async (
 
     // Verify the payment link belongs to this org
     const existing = await database
-      .select({ id: paymentLinks.id })
+      .select({ id: paymentLinks.id, currencyCode: paymentLinks.currencyCode })
       .from(paymentLinks)
       .where(and(eq(paymentLinks.id, id), eq(paymentLinks.organizationId, organizationId)))
       .limit(1);
@@ -79,7 +79,7 @@ export const updatePaymentLink = async (
     // If projectId changed, resolve project name
     if (body.projectId !== undefined) {
       const projectRows = await database
-        .select({ id: projects.id, name: projects.name })
+        .select({ id: projects.id, name: projects.name, currencyCode: projects.currencyCode })
         .from(projects)
         .where(and(eq(projects.id, body.projectId), eq(projects.organizationId, organizationId)))
         .limit(1);
@@ -87,6 +87,7 @@ export const updatePaymentLink = async (
         res.status(404).json({ success: false, message: "Project not found" });
         return;
       }
+      if(projectRows[0].currencyCode!==existing[0].currencyCode){res.status(409).json({success:false,code:'CURRENCY_MISMATCH',message:'Project and payment link currencies must match'});return;}
       patch.projectId = body.projectId;
       patch.project = projectRows[0].name;
     }

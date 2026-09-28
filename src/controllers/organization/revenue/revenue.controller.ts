@@ -1,6 +1,8 @@
+import {organizationCurrency} from '@/services/organization-currency.service';
+import {isCurrency} from '@/utils/financial-currency';
 import { Request, Response } from "express";
 import { database } from "@/configs/connection.config";
-import { revenueEntries } from "@/schema/schema";
+import { revenueEntries, projects, clients } from "@/schema/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { requireOrganizationId } from "@/utils/organization.util";
 import { resolveDateRange } from "@/utils/dateRange.util";
@@ -35,9 +37,12 @@ export const getRevenue = async (req: Request, res: Response): Promise<void> => 
     if (source) conditions.push(eq(revenueEntries.source, source));
     if (clientId) conditions.push(eq(revenueEntries.clientId, clientId));
 
+    const currencyCode = await organizationCurrency(organizationId);
+    if (!currencyCode) { res.status(409).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured'}); return; }
     const where = and(...conditions);
+    const summaryWhere = and(where, eq(revenueEntries.currency, currencyCode));
 
-    const [entries, [countRow], byCat, bySrc, byMonth] = await Promise.all([
+    const [entries, [countRow], byCat, bySrc, byMonth, [excluded]] = await Promise.all([
       database
         .select()
         .from(revenueEntries)
@@ -54,13 +59,13 @@ export const getRevenue = async (req: Request, res: Response): Promise<void> => 
       database
         .select({ category: revenueEntries.category, amount: sql<number>`SUM(CAST(${revenueEntries.amount} AS DECIMAL))` })
         .from(revenueEntries)
-        .where(where)
+        .where(summaryWhere)
         .groupBy(revenueEntries.category),
 
       database
         .select({ source: revenueEntries.source, amount: sql<number>`SUM(CAST(${revenueEntries.amount} AS DECIMAL))` })
         .from(revenueEntries)
-        .where(where)
+        .where(summaryWhere)
         .groupBy(revenueEntries.source),
 
       database
@@ -69,9 +74,10 @@ export const getRevenue = async (req: Request, res: Response): Promise<void> => 
           amount: sql<number>`SUM(CAST(${revenueEntries.amount} AS DECIMAL))`,
         })
         .from(revenueEntries)
-        .where(where)
+        .where(summaryWhere)
         .groupBy(sql`TO_CHAR(${revenueEntries.date}::date, 'YYYY-MM')`)
         .orderBy(sql`TO_CHAR(${revenueEntries.date}::date, 'YYYY-MM')`),
+      database.select({count: sql<number>`COUNT(*)`}).from(revenueEntries).where(and(where, sql`${revenueEntries.currency} IS DISTINCT FROM ${currencyCode}`)),
     ]);
 
     const total = Number(countRow?.count ?? 0);
@@ -82,6 +88,8 @@ export const getRevenue = async (req: Request, res: Response): Promise<void> => 
       data: {
         entries: entries.map((e) => ({ ...e, amount: Number(e.amount) })),
         summary: {
+          currencyCode,
+          excludedEntries: Number(excluded?.count ?? 0),
           total: totalAmount,
           byCategory: byCat.map((r) => ({ category: r.category, amount: Number(r.amount ?? 0) })),
           bySource: bySrc.map((r) => ({ source: r.source, amount: Number(r.amount ?? 0) })),
@@ -103,9 +111,11 @@ export const createRevenueEntry = async (req: Request, res: Response): Promise<v
     const organizationId = requireOrganizationId(req, res);
     if (!organizationId) return;
 
-    const { date, amount, currency = "USD", category = "service", source = "manual", description, clientId, projectId } = req.body;
+    const { date, amount, currency: requestedCurrency, category = "service", source = "manual", description, clientId, projectId } = req.body;
 
-    if (!date || !amount) {
+    const currency = await organizationCurrency(organizationId);
+    if (!currency || (requestedCurrency != null && requestedCurrency !== currency)) { res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Use the configured organization currency'}); return; }
+    if (!date || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
       res.status(400).json({ success: false, message: "date and amount are required" });
       return;
     }
@@ -120,6 +130,14 @@ export const createRevenueEntry = async (req: Request, res: Response): Promise<v
       return;
     }
 
+    if (projectId) {
+      const [project] = await database.select({currency:projects.currencyCode}).from(projects).where(and(eq(projects.id,projectId),eq(projects.organizationId,organizationId)));
+      if (!project || project.currency !== currency) {res.status(400).json({success:false,code:'CURRENCY_MISMATCH',message:'Project must belong to the organization and use the recorded currency'});return;}
+    }
+    if (clientId) {
+      const [client] = await database.select({id:clients.id}).from(clients).where(and(eq(clients.id,clientId),eq(clients.organizationId,organizationId)));
+      if (!client) {res.status(404).json({success:false,message:'Client not found'});return;}
+    }
     const createdBy = (req as any).user?.id;
     const now = new Date();
 
@@ -158,7 +176,7 @@ export const updateRevenueEntry = async (req: Request, res: Response): Promise<v
     const { entryId } = req.params;
 
     const [existing] = await database
-      .select({ id: revenueEntries.id, source: revenueEntries.source })
+      .select({ id: revenueEntries.id, source: revenueEntries.source, currency: revenueEntries.currency })
       .from(revenueEntries)
       .where(and(eq(revenueEntries.id, entryId), eq(revenueEntries.organizationId, organizationId)))
       .limit(1);
@@ -178,7 +196,8 @@ export const updateRevenueEntry = async (req: Request, res: Response): Promise<v
 
     if (date !== undefined) updates.date = date;
     if (amount !== undefined) updates.amount = Number(amount).toFixed(2);
-    if (currency !== undefined) updates.currency = currency;
+    if (!isCurrency(existing.currency) || (currency !== undefined && currency !== existing.currency)) { res.status(409).json({success:false,code:'CURRENCY_MISMATCH',message:'Recorded currency cannot be changed'}); return; }
+    if (amount !== undefined && (!Number.isFinite(Number(amount)) || Number(amount) <= 0)) { res.status(400).json({success:false,message:'Invalid amount'}); return; }
     if (category !== undefined) {
       if (!VALID_CATEGORIES.includes(category)) { res.status(400).json({ success: false, message: "Invalid category" }); return; }
       updates.category = category;
@@ -188,6 +207,14 @@ export const updateRevenueEntry = async (req: Request, res: Response): Promise<v
       updates.source = source;
     }
     if (description !== undefined) updates.description = description;
+    if (clientId) {
+      const [client] = await database.select({id:clients.id}).from(clients).where(and(eq(clients.id,clientId),eq(clients.organizationId,organizationId)));
+      if (!client) {res.status(404).json({success:false,message:'Client not found'});return;}
+    }
+    if (projectId) {
+      const [project] = await database.select({currency:projects.currencyCode}).from(projects).where(and(eq(projects.id,projectId),eq(projects.organizationId,organizationId)));
+      if (!project || project.currency !== existing.currency) {res.status(400).json({success:false,code:'CURRENCY_MISMATCH',message:'Project currency must match this revenue entry'});return;}
+    }
     if (clientId !== undefined) updates.clientId = clientId ?? null;
     if (projectId !== undefined) updates.projectId = projectId ?? null;
 
@@ -214,7 +241,7 @@ export const deleteRevenueEntry = async (req: Request, res: Response): Promise<v
     const { entryId } = req.params;
 
     const [existing] = await database
-      .select({ id: revenueEntries.id, source: revenueEntries.source })
+      .select({ id: revenueEntries.id, source: revenueEntries.source, currency: revenueEntries.currency })
       .from(revenueEntries)
       .where(and(eq(revenueEntries.id, entryId), eq(revenueEntries.organizationId, organizationId)))
       .limit(1);

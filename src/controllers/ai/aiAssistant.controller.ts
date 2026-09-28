@@ -1,3 +1,4 @@
+import {organizationCurrency} from '@/services/organization-currency.service';
 import { projectReadScope } from "../../security/resource-access";
 import { aiTaskScope, aiTimeScope } from "../../modules/agent/legacy-scope";
 // Conditional logging helper
@@ -1334,9 +1335,12 @@ export const generateProposal = async (
       return;
     }
 
+    const currencyCode=await organizationCurrency(req.user.organizationId);
+    if(!currencyCode){res.status(400).json({success:false,code:'CURRENCY_REQUIRED',message:'Currency not configured'});return;}
     // Build a detailed prompt for proposal generation
     const proposalPrompt = `You are a professional business proposal writer. You must write the ENTIRE proposal in ${language}. All sections, titles, descriptions, and content must be written exclusively in ${language}. Do not use any other language.
 
+All monetary amounts must use currency ISO code ${currencyCode}, regardless of the language. Do not convert amounts.
 Generate a comprehensive, professional project proposal document based on the following details:
 
 Project Title: ${projectTitle}
@@ -1397,6 +1401,7 @@ Generate a complete professional proposal with the following sections. Return ON
         message: "Proposal generated successfully",
         data: {
           rawContent: aiResponse.content,
+          currencyCode,
           clientName: clientName || "Valued Client",
           projectTitle,
           companyName: companyName || "Our Company",
@@ -1411,6 +1416,7 @@ Generate a complete professional proposal with the following sections. Return ON
       message: "Proposal generated successfully",
       data: {
         ...proposalData,
+        currencyCode,
         clientName: clientName || "Valued Client",
         projectTitle,
         companyName: companyName || "Our Company",

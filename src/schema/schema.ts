@@ -225,7 +225,7 @@ export const organizations = pgTable(
     settings: json("settings").$type<{
       timezone: string;
       dateFormat: string;
-      currency: string;
+      currency?: string | null;
       language: string;
       notifications: {
         email: boolean;
@@ -646,7 +646,7 @@ export const revenueEntries = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     date: text("date").notNull(), // stored as ISO date string YYYY-MM-DD
     amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
-    currency: text("currency").notNull().$defaultFn(() => "USD"),
+    currency: text("currency").notNull(),
     category: text("category").notNull().$defaultFn(() => "service"),
     source: text("source").notNull().$defaultFn(() => "manual"),
     description: text("description"),
@@ -667,6 +667,7 @@ export const revenueEntries = pgTable(
 export const recurringInvoices = pgTable(
   "recurring_invoices",
   {
+    currencyCode: text("currency_code"),
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
@@ -922,6 +923,7 @@ export const fileVersions = pgTable(
 export const clients = pgTable(
   "clients",
   {
+    currencyCode: text("currency_code"),
     id: text("id").primaryKey(),
     organizationId: text("organization_id")
       .notNull()
@@ -1500,6 +1502,7 @@ export const supportTicketMessages = pgTable(
 export const paymentLinks = pgTable(
   "payment_links",
   {
+    currencyCode: text("currency_code"),
     id: text("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),

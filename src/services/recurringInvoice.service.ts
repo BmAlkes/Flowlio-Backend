@@ -45,6 +45,7 @@ export class RecurringInvoiceService {
         if (!current || current.status !== "active" ||
             current.nextRunDate.getTime() !== new Date(template.nextRunDate).getTime()) return null;
         template = current;
+        if(!template.currencyCode)throw new Error("Currency not configured for recurring invoice");
 
         // Create the invoice
         const invoiceData = {
@@ -54,6 +55,7 @@ export class RecurringInvoiceService {
           createdBy: template.createdBy,
           clientname: template.clientname,
           amount: template.amount,
+          currencyCode: template.currencyCode,
           status: "draft",
           description: template.description || null,
           dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // Default 7 days due date
