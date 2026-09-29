@@ -6,16 +6,20 @@ import { canReadProject, canManageClients, type Actor } from "../../security/res
 export class DeliveryError extends Error { constructor(public status:number,public code:string){super(code);} }
 const identifier=z.string().min(1).max(128);
 const version=z.string().regex(/^[a-f0-9]{64}$/);
-export const requestInput=z.object({milestoneId:identifier,version,note:z.string().trim().min(1).max(4000)}).strict();
+export const requestInput=z.object({milestoneId:identifier,version,clientId:identifier.optional(),note:z.string().trim().min(1).max(4000)}).strict();
 export const decisionInput=z.object({version,state:z.enum(["approved","changes_requested"]),comment:z.string().trim().max(2000).default("")}).strict().refine(data=>data.state!=="changes_requested"||data.comment.length>0);
 export function milestoneVersion(row:Record<string,unknown>){return createHash("sha256").update(JSON.stringify([row.id,row.title,row.status,row.due_date,row.updated_at])).digest("hex");}
 export function createDeliveryReviews(pool:Pool){
  async function authorize(client:PoolClient,actor:Actor,projectId:string,lock=false){
   if(!actor.organizationId)throw new DeliveryError(403,"FORBIDDEN");
-  const project=(await client.query(`select p.id,p.name,p.organization_id as "organizationId",p.created_by as "createdBy",p.assigned_to as "assignedTo",p.visibility,p.client_id as "clientId",c.user_id as "clientUserId"
+  const project=(await client.query(`select p.id,p.name,p.organization_id as "organizationId",p.created_by as "createdBy",p.assigned_to as "assignedTo",p.visibility,p.client_id as "clientId",c.user_id as "clientUserId",c.name as "clientName",c.portal_access_enabled as "portalEnabled"
    from projects p left join clients c on c.id=p.client_id and c.organization_id=p.organization_id where p.id=$1 and p.organization_id=$2 ${lock?'for share of p':''}`,[projectId,actor.organizationId])).rows[0];
+  if(project?.clientId&&lock){
+   const linked=(await client.query('select user_id,name,portal_access_enabled from clients where id=$1 and organization_id=$2 for share',[project.clientId,actor.organizationId])).rows[0];
+   project.clientUserId=linked?.user_id;project.clientName=linked?.name;project.portalEnabled=linked?.portal_access_enabled;
+  }
   const ownClient=project?.clientUserId===actor.id?project.clientId:undefined;
-  if(!project||!canReadProject(actor,project,ownClient))throw new DeliveryError(404,"PROJECT_NOT_FOUND");
+  if(!project||!canReadProject(actor,project,ownClient)||(actor.role==='client'&&!project.portalEnabled))throw new DeliveryError(404,"PROJECT_NOT_FOUND");
   return project;
  }
  async function milestone(client:PoolClient,actor:Actor,projectId:string,id:string|null,lock=false){
@@ -32,15 +36,27 @@ export function createDeliveryReviews(pool:Pool){
   const client=await pool.connect();try{
    const project=await authorize(client,actor,projectId);const canRequest=canManageClients(actor);
    const filter=actor.role==='client'?project.clientId:null;
-   const rows=(await client.query(`select r.*,u.name as decided_name from delivery_reviews r left join users u on u.id=r.decided_by where r.project_id=$1 and r.organization_id=$2 and ($3::text is null or r.client_id=$3) and ($5::text is null or r.id=$5) order by r.requested_at desc,r.id desc limit 26 offset $4`,[projectId,actor.organizationId,filter,review.data?0:(page.data-1)*25,review.data??null])).rows;
-   const milestones=(await client.query('select * from project_milestones where project_id=$1 and organization_id=$2 order by position,id limit 201',[projectId,actor.organizationId])).rows;
+   const rows=(await client.query(`select r.*,to_char(r.due_date,'YYYY-MM-DD') as due_date_only,u.name as decided_name from delivery_reviews r left join users u on u.id=r.decided_by where r.project_id=$1 and r.organization_id=$2 and ($3::text is null or r.client_id=$3) and ($5::text is null or r.id=$5) order by r.requested_at desc,r.id desc limit 26 offset $4`,[projectId,actor.organizationId,filter,review.data?0:(page.data-1)*25,review.data??null])).rows;
+   const milestones=(await client.query("select *,to_char(due_date,'YYYY-MM-DD') as due_date_only from project_milestones where project_id=$1 and organization_id=$2 order by updated_at desc,id limit 201",[projectId,actor.organizationId])).rows;
    const reviews=[];
    for(const row of rows.slice(0,25)){
     const current=milestones.find(m=>m.id===row.milestone_id)??await milestone(client,actor,projectId,row.milestone_id);
     const stale=!current||milestoneVersion(current)!==row.source_version||row.client_id!==project.clientId;
-    reviews.push({id:row.id,milestoneId:row.milestone_id,title:row.title,dueDate:row.due_date,note:row.note,version:row.source_version,state:row.state,requestedAt:row.requested_at,decidedAt:row.decided_at,decidedBy:row.decided_name,comment:row.comment,stale:row.state==='pending'&&stale,canDecide:actor.role==='client'&&row.state==='pending'&&!stale});
+    reviews.push({id:row.id,milestoneId:row.milestone_id,title:row.title,dueDate:row.due_date_only,note:row.note,version:row.source_version,state:row.state,requestedAt:row.requested_at,decidedAt:row.decided_at,decidedBy:row.decided_name,comment:row.comment,stale:row.state==='pending'&&stale,canDecide:actor.role==='client'&&row.state==='pending'&&!stale});
    }
-   return {reviews,page:page.data,hasMore:rows.length>25,canRequest,hasClient:!!project.clientId,milestonesTruncated:canRequest&&milestones.length>200,milestones:canRequest?milestones.slice(0,200).map(m=>({id:m.id,title:m.title,version:milestoneVersion(m)})):[]};
+   const available=canRequest?milestones.slice(0,200).map(m=>({id:m.id,title:m.title,status:m.status,dueDate:m.due_date_only,version:milestoneVersion(m),currentReview:null as {id:string;state:string}|null})):[];
+   if(available.length&&project.clientId){
+    const currentReviews=(await client.query(
+     'select r.id,r.milestone_id,r.state from delivery_reviews r join unnest($4::text[],$5::text[]) as wanted(milestone_id,source_version) on r.milestone_id=wanted.milestone_id and r.source_version=wanted.source_version where r.project_id=$1 and r.organization_id=$2 and r.client_id=$3',
+     [projectId,actor.organizationId,project.clientId,available.map(m=>m.id),available.map(m=>m.version)])).rows;
+    const byMilestone=new Map(currentReviews.map(r=>[r.milestone_id,{id:r.id,state:r.state}]));
+    for(const item of available)item.currentReview=byMilestone.get(item.id)??null;
+   }
+   const portalReady=!!project.clientUserId&&project.portalEnabled===true;
+   return {reviews,page:page.data,hasMore:rows.length>25,canRequest,hasClient:!!project.clientId,
+    client:project.clientId?{id:project.clientId,name:project.clientName??'',portalReady}:null,
+    requestBlockReason:!project.clientId?'CLIENT_REQUIRED':!portalReady?'CLIENT_PORTAL_REQUIRED':null,
+    milestonesTruncated:canRequest&&milestones.length>200,milestones:available};
   }finally{client.release();}
  }
  async function request(actor:Actor,projectId:string,raw:unknown){
@@ -48,12 +64,14 @@ export function createDeliveryReviews(pool:Pool){
   const parsed=requestInput.safeParse(raw);if(!parsed.success)throw new DeliveryError(400,"INVALID_REVIEW");
   const input=parsed.data,client=await pool.connect();try{
    await client.query('begin');await setAuditContext(client,{organizationId:actor.organizationId!,actorKind:'human',actorId:actor.id});const project=await authorize(client,actor,projectId,true);
+   if(input.clientId!==undefined&&input.clientId!==project.clientId)throw new DeliveryError(409,"CLIENT_CHANGED");
    if(!project.clientId)throw new DeliveryError(409,"CLIENT_REQUIRED");
+   if(!project.clientUserId||!project.portalEnabled)throw new DeliveryError(409,"CLIENT_PORTAL_REQUIRED");
    const current=await milestone(client,actor,projectId,input.milestoneId,true);
    if(!current)throw new DeliveryError(404,"MILESTONE_NOT_FOUND");
    if(milestoneVersion(current)!==input.version)throw new DeliveryError(409,"SOURCE_CHANGED");
-   const existing=(await client.query('select id from delivery_reviews where project_id=$1 and milestone_id=$2 and client_id=$3 and source_version=$4',[projectId,input.milestoneId,project.clientId,input.version])).rows[0];
-   if(existing){await client.query('commit');return{id:existing.id,existing:true};}
+   const existing=(await client.query('select id,note from delivery_reviews where project_id=$1 and milestone_id=$2 and client_id=$3 and source_version=$4',[projectId,input.milestoneId,project.clientId,input.version])).rows[0];
+   if(existing){if(existing.note!==input.note)throw new DeliveryError(409,'REVIEW_ALREADY_EXISTS');await client.query('commit');return{id:existing.id,existing:true};}
    const id=randomUUID();await client.query(`insert into delivery_reviews(id,project_id,organization_id,milestone_id,client_id,source_version,title,due_date,note,requested_by)
     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[id,projectId,actor.organizationId,input.milestoneId,project.clientId,input.version,current.title,current.due_date,input.note,actor.id]);
    await activity(client,actor,projectId,id,'review_requested');await client.query('commit');return{id,existing:false};

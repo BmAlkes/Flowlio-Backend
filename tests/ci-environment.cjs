@@ -32,6 +32,7 @@ const databases = {
   WORKFLOWS_TEST_DATABASE_URL: [55442, "flowlio_workflows_test"],
   CAPACITY_TEST_DATABASE_URL: [55442, "flowlio_capacity_test"],
   DELIVERY_TEST_DATABASE_URL: [55442, "flowlio_delivery_test"],
+  MILESTONE_TEST_DATABASE_URL: [55442, "flowlio_milestone_test"],
   PROFITABILITY_TEST_DATABASE_URL: [55442, "flowlio_profitability_test"],
   PROPOSAL_PROJECT_TEST_DATABASE_URL: [55442, "flowlio_proposal_project_test"],
   AI_TEST_DATABASE_URL: [55442, "flowlio_ai_test"],
