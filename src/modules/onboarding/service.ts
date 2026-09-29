@@ -1,6 +1,7 @@
 ﻿import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import type { Actor } from "../../security/resource-policy";
+import { isCurrency } from "../../utils/financial-currency";
 export class OnboardingError extends Error {
   constructor(public status: number, public code: string) { super(code); }
 }
@@ -8,7 +9,9 @@ type Steps = Record<string, { completedAt: string } | null>;
 function context(actor: Actor) {
   if (!actor.organizationId || actor.role !== 'user') throw new OnboardingError(403, 'FORBIDDEN');
   const role = actor.isOrganizationOwner ? 'admin' : actor.isOrganizationManager ? 'manager' : 'member';
-  const keys = role === 'member' ? ['complete_task', 'log_time', 'update_profile'] : ['create_client', 'create_project', 'approve_delivery'];
+  const coreSteps = ['create_client', 'create_project', 'approve_delivery'];
+  const keys = role === 'member' ? ['complete_task', 'log_time', 'update_profile']
+    : role === 'admin' ? ['configure_currency', ...coreSteps] : coreSteps;
   return { role, keys };
 }
 async function evidence(client: PoolClient, actor: Actor, role: string): Promise<Record<string, boolean>> {
@@ -23,11 +26,17 @@ async function evidence(client: PoolClient, actor: Actor, role: string): Promise
       exists(select 1 from users where id=$2 and nullif(image,'') is not null) as update_profile`, [actor.organizationId, actor.id])).rows[0];
     return row;
   }
-  return (await client.query(`select
+  const facts = (await client.query(`select
     exists(select 1 from clients where organization_id=$1) as create_client,
     exists(select 1 from projects p where organization_id=$1 and (p.created_by=$2 or p.assigned_to=$2 or p.visibility='public')) as create_project,
     exists(select 1 from delivery_reviews r join projects p on p.id=r.project_id where r.organization_id=$1 and p.organization_id=$1
       and r.state='approved' and r.decided_at is not null and (p.created_by=$2 or p.assigned_to=$2 or p.visibility='public')) as approve_delivery`, [actor.organizationId, actor.id])).rows[0];
+  if (role === 'admin') {
+    const currency = (await client.query("select settings->>'currency' as currency from organizations where id=$1", [actor.organizationId])).rows[0]?.currency;
+    facts.configure_currency = isCurrency(currency) &&
+      new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits === 2;
+  }
+  return facts;
 }
 export function createOnboarding(pool: Pool) {
   async function refresh(actor: Actor, options: { step?: unknown; dismissed?: boolean } = {}) {
@@ -44,7 +53,10 @@ export function createOnboarding(pool: Pool) {
       await client.query('insert into onboarding_progress(organization_id,user_id,role) values($1,$2,$3) on conflict do nothing', [actor.organizationId, actor.id, role]);
       const row = (await client.query('select * from onboarding_progress where organization_id=$1 and user_id=$2 and role=$3 for update', [actor.organizationId, actor.id, role])).rows[0];
       const facts = await evidence(client, actor, role), now = new Date().toISOString();
-      const steps: Steps = Object.fromEntries(keys.map(key => [key, row.steps[key] ?? (facts[key] ? { completedAt: now } : null)]));
+      const steps: Steps = Object.fromEntries(keys.map(key => [key,
+        key === 'configure_currency' && !facts[key] ? null
+          : row.steps[key] ?? (facts[key] ? { completedAt: now } : null),
+      ]));
       if (requestedStep && !steps[requestedStep]) throw new OnboardingError(409, 'STEP_NOT_COMPLETE');
       const completed = Object.values(steps).filter(Boolean).length;
       const activatedAt = row.completed_at ?? (completed === keys.length ? now : null);
