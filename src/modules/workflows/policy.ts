@@ -50,7 +50,7 @@ export async function quota(c:PoolClient,org:string){
 }
 export async function sourceValid(c:PoolClient,r:Rule,e:Event){
  if(r.trigger.startsWith('delivery_')&&e.source_id!==e.resource_id){
-  const d=(await c.query(`select d.source_version,m.* from delivery_reviews d join projects p on p.id=d.project_id and p.organization_id=d.organization_id join project_milestones m on m.id=d.milestone_id and m.project_id=d.project_id and m.organization_id=d.organization_id where d.id=$1 and d.project_id=$2 and d.organization_id=$3 and d.state=$4 and d.client_id=p.client_id`,[e.source_id,e.resource_id,r.organization_id,r.trigger.slice(9)])).rows[0];
+  const d=(await c.query(`select coalesce(d.completed_version,d.source_version) source_version,m.* from delivery_reviews d join projects p on p.id=d.project_id and p.organization_id=d.organization_id join project_milestones m on m.id=d.milestone_id and m.project_id=d.project_id and m.organization_id=d.organization_id where d.id=$1 and d.project_id=$2 and d.organization_id=$3 and d.state=$4 and d.client_id=p.client_id`,[e.source_id,e.resource_id,r.organization_id,r.trigger.slice(9)])).rows[0];
   return !!d&&milestoneVersion(d)===d.source_version;
  }
  if(r.trigger==='milestone_completed')return !!(await c.query("select 1 from project_milestones where id=$1 and project_id=$2 and organization_id=$3 and status='completed'",[e.source_id,e.resource_id,r.organization_id])).rowCount;

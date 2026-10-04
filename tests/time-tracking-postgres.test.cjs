@@ -29,7 +29,7 @@ if (!process.env.TIMER_TEST_DATABASE_URL) {
       create table invoices (
         id text primary key, organization_id text not null references organizations(id),
         client_id text not null references clients(id), created_by text not null references users(id),
-        invoice_number text not null, client_name text not null, amount numeric(10,2) not null,
+        commercial_source text unique, project_id text, invoice_number text not null, client_name text not null, amount numeric(10,2) not null,
         status text not null, date_paid timestamp, due_date timestamp, description text,
         pdf_url text, pdf_file_name text, pdf_file_size integer, payment_url text, overdue_notified_at timestamp,
         created_at timestamp not null, updated_at timestamp not null,

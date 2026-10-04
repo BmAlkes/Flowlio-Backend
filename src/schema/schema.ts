@@ -554,6 +554,8 @@ export const invoices = pgTable(
     createdBy: text("created_by")
       .notNull()
       .references(() => users.id),
+    commercialSource: text("commercial_source").unique(),
+    projectId: text("project_id").references(() => projects.id, {onDelete:"set null"}),
     invoiceNumber: text("invoice_number").notNull(),
     clientname: text("client_name").notNull(),
     currencyCode: text("currency_code"),
@@ -2688,6 +2690,8 @@ export const projectFinancialSettings = pgTable("project_financial_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 export const deliveryReviews = pgTable("delivery_reviews", {
+ completedVersion:text("completed_version"),
+ completeMilestone:boolean("complete_milestone").notNull().default(false),
   id: text("id").primaryKey(),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
@@ -2823,6 +2827,7 @@ export const retainerPeriods = pgTable("retainer_periods", {
   id: text("id").primaryKey(), retainerId: text("retainer_id").notNull().references(() => retainers.id),
   month: text("month").notNull(), startsAt: timestamp("starts_at", { withTimezone: true }).notNull(), endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
   includedMinutes: integer("included_minutes").notNull(), carry: jsonb("carry").notNull().default(sql`'[]'::jsonb`),
+  carryPending: boolean("carry_pending").notNull().default(false),
   state: text("state").notNull().default("open"), revision: integer("revision").notNull().default(0),
   statement: jsonb("statement"), decision: text("decision"), decidedBy: text("decided_by"), decidedAt: timestamp("decided_at", { withTimezone: true }), decisionNote: text("decision_note"),
   closedAt: timestamp("closed_at", { withTimezone: true }), closedBy: text("closed_by"),
@@ -2843,6 +2848,7 @@ export const workflowEvents=pgTable("workflow_events",{id:text("id").primaryKey(
 export const workflowBillingDrafts=pgTable("workflow_billing_drafts",{id:text("id").primaryKey(),organizationId:text("organization_id").notNull().references(()=>organizations.id,{onDelete:"cascade"}),sourceType:text("source_type").notNull(),sourceId:text("source_id").notNull(),revision:integer("revision").notNull(),amount:decimal("amount",{precision:10,scale:2}).notNull(),currency:text("currency").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()},t=>({source:unique("workflow_billing_source_key").on(t.organizationId,t.sourceType,t.sourceId,t.revision),amount:check("workflow_billing_drafts_amount_check",sql`${t.amount}>0`)}));
 
 export const clientRequests=pgTable("client_requests",{
+ reviewRequired:boolean("review_required").notNull().default(true),
  id:text("id").primaryKey(),organizationId:text("organization_id").notNull().references(()=>organizations.id,{onDelete:"cascade"}),projectId:text("project_id").notNull().references(()=>projects.id,{onDelete:"cascade"}),clientId:text("client_id").notNull(),
  kind:text("kind").notNull(),title:text("title").notNull(),description:text("description").notNull(),questions:jsonb("questions").notNull().default([]),dependencies:text("dependencies").array().notNull().default(sql`'{}'::text[]`),
  assignedTo:text("assigned_to").references(()=>users.id,{onDelete:"set null"}),createdBy:text("created_by").notNull(),requestHash:text("request_hash").notNull(),dueDate:text("due_date"),timezone:text("timezone").notNull(),dueAt:timestamp("due_at",{withTimezone:true}),
@@ -2865,3 +2871,9 @@ export const capacityScenarios=pgTable('capacity_scenarios',{
 export const aiAgentRuns=pgTable('ai_agent_runs',{
  id:text('id').primaryKey(),organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),actorId:text('actor_id').notNull().references(()=>users.id,{onDelete:'cascade'}),actorScope:text('actor_scope').notNull(),inputHash:text('input_hash').notNull(),input:jsonb('input').notNull(),context:jsonb('context').notNull(),state:text('state').notNull().default('running'),result:jsonb('result'),errorCode:text('error_code'),applyHash:text('apply_hash'),receipts:jsonb('receipts').notNull().default(sql`'[]'::jsonb`),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow()
 },t=>({state:check('ai_agent_runs_state_check',sql`${t.state} in ('running','ready','applied','failed','cancelled')`),author:index('ai_agent_runs_author_idx').on(t.organizationId,t.actorId,t.createdAt)}));
+
+export const retainerProjectLinks=pgTable("retainer_project_links",{
+ projectId:text("project_id").primaryKey().references(()=>projects.id,{onDelete:"cascade"}),
+ retainerId:text("retainer_id").notNull().references(()=>retainers.id),
+ createdBy:text("created_by").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+});

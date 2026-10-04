@@ -38,7 +38,7 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
       create table invoices (
         id text primary key, organization_id text not null references organizations(id),
         client_id text not null references clients(id), created_by text not null references users(id),
-        invoice_number text not null, client_name text not null, amount numeric(10,2) not null, currency_code text,
+        commercial_source text unique, project_id text, invoice_number text not null, client_name text not null, amount numeric(10,2) not null, currency_code text,
         status text not null, date_paid timestamp, due_date timestamp, description text,
         pdf_url text, pdf_file_name text, pdf_file_size integer, payment_url text, overdue_notified_at timestamp,
         created_at timestamp not null, updated_at timestamp not null,
@@ -69,7 +69,7 @@ if (!process.env.TIME_INVOICE_TEST_DATABASE_URL) {
   after(async () => { try { await pool.query('drop table retainer_entries, time_invoicing_requests, invoice_time_items, time_entries, tasks, projects, recent_activities, invoices, invoice_number_counters, clients, users, organizations cascade; drop function if exists protect_invoiced_time(); drop function if exists assign_invoice_number()'); } finally { await pool.end(); } });
   for(const currencyCode of ['ILS','USD','EUR']) test('one minute at 120/h preserves '+currencyCode+' on invoice and time snapshot',async()=>{
     await pool.query('update projects set currency_code=$1',[currencyCode]);await pool.query("delete from time_entries where id='two';update time_entries set duration=1,hourly_rate=120 where id='one'");
-    const body={...await request(),currencyCode};const {invoice}=await createTimeInvoice(actor,body);assert.equal(invoice.amount,'2.00');assert.equal(invoice.currencyCode,currencyCode);assert.equal((await getInvoiceTimeItems(actor,invoice.id))[0].currencyCode,currencyCode);
+    const body={...await request(),currencyCode};const {invoice}=await createTimeInvoice(actor,body);assert.equal(invoice.projectId,'p');assert.equal(invoice.amount,'2.00');assert.equal(invoice.currencyCode,currencyCode);assert.equal((await getInvoiceTimeItems(actor,invoice.id))[0].currencyCode,currencyCode);
   });
   test('missing or mismatched currency cannot issue an invoice or consume time',async()=>{
     let body=await request();const res=response();await invoiceFromTime({user:actor,body:{...body,currencyCode:undefined}},res);assert.equal(res.code,400);assert.equal(await count('invoices'),0);

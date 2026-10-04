@@ -59,6 +59,7 @@ export const updateInvoiceStatus = async (
           source: "invoice",
           description: updatedInvoice.invoiceNumber ?? null,
           clientId: updatedInvoice.clientId ?? null,
+          projectId: updatedInvoice.projectId ?? null,
           invoiceId: id,
           createdBy: (req as any).user?.id,
           createdAt: now,
@@ -66,7 +67,7 @@ export const updateInvoiceStatus = async (
         })
         .onConflictDoUpdate({
           target: revenueEntries.invoiceId,
-          set: { currency: updatedInvoice.currencyCode!, amount: updatedInvoice.amount ?? "0", date: dateStr, updatedAt: now },
+          set: { projectId: updatedInvoice.projectId ?? null, currency: updatedInvoice.currencyCode!, amount: updatedInvoice.amount ?? "0", date: dateStr, updatedAt: now },
         });
     } else {
       // Remove revenue entry if invoice is un-paid

@@ -73,7 +73,7 @@ export const createClient = async (
     } = req.body;
 
     // Validate required fields
-    if (!name || !email || !password) {
+    if (!name || !email || (portalAccessEnabled && !password)) {
       res.status(400).json({
         error: "Name, email, and password are required fields",
       });
@@ -126,7 +126,7 @@ export const createClient = async (
     // Use Better Auth's password hashing
     const { auth } = await import("@/lib/auth");
     const authContext = await auth.$context;
-    const hashedPassword = await authContext.password.hash(password);
+    const hashedPassword = await authContext.password.hash(password || randomUUID()+randomUUID());
 
     // Transactional creation flow
     const result = await database.transaction(async (tx) => {

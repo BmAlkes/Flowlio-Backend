@@ -155,6 +155,13 @@
       "when": 1790553600000,
       "tag": "0021_organization_currency",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790985600000,
+      "tag": "0022_simpler_workflows",
+      "breakpoints": true
     }
   ]
 }

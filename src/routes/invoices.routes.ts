@@ -15,10 +15,13 @@ import { getRecurringTemplates } from "@/controllers/organization/invoices/recur
 import { updateRecurringTemplate } from "@/controllers/organization/invoices/recurring/updaterecurringtemplate.controller";
 import { deleteRecurringTemplate } from "@/controllers/organization/invoices/recurring/deleterecurringtemplate.controller";
 
+import {billingSources} from "../modules/retainers/billing-controller";
 const router = Router();
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 
+router.get("/ready-to-bill", ...orgOwner, billingSources("list"));
+router.post("/ready-to-bill", ...orgOwner, billingSources("prepare"));
 router.get("/billable-time", ...orgOwner, billableTime);
 router.post("/from-time", ...orgOwner, invoiceFromTime);
 router.get("/:id/time-items", ...orgOwner, invoiceTimeDetails);

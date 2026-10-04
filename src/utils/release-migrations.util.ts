@@ -73,6 +73,7 @@ export async function runReleaseMigrations(pool: Pool, folder = path.resolve("dr
         ('public.scope_change_versions', 'scope_version_immutable'),
         ('public.retainer_entries', 'retainer_entries_guard'),
         ('public.time_entries', 'time_entries_retainer_guard'),
+        ('public.time_entries', 'time_entries_auto_retainer'),
         ('public.invoice_time_items', 'invoice_time_retainer_guard'),
         ('public.retainer_periods', 'retainer_periods_guard'),
         ('public.retainers', 'retainers_terms_guard'),
