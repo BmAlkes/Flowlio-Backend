@@ -24,7 +24,7 @@ import {
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
 
-export type TransactionalTemplateKey = "workflow"
+export type TransactionalTemplateKey = "portal_invitation" | "workflow"
   | "task_overdue"
   | "project_risk"
   | "lead_follow_up"
@@ -89,6 +89,7 @@ interface WeeklySummaryData {
 }
 
 type TemplateDataMap = {
+  portal_invitation: {title:string;message:string;url:string};
   workflow: { title: string; message: string };
   task_overdue: TaskOverdueData;
   project_risk: ProjectRiskData;
@@ -116,6 +117,12 @@ function buildHtml<K extends TransactionalTemplateKey>(
   data: TemplateDataMap[K],
 ): string {
   switch (templateKey) {
+    case 'portal_invitation': {
+      const value=data as {title:string;message:string;url:string};
+      const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+      const url=new URL(value.url); if(!['https:','http:'].includes(url.protocol))throw new Error('Invalid invitation URL');
+      return '<h1>'+escape(value.title)+'</h1><p style="white-space:pre-wrap">'+escape(value.message)+'</p><p><a href="'+escape(url.href)+'">'+escape(value.title)+'</a></p>';
+    }
     case "workflow": {
       const value=data as {title:string;message:string};
       const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -152,6 +159,8 @@ function buildHtml<K extends TransactionalTemplateKey>(
 
 function buildSubject(templateKey: TransactionalTemplateKey, data: any): string {
   switch (templateKey) {
+    case "portal_invitation":
+      return `[Flowlio] ${data.title}`;
     case "task_overdue":
       return `[Flowlio] Task overdue: ${data.taskTitle}`;
     case "project_risk":
