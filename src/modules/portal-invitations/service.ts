@@ -32,7 +32,9 @@ async function validRecipient(c: PoolClient, invitation: Invitation) {
     and cl.portal_access_enabled=false and u.role='client' and u.status='active' and issuer.status='active'
     and (issuer.role in ('superadmin','subadmin') or (issuer.role='user' and (issuer.is_organization_owner=true or issuer.is_organization_manager=true)
       and exists(select 1 from user_organizations m where m.user_id=issuer.id and m.organization_id=o.id and m.status='active')))
-    and o.status='active' and o.subscription_status in ('active','trialing') and (o.subscription_end_date is null or o.subscription_end_date>now())`,
+    and o.status='active'
+    and (o.subscription_status in ('active','trialing') or o.trial_ends_at>now())
+    and coalesce((select s.current_period_end>now() from subscriptions s where s.organization_id=o.id and s.status='active' order by s.created_at desc limit 1),true)`,
   [invitation.clientId, invitation.organizationId, invitation.userId, invitation.email, invitation.issuedBy])).rows[0];
 }
 async function view(c: PoolClient, client: {id: string; portal_access_enabled: boolean}) {
@@ -46,7 +48,7 @@ async function view(c: PoolClient, client: {id: string; portal_access_enabled: b
   return {state, expiresAt: row.expires_at};
 }
 
-export function createPortalInvitations(pool: Pool, hashPassword: (password: string) => Promise<string>) {
+export function createPortalInvitations(pool: Pool, hashPassword: (password: string) => Promise<string>, now: () => Date = () => new Date()) {
   async function transaction<T>(run: (c: PoolClient) => Promise<T>) {
     const c = await pool.connect();
     try { await c.query('begin'); const result = await run(c); await c.query('commit'); return result; }
@@ -62,11 +64,12 @@ export function createPortalInvitations(pool: Pool, hashPassword: (password: str
       if (!same.rowCount && (existing.payload.clientId !== clientId || existing.payload.organizationId !== actor.organizationId)) throw new PortalInvitationError(409, 'KEY_REUSED');
       return view(c, client);
     }
-    const recent = await c.query("select 1 from verification where identifier=$1 and created_at>now()-interval '60 seconds'", [identifier(clientId)]);
+    const recent = await c.query("select 1 from business_audit_events where organization_id=$1 and resource_type='client' and resource_id=$2 and action='client.portal_invited' and occurred_at>$3::timestamptz-interval '60 seconds'", [actor.organizationId,clientId,now()]);
     if (recent.rowCount) throw new PortalInvitationError(429, 'INVITATION_COOLDOWN');
     const secret = randomBytes(32).toString('hex');
     const value: Invitation = {clientId, userId: client.user_id, email: client.email, organizationId: actor.organizationId!, issuedBy: actor.id, hash: hash(secret), language: data.language};
-    await c.query('delete from verification where identifier=$1', [identifier(clientId)]);
+    const replaced = await c.query('delete from verification where identifier=$1 returning id', [identifier(clientId)]);
+    for (const row of replaced.rows) await c.query("update durable_jobs set payload=(payload::jsonb-'token')::json where dedupe_key=$1", ['portal-invitation:'+row.id]);
     await c.query("insert into verification(id,identifier,value,expires_at,created_at,updated_at) values($1,$2,$3,now()+interval '48 hours',now(),now())", [data.key, identifier(clientId), JSON.stringify(value)]);
     await enqueue(c, 'portal-invitation', 'portal-invitation:'+data.key, {invitationId: data.key, token: data.key+'.'+secret, clientId, organizationId: actor.organizationId});
     await audit(c, actor.organizationId!, actor.id, 'client.portal_invited', clientId);
@@ -109,11 +112,17 @@ export function createPortalInvitations(pool: Pool, hashPassword: (password: str
 
 export async function deliverPortalInvitation(c: PoolClient, payload: Record<string, unknown>, baseUrl: string, send: (email: string, name: string, title: string, message: string, url: string) => Promise<boolean>) {
   const row = (await c.query("select value from verification where id=$1 and identifier like 'portal-invitation:%' and expires_at>now()", [payload.invitationId])).rows[0];
-  if (!row || typeof payload.token !== 'string') return;
+  if (!row) return;
+  if (typeof payload.token !== 'string') throw new Error('Portal invitation delivery unavailable');
   const invitation = JSON.parse(row.value) as Invitation;
-  if (hash(payload.token.split('.')[1] ?? '') !== invitation.hash) return;
+  if (hash(payload.token.split('.')[1] ?? '') !== invitation.hash) throw new Error('Portal invitation delivery unavailable');
   const recipient = await validRecipient(c, invitation);
-  if (!recipient) return;
+  if (!recipient) {
+    // A skipped email must not appear as delivered when the job completes.
+    await c.query('delete from verification where id=$1', [payload.invitationId]);
+    await c.query("update durable_jobs set payload=(payload::jsonb-'token')::json where dedupe_key=$1", ['portal-invitation:'+payload.invitationId]);
+    return;
+  }
   const url = new URL('/portal-invitation', baseUrl); url.hash = 'token='+encodeURIComponent(payload.token);
   const copy: Record<string, [string,string]> = {
     pt: ['Convite para o portal do cliente', 'Defina sua senha para acessar projetos e aprovações. Este convite expira em 48 horas.'],

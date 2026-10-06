@@ -5,10 +5,11 @@ if(!process.env.PORTAL_INVITATION_TEST_DATABASE_URL)test('Portal invitation inte
  assert.equal(url.hostname,'127.0.0.1');assert.equal(url.port,'55442');assert.equal(url.pathname,'/flowlio_portal_invitation_test');
  const {Pool}=require('pg');const pool=new Pool({connectionString:url.href});
  const {createPortalInvitations,deliverPortalInvitation}=require('../src/modules/portal-invitations/service');
- const service=createPortalInvitations(pool,async password=>'hashed:'+password);
+ let clockOffset=0;
+ const service=createPortalInvitations(pool,async password=>'hashed:'+password,()=>new Date(Date.now()+clockOffset));
  const owner={id:'owner',role:'user',organizationId:'org',isOrganizationOwner:true};
  before(async()=>{await pool.query('drop schema public cascade;create schema public;drop schema if exists flowlio_releases cascade;drop schema if exists drizzle cascade');await require('../src/utils/release-migrations.util').runReleaseMigrations(pool);});
- beforeEach(async()=>{await pool.query(`truncate business_audit_events,verification,durable_jobs,users,organizations cascade;
+ beforeEach(async()=>{clockOffset=0;await pool.query(`truncate business_audit_events,verification,durable_jobs,users,organizations cascade;
  insert into users(id,name,email,role,status,email_verified,two_factor_enabled,is_super_admin,timezone,created_at,updated_at) values('owner','Owner','owner@example.test','user','active',true,false,false,'UTC',now(),now()),('client-user','Client','client@example.test','client','active',false,false,false,'UTC',now(),now());
  update users set is_organization_owner=true where id='owner';
  insert into organizations(id,name,slug,status,subscription_status,created_at,updated_at) values('org','Org','org','active','active',now(),now());
@@ -35,7 +36,7 @@ if(!process.env.PORTAL_INVITATION_TEST_DATABASE_URL)test('Portal invitation inte
   assert.equal((await service.status(owner,'client')).state,'active');
  });
  test('expiry, revocation and replacement make old links unusable',async()=>{
-  const old=await invite();await pool.query("update verification set expires_at=now()-interval '1 minute',created_at=now()-interval '2 minutes'");
+  const old=await invite();await pool.query("update verification set expires_at=now()-interval '1 minute',created_at=now()-interval '2 minutes'");clockOffset=120_000;
   assert.equal((await service.status(owner,'client')).state,'expired');await assert.rejects(service.accept({token:old.token,password:'valid-password'}),{code:'INVITATION_INVALID'});
   const fresh=await invite();await service.revoke(owner,'client');await assert.rejects(service.accept({token:fresh.token,password:'valid-password'}),{code:'INVITATION_INVALID'});
   assert.equal((await service.status(owner,'client')).state,'not_invited');
@@ -65,8 +66,30 @@ if(!process.env.PORTAL_INVITATION_TEST_DATABASE_URL)test('Portal invitation inte
   assert.equal((await pool.query("select count(*)::int n from business_audit_events where action='client.portal_invitation_accepted'")).rows[0].n,1);
  });
  test('resending rotates the link and does not reset an already active account',async()=>{
-  const old=await invite();await assert.rejects(invite(),{code:'INVITATION_COOLDOWN'});await pool.query("update verification set created_at=now()-interval '2 minutes'");
+  const old=await invite();await assert.rejects(invite(),{code:'INVITATION_COOLDOWN'});await pool.query("update verification set created_at=now()-interval '2 minutes'");clockOffset=120_000;
   const fresh=await invite();await assert.rejects(service.accept({token:old.token,password:'valid-password'}),{code:'INVITATION_INVALID'});
   await service.accept({token:fresh.token,password:'valid-password'});await assert.rejects(invite(),{code:'PORTAL_ALREADY_ACTIVE'});
  });
+ test('valid trials can activate a portal and expired trials cannot',async()=>{
+  await pool.query("update organizations set subscription_status=null,trial_ends_at=now()+interval '1 day'");
+  const payload=await invite();await service.accept({token:payload.token,password:'valid-password'});
+  await pool.query("update clients set portal_access_enabled=false;update organizations set trial_ends_at=now()-interval '1 day'");clockOffset=120_000;
+  const expired=await invite();await assert.rejects(service.accept({token:expired.token,password:'valid-password'}),{code:'INVITATION_INVALID'});
+ });
+ test('a skipped delivery cannot become a sent invitation when the queue completes',async()=>{
+  await invite();await pool.query("update user_organizations set status='inactive'");
+  let sent=0;const {runOne}=require('../src/services/jobs/queue');
+  await runOne(pool,{'portal-invitation':{transactional:false,retryable:false,run:(job,c)=>deliverPortalInvitation(c,job.payload,'https://example.test',async()=>{sent++;return true;})}},()=>{});
+  assert.equal(sent,0);assert.equal((await service.status(owner,'client')).state,'not_invited');
+  assert.equal((await pool.query('select payload from durable_jobs')).rows[0].payload.token,undefined);
+ });
+ test('revocation does not bypass the per-client sending cooldown',async()=>{
+  await invite();await service.revoke(owner,'client');await assert.rejects(invite(),{code:'INVITATION_COOLDOWN'});
+ });
+ test('resending removes the superseded delivery secret even before its worker runs',async()=>{
+  const old=await invite();clockOffset=120_000;await invite();
+  const oldJob=(await pool.query('select payload from durable_jobs where dedupe_key=$1',['portal-invitation:'+old.invitationId])).rows[0];
+  assert.equal(oldJob.payload.token,undefined);
+ });
+
 }
