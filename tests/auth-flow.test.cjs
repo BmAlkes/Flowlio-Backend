@@ -11,6 +11,8 @@ const storage = {
   twoFactor: [],
 };
 let lastOTP;
+let deliveries = 0;
+const sendClaims = new Set();
 const database = {
   query: {
     users: { findFirst: async () => storage.users[0] },
@@ -41,7 +43,10 @@ Module._load = function (id, ...args) {
     id === "@/configs/connection.config" ||
     id === "../configs/connection.config"
   )
-    return { database };
+    return { database, connection: { query: async (_sql, [key]) => {
+      if (sendClaims.has(key)) return { rowCount: 0 };
+      sendClaims.add(key); return { rowCount: 1 };
+    } } };
   if (id === "better-auth")
     return {
       betterAuth: (options) =>
@@ -57,6 +62,7 @@ Module._load = function (id, ...args) {
       brevoTransactionApi: {
         sendTransacEmail: async (payload) => {
           lastOTP = payload.htmlContent.match(/>(\d{6})</)?.[1];
+          deliveries++;
         },
       },
     };
@@ -141,8 +147,18 @@ test("production auth config: password, legacy email 2FA, invalid/replayed code 
   assert.equal((await call("get-session")).body, null);
   const bypass = await call("sign-in/email-otp", { email, otp: "123456" });
   assert.equal(bypass.status, 403);
-  const sent = await call("two-factor/send-otp", {});
-  assert.equal(sent.status, 200, JSON.stringify(sent.body));
+  const beforeSend = deliveries;
+  const sends = await Promise.all(Array.from({ length: 3 }, () => call("two-factor/send-otp", {})));
+  assert.deepEqual(sends.map(r => r.status).sort(), [200, 429, 429]);
+  assert.equal(deliveries, beforeSend + 1);
+  const firstCode = lastOTP;
+  assert.equal((await call("two-factor/send-otp", {})).status, 429);
+  assert.equal(lastOTP, firstCode, "Duplicate requests must not replace the delivered code");
+  assert.equal(deliveries, beforeSend + 1);
+  // Simulate expiry of the DB cooldown; its actual timing is tested against PostgreSQL.
+  sendClaims.clear();
+  assert.equal((await call("two-factor/send-otp", {})).status, 200);
+  assert.equal(deliveries, beforeSend + 2);
   assert.ok(lastOTP);
   const wrong = lastOTP === "000000" ? "111111" : "000000";
   assert.equal(

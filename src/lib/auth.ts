@@ -5,7 +5,8 @@ import {
 } from "@/utils/brevo.util";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { brevoTransactionApi } from "@/configs/brevo.config";
-import { database } from "../configs/connection.config";
+import { database, connection } from "../configs/connection.config";
+import { claimLoginOtpSend } from "./otp-send-gate";
 import * as schema from "../schema/schema";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
@@ -65,6 +66,16 @@ export const auth = betterAuth({
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/two-factor/send-otp") {
+        const cookie = ctx.context.createAuthCookie("two_factor");
+        const challenge = await ctx.getSignedCookie(cookie.name, ctx.context.secret);
+        if (challenge && !(await claimLoginOtpSend(connection, challenge))) {
+          throw new APIError("TOO_MANY_REQUESTS", {
+            code: "OTP_SEND_COOLDOWN",
+            message: "A code was already requested. Please wait 60 seconds before requesting another.",
+          });
+        }
+      }
       if (ctx.path === "/sign-in/email-otp" && ctx.body?.email) {
         const user = await database.query.users.findFirst({
           where: eq(schema.users.email, ctx.body.email),
