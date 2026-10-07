@@ -1,3 +1,5 @@
+import { deliverPortalInvitation } from '../../modules/portal-invitations/service';
+import { env } from '../../utils/env.util';
 import { scheduleClientReminders,deliverClientReminder } from '../../modules/client-pending/reminders';
 import { deliverWorkflow } from '../../modules/workflows/delivery';
 import { processWorkflowOrganization } from "../../modules/workflows/service";
@@ -35,6 +37,12 @@ const transactional = (run: Handler["run"]): Handler => ({
     transactional: true, run: (job, client) => jobContext.run({ job, client, database: drizzle(client, { schema, casing: "snake_case" }) }, () => run(job, client))
 });
 export const handlers: Record<string, Handler> = {
+    'portal-invitation': {transactional:false,retryable:false,run:async(job,client)=>{
+        await deliverPortalInvitation(client,job.payload,env.FRONTEND_DOMAIN,async(email,name,title,message,url)=>{
+            const result=await sendTransactionalEmail({to:email,toName:name,templateKey:'portal_invitation',data:{title,message,url}});
+            return result.success&&!!result.messageId;
+        });
+    }},
     "workflow-events": transactional(async (job, client) => {
         if (job.payload.organizationId) { await processWorkflowOrganization(client, String(job.payload.organizationId)); return; }
         const organizations = await client.query("select distinct organization_id from workflow_rules where enabled=true");

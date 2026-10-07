@@ -6,7 +6,7 @@ import { canReadProject, canManageClients, type Actor } from "../../security/res
 export class DeliveryError extends Error { constructor(public status:number,public code:string){super(code);} }
 const identifier=z.string().min(1).max(128);
 const version=z.string().regex(/^[a-f0-9]{64}$/);
-export const requestInput=z.object({milestoneId:identifier,version,clientId:identifier.optional(),note:z.string().trim().min(1).max(4000)}).strict();
+export const requestInput=z.object({milestoneId:identifier,version,clientId:identifier.optional(),note:z.string().trim().min(1).max(4000),completeMilestone:z.boolean().default(false)}).strict();
 export const decisionInput=z.object({version,state:z.enum(["approved","changes_requested"]),comment:z.string().trim().max(2000).default("")}).strict().refine(data=>data.state!=="changes_requested"||data.comment.length>0);
 export function milestoneVersion(row:Record<string,unknown>){return createHash("sha256").update(JSON.stringify([row.id,row.title,row.status,row.due_date,row.updated_at])).digest("hex");}
 export function createDeliveryReviews(pool:Pool){
@@ -70,10 +70,11 @@ export function createDeliveryReviews(pool:Pool){
    const current=await milestone(client,actor,projectId,input.milestoneId,true);
    if(!current)throw new DeliveryError(404,"MILESTONE_NOT_FOUND");
    if(milestoneVersion(current)!==input.version)throw new DeliveryError(409,"SOURCE_CHANGED");
-   const existing=(await client.query('select id,note from delivery_reviews where project_id=$1 and milestone_id=$2 and client_id=$3 and source_version=$4',[projectId,input.milestoneId,project.clientId,input.version])).rows[0];
-   if(existing){if(existing.note!==input.note)throw new DeliveryError(409,'REVIEW_ALREADY_EXISTS');await client.query('commit');return{id:existing.id,existing:true};}
+   const existing=(await client.query('select id,note,complete_milestone from delivery_reviews where project_id=$1 and milestone_id=$2 and client_id=$3 and source_version=$4',[projectId,input.milestoneId,project.clientId,input.version])).rows[0];
+   if(existing){if(existing.note!==input.note||existing.complete_milestone!==input.completeMilestone)throw new DeliveryError(409,'REVIEW_ALREADY_EXISTS');await client.query('commit');return{id:existing.id,existing:true};}
    const id=randomUUID();await client.query(`insert into delivery_reviews(id,project_id,organization_id,milestone_id,client_id,source_version,title,due_date,note,requested_by)
     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[id,projectId,actor.organizationId,input.milestoneId,project.clientId,input.version,current.title,current.due_date,input.note,actor.id]);
+   await client.query('update delivery_reviews set complete_milestone=$2 where id=$1',[id,input.completeMilestone]);
    await activity(client,actor,projectId,id,'review_requested');await client.query('commit');return{id,existing:false};
   }catch(error){await client.query('rollback');throw error;}finally{client.release();}
  }
@@ -93,6 +94,10 @@ export function createDeliveryReviews(pool:Pool){
    }
    if(!current||milestoneVersion(current)!==input.version)throw new DeliveryError(409,"SOURCE_CHANGED");
    await client.query('update delivery_reviews set state=$2,comment=$3,decided_by=$4,decided_at=now() where id=$1',[reviewId,input.state,input.comment,actor.id]);
+   if(input.state==='approved'&&locked.complete_milestone){
+    const completed=(await client.query("update project_milestones set status='completed',completed_at=now(),updated_at=now() where id=$1 and project_id=$2 returning *",[row.milestone_id,projectId])).rows[0];
+    await client.query('update delivery_reviews set completed_version=$2 where id=$1',[reviewId,milestoneVersion(completed)]);
+   }
    await activity(client,actor,projectId,reviewId,input.state==='approved'?'delivery_approved':'delivery_changes_requested');
    await client.query('commit');return{id:reviewId,existing:false};
   }catch(error){await client.query('rollback');throw error;}finally{client.release();}

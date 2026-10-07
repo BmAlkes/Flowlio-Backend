@@ -17,7 +17,7 @@ const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(valu
 
 function eligibleQuery(tx: Transaction | typeof database, actor: Actor, filter: TimeBillingFilter, ids?: string[]) {
   return tx.select({
-    id: timeEntries.id, userName: users.name, projectName: projects.name, currencyCode: projects.currencyCode,
+    id: timeEntries.id, projectId: projects.id, userName: users.name, projectName: projects.name, currencyCode: projects.currencyCode,
     taskTitle: tasks.title, description: timeEntries.description,
     startTime: timeEntries.startTime, endTime: timeEntries.endTime,
     duration: timeEntries.duration, hourlyRate: timeEntries.hourlyRate,
@@ -90,6 +90,7 @@ export async function createTimeInvoice(actor: Actor, input: TimeInvoiceInput) {
       item.row.projectName + " / " + (item.row.taskTitle ?? item.row.description ?? "Time entry") +
       " - " + item.row.duration + " min x " + item.hourlyRate + "/h = " + item.amount).join("\n");
     const invoice = await insertNumberedInvoice(tx, "S1", { id: randomUUID(), organizationId: actor.organizationId,
+      projectId: new Set(rows.map(row => row.projectId)).size === 1 ? rows[0].projectId : null,
       clientId: client.id, createdBy: actor.id, clientname: client.name.trim(), amount: formatCents(totalCents),
       currencyCode: input.currencyCode, status: "draft", description, dueDate: input.dueDate ? new Date(input.dueDate + "T00:00:00Z") : null });
     await tx.insert(invoiceTimeItems).values(items.map(item => ({

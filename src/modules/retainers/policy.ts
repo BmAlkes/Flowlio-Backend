@@ -11,6 +11,7 @@ const common={key:z.string().uuid()};const period={...common,periodId:id,revisio
 export const command=z.discriminatedUnion('action',[
  z.object({...common,action:z.literal('state'),state:z.enum(['active','paused','cancelled']),revision:z.number().int().min(0),reason:z.string().trim().min(1).max(1000)}).strict(),
  z.object({...common,action:z.literal('open'),month}).strict(),
+ z.object({...common,action:z.literal('link'),projectId:id,enabled:z.boolean(),revision:z.number().int().min(0)}).strict(),
  z.object({...period,action:z.literal('allocate'),entries:z.array(z.object({id,version:z.string().length(64)}).strict()).min(1).max(100)}).strict(),
  z.object({...period,action:z.literal('remove'),entryId:id}).strict(),
  z.object({...period,action:z.literal('adjust'),sourceEntryId:id,minutes:z.number().int().min(-1000000).max(1000000).refine(n=>n!==0),reason:z.string().trim().min(1).max(1000)}).strict(),

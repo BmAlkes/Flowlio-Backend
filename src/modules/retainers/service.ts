@@ -58,7 +58,12 @@ export function createRetainers(pool:Pool){
   const r=await contract(c,a,cl,id),periods=(await c.query('select * from retainer_periods where retainer_id=$1 order by month desc limit 13 offset $2',[id,(q.data.periodPage-1)*12])).rows;
   const p=q.data.periodId?(await c.query('select * from retainer_periods where id=$1 and retainer_id=$2',[q.data.periodId,id])).rows[0]:periods[0];if(!p)throw new RetainerError(404,'NOT_FOUND');
   const entries=(await c.query('select id,time_entry_id,source_entry_id,minutes,kind,label,started_at,created_at from retainer_entries where period_id=$1 order by created_at,id limit 26 offset $2',[p.id,(q.data.entryPage-1)*25])).rows;
-  return{contract:safeContract(a,r),periods:periods.slice(0,12).map(v=>({id:v.id,month:v.month,state:v.state})),hasMorePeriods:periods.length>12,period:{...safePeriod(a,p),totals:totals(p.included_minutes,p.carry,await used(c,p.id))},entries:entries.slice(0,25),hasMoreEntries:entries.length>25};
+  const linkedProjects=canViewProjectFinancials(a)?(await c.query(`select pr.id,pr.name,pr.currency_code as currency,l.retainer_id as "retainerId"
+   from projects pr left join retainer_project_links l on l.project_id=pr.id
+   where pr.organization_id=$1 and pr.client_id=$2 and (pr.created_by=$3 or pr.assigned_to=$3 or pr.visibility='public')
+   order by (l.retainer_id=$4) desc nulls last,pr.name,pr.id limit 100`,[a.organizationId,cl.id,a.id,r.id])).rows:[];
+  const awaiting=(await c.query("select id,month from retainer_periods where retainer_id=$1 and state='closed' and decision='awaiting' order by month limit 24",[r.id])).rows;
+  return{linkedProjects,awaiting,contract:safeContract(a,r),periods:periods.slice(0,12).map(v=>({id:v.id,month:v.month,state:v.state})),hasMorePeriods:periods.length>12,period:{...safePeriod(a,p),totals:totals(p.included_minutes,p.carry,await used(c,p.id))},entries:entries.slice(0,25),hasMoreEntries:entries.length>25};
  },false);}
  async function eligible(c:PoolClient,a:Actor,cl:any,p:any,ids?:string[],page=1){
   const rows=(await c.query(`select t.id,t.duration,t.start_time::text,t.end_time::text,t.description,t.project_id,t.task_id,t.billable,t.hourly_rate,t.status,
@@ -76,7 +81,21 @@ export function createRetainers(pool:Pool){
  async function mutate(a:Actor,clientId:string,id:string,raw:unknown){const parsed=command.safeParse(raw);if(!parsed.success)throw new RetainerError(400,'INVALID_INPUT');const d=parsed.data;if(d.action!=='decide')requireWrite(a);else if(a.role!=='client')throw new RetainerError(403,'CLIENT_ONLY');
   return transaction(a,clientId,async(c,cl)=>{
    const r=await contract(c,a,cl,id,true),fingerprint=hash(d);const prior=(await c.query('select * from retainer_commands where id=$1',[d.key])).rows[0];if(prior){if(prior.retainer_id!==id||prior.actor_id!==a.id||prior.fingerprint!==fingerprint)throw new RetainerError(409,'REQUEST_CONFLICT');return{replayed:true};}
-   if(d.action==='state'){
+   if(d.action==='link'){
+    if(r.revision!==d.revision)throw new RetainerError(409,'VERSION_CHANGED');
+    const project=(await c.query('select id,name,organization_id as "organizationId",created_by as "createdBy",assigned_to as "assignedTo",visibility,client_id,currency_code from projects where id=$1 and organization_id=$2 for update',[d.projectId,a.organizationId])).rows[0];
+    if(!project||project.client_id!==cl.id||!canReadProject(a,project))throw new RetainerError(404,'PROJECT_NOT_FOUND');
+    const existing=(await c.query('select retainer_id from retainer_project_links where project_id=$1',[project.id])).rows[0];
+    if(d.enabled){
+     if(r.state!=='active')throw new RetainerError(409,'CONTRACT_INACTIVE');
+     if(project.currency_code!==r.currency)throw new RetainerError(409,'CURRENCY_MISMATCH');
+     if(existing&&existing.retainer_id!==r.id)throw new RetainerError(409,'PROJECT_ALREADY_LINKED');
+     await c.query('insert into retainer_project_links(project_id,retainer_id,created_by) values($1,$2,$3) on conflict(project_id) do nothing',[project.id,r.id,a.id]);
+     await c.query("select ensure_retainer_month($1,to_char(now() at time zone $2,'YYYY-MM'))",[r.id,r.timezone]);
+    }else await c.query('delete from retainer_project_links where project_id=$1 and retainer_id=$2',[project.id,r.id]);
+    await c.query('update retainers set revision=revision+1 where id=$1',[r.id]);
+    await audit(c,a,id,'linked',{project_id:project.id,enabled:d.enabled});
+   }else if(d.action==='state'){
     if(r.revision!==d.revision)throw new RetainerError(409,'VERSION_CHANGED');if(r.state==='cancelled'||r.state===d.state)throw new RetainerError(409,'CONTRACT_INACTIVE');
     // Pausing consumption also stops the linked monthly billing; resuming that schedule remains an explicit billing action.
     if(r.recurring_id&&d.state!=='active')await c.query("update recurring_invoices set status='paused',updated_at=now() where id=$1",[r.recurring_id]);
@@ -101,6 +120,7 @@ export function createRetainers(pool:Pool){
       if(source.minutes+priorMinutes+d.minutes<0||await used(c,p.id)+d.minutes<0)throw new RetainerError(409,'INVALID_ADJUSTMENT');
       await c.query(`insert into retainer_entries(id,period_id,source_entry_id,minutes,kind,label,created_by) values($1,$2,$3,$4,'adjustment',$5,$6)`,[randomUUID(),p.id,source.id,d.minutes,d.reason,a.id]);await audit(c,a,id,'adjusted',{period_id:p.id,source_entry_id:source.id,minutes:d.minutes});
      }else if(d.action==='close'){
+      if(p.carry_pending)throw new RetainerError(409,'CLOSE_PREVIOUS');
       if(new Date(p.ends_at).getTime()>Date.now())throw new RetainerError(409,'PERIOD_NOT_ENDED');
       const active=await c.query(`select 1 from time_entries t join projects pr on pr.id=t.project_id where pr.organization_id=$1 and pr.client_id=$2 and t.status='active' and t.start_time at time zone 'UTC'<$3 limit 1`,[a.organizationId,cl.id,p.ends_at]);if(active.rowCount)throw new RetainerError(409,'ACTIVE_TIMER');
       if(r.recurring_id){const template=(await c.query('select * from recurring_invoices where id=$1 for share',[r.recurring_id])).rows[0];if(!template||template.organization_id!==a.organizationId||template.client_id!==cl.id||template.frequency!=='monthly'||cents(template.amount)!==cents(r.monthly_amount))throw new RetainerError(409,'RECURRING_CHANGED');}
@@ -108,7 +128,9 @@ export function createRetainers(pool:Pool){
       const extra=r.overage_policy==='approval'?(BigInt(summary.overage)*cents(r.overage_rate)+BigInt(30))/BigInt(60):BigInt(0);if(extra>BigInt(9999999999))throw new RetainerError(400,'AMOUNT_TOO_LARGE');
       const statement={...summary,carryOut,overageAmount:money(extra),billing:{id:randomUUID(),currency:r.currency,monthlyAmount:r.recurring_id?'0.00':r.monthly_amount,overageAmount:money(extra),recurringId:r.recurring_id,kind:'commercial_draft'}};
       await c.query("update retainer_periods set state='closed',statement=$2,decision=$3,closed_at=now(),closed_by=$4 where id=$1",[p.id,JSON.stringify(statement),extra>BigInt(0)?'awaiting':'not_required',a.id]);await audit(c,a,id,'closed',{period_id:p.id,minutes:consumption,overage_amount:money(extra),currency:r.currency});
-      if(r.renewal==='automatic'&&r.state==='active'&&(!r.end_month||nextMonth(p.month)<=r.end_month))await openPeriod(c,r,nextMonth(p.month));
+      const following=(await c.query('select id,state from retainer_periods where retainer_id=$1 and month=$2 for update',[r.id,nextMonth(p.month)])).rows[0];
+      if(following&&following.state==='open')await c.query('update retainer_periods set carry=$2,carry_pending=false,revision=revision+1 where id=$1',[following.id,JSON.stringify(carryOut)]);
+      else if(!following&&r.renewal==='automatic'&&r.state==='active'&&(!r.end_month||nextMonth(p.month)<=r.end_month))await openPeriod(c,r,nextMonth(p.month));
      }
      await c.query('update retainer_periods set revision=revision+1 where id=$1',[p.id]);
     }

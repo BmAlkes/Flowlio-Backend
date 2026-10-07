@@ -6,7 +6,7 @@ export class PendingError extends Error {constructor(public status:number,public
 export const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const id=z.string().min(1).max(128);
 const date=z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).refine(v=>{const d=new Date(v+'T12:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===v;});
-export const creation=z.object({id:z.string().uuid(),projectId:id,kind:z.enum(['briefing','question','file']),title:z.string().trim().min(1).max(160),description:z.string().trim().min(1).max(4000),
+export const creation=z.object({id:z.string().uuid(),projectId:id,kind:z.enum(['briefing','question','file']),title:z.string().trim().min(1).max(160),description:z.string().trim().min(1).max(4000),reviewRequired:z.boolean().default(true),
  questions:z.array(z.object({id:z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/).refine(v=>!['__proto__','constructor','prototype'].includes(v)),label:z.string().trim().min(1).max(200),type:z.enum(['text','choice']),required:z.boolean(),options:z.array(z.string().trim().min(1).max(160)).max(12)}).strict()).max(10),
  dependencies:z.array(id).max(10),assignedTo:id,dueDate:date.nullable(),timezone:z.string().max(80),reminderHours:z.union([z.literal(0),z.literal(24),z.literal(48),z.literal(72),z.literal(168)]),reminderChannel:z.enum(['internal','email','push']),
 }).strict().superRefine((v,c)=>{

@@ -7,7 +7,7 @@ import { creation,command,hash,project,blocked,dependencies,PendingError } from 
 export { PendingError } from './policy';
 const identifier=z.string().min(1).max(128);
 const paging=z.coerce.number().int().min(1).max(10000).default(1);
-const listQuery=z.object({page:paging,projectId:identifier.optional(),state:z.enum(['open','answered','completed','cancelled','all']).default('open'),kind:z.enum(['all','delivery','scope','briefing','question','file']).default('all'),overdue:z.enum(['true','false']).default('false')}).strict();
+const listQuery=z.object({page:paging,projectId:identifier.optional(),state:z.enum(['open','answered','completed','cancelled','all']).default('open'),kind:z.enum(['all','delivery','scope','briefing','question','file','overage']).default('all'),overdue:z.enum(['true','false']).default('false')}).strict();
 const shared=`with visible as (select p.id,p.name,p.client_id,cl.name client_name,cl.user_id client_user_id from projects p join clients cl on cl.id=p.client_id and cl.organization_id=p.organization_id where p.organization_id=$1 and ($3::text is null or p.id=$3) and (case when $4 then cl.user_id=$2 and cl.portal_access_enabled=true else p.created_by=$2 or p.assigned_to=$2 or p.visibility='public' end)),
  items as (
  select 'delivery' kind,d.id,d.project_id,d.client_id,d.title,case when d.state='pending' then 'open' else 'completed' end state,d.state source_state,d.requested_at created_at,d.decided_at responded_at,d.due_date at time zone 'UTC' due_at,'UTC' timezone,cl.client_name,cl.name project_name,cl.client_user_id responsible_id,
@@ -18,6 +18,12 @@ const shared=`with visible as (select p.id,p.name,p.client_id,cl.name client_nam
  union all select r.kind,r.id,r.project_id,r.client_id,r.title,r.state,r.state,coalesce((select max(e.created_at) from client_request_events e where e.request_id=r.id and e.action='reopen'),r.created_at),response.created_at,r.due_at,r.timezone,cl.client_name,cl.name,case when r.state='answered' then r.assigned_to else cl.client_user_id end,
  jsonb_build_object('revision',r.revision,'dueDate',r.due_date,'blocked',exists(select 1 from unnest(r.dependencies) dep where not exists(select 1 from client_requests p where p.id=dep and p.organization_id=r.organization_id and p.project_id=r.project_id and p.client_id=r.client_id and p.state='completed')))
  from client_requests r join visible cl on cl.id=r.project_id and cl.client_id=r.client_id left join client_request_responses response on response.request_id=r.id and response.cycle=r.cycle where r.organization_id=$1
+ union all select 'overage',p.id,null::text,r.client_id,r.name||' · '||p.month,
+ case when p.decision='awaiting' then 'open' else 'completed' end,p.decision,p.closed_at,p.decided_at,null::timestamptz,r.timezone,
+ cl.name,r.name,cl.user_id,jsonb_build_object('retainerId',r.id)
+ from retainer_periods p join retainers r on r.id=p.retainer_id join clients cl on cl.id=r.client_id and cl.organization_id=r.organization_id
+ where r.organization_id=$1 and $3::text is null and $4 and cl.user_id=$2 and cl.portal_access_enabled=true
+ and p.state='closed' and p.decision in ('awaiting','approved','rejected')
  ), filtered as(select * from items where ($5='all' or kind=$5))`;
 export function createClientPending(pool:Pool){
  async function tx<T>(a:Actor,work:(c:PoolClient)=>Promise<T>,write=false){
@@ -46,7 +52,7 @@ export function createClientPending(pool:Pool){
    const items=rows.slice(0,25).map(v=>{
     let stale=false;if(v.kind==='delivery'&&v.state==='open'){const m=v.metadata.milestone;stale=!m||milestoneVersion({...m,due_date:m.due_date?new Date(m.due_date):null,updated_at:new Date(m.updated_at)})!==v.metadata.version;}
     const base=a.role==='client'?'/clients/projects/view/':'/dashboard/project/view/';
-    return{id:v.id,kind:v.kind,title:v.title,state:v.state,sourceState:v.source_state,projectId:v.project_id,projectName:v.project_name,clientName:v.client_name,responsible:v.responsible_name??null,dueAt:v.due_at,dueDate:v.metadata.dueDate??null,timezone:v.timezone,createdAt:v.created_at,blocked:!!v.metadata.blocked,stale,revision:v.metadata.revision,href:v.kind==='delivery'?base+encodeURIComponent(v.project_id)+'?reviewId='+encodeURIComponent(v.id)+'#delivery-reviews':v.kind==='scope'?base+encodeURIComponent(v.project_id)+'/changes?changeId='+encodeURIComponent(v.id):null};
+    return{id:v.id,kind:v.kind,title:v.title,state:v.state,sourceState:v.source_state,projectId:v.project_id,projectName:v.project_name,clientName:v.client_name,responsible:v.responsible_name??null,dueAt:v.due_at,dueDate:v.metadata.dueDate??null,timezone:v.timezone,createdAt:v.created_at,blocked:!!v.metadata.blocked,stale,revision:v.metadata.revision,href:v.kind==='overage'?'/clients/contracts?contractId='+encodeURIComponent(v.metadata.retainerId)+'&periodId='+encodeURIComponent(v.id):v.kind==='delivery'?base+encodeURIComponent(v.project_id)+'?reviewId='+encodeURIComponent(v.id)+'#delivery-reviews':v.kind==='scope'?base+encodeURIComponent(v.project_id)+'/changes?changeId='+encodeURIComponent(v.id):null};
    });return{items,page:q.page,hasMore:rows.length>25,summary,project:context?{id:context.id,name:context.name,clientId:context.clientId}:null,canManage:canManageClients(a)};
   });
  }
@@ -68,6 +74,7 @@ export function createClientPending(pool:Pool){
    if(d.dependencies.length&&(await c.query("select id from client_requests where id=any($1::text[]) and organization_id=$2 and project_id=$3 and client_id=$4 and state<>'cancelled'",[d.dependencies,a.organizationId,d.projectId,p.clientId])).rowCount!==d.dependencies.length)throw new PendingError(400,'INVALID_DEPENDENCY');
    await c.query(`insert into client_requests(id,organization_id,project_id,client_id,kind,title,description,questions,dependencies,assigned_to,created_by,request_hash,due_date,timezone,due_at,reminder_hours,reminder_channel,reminder_next_at)
     values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,case when $13::text is null then null else (($13::date+1)::timestamp at time zone $14) end,$15,$16,case when $15=0 then null else (($13::date+1)::timestamp at time zone $14) end)`,[d.id,a.organizationId,d.projectId,p.clientId,d.kind,d.title,d.description,JSON.stringify(d.questions),d.dependencies,d.assignedTo,a.id,fingerprint,d.dueDate,d.timezone,d.reminderHours,d.reminderChannel]);
+   await c.query('update client_requests set review_required=$2 where id=$1',[d.id,d.reviewRequired]);
    await record(c,a,d.id,d.projectId,'created','',0);return{id:d.id};
   },true);
  }
@@ -94,7 +101,7 @@ export function createClientPending(pool:Pool){
    for(const q of r.questions){const value=Object.prototype.hasOwnProperty.call(d.answers,q.id)?d.answers[q.id]:'';if(q.required&&!value||value&&q.type==='choice'&&!q.options.includes(value))throw new PendingError(400,'INVALID_ANSWERS');}
    const attachments=(await c.query(`select f.id,v.id as "versionId",v.name,v.url,v.size,v.type from files f join lateral(select * from file_versions where file_id=f.id order by version_number desc,id desc limit 1)v on true where f.id=any($1::text[]) and f.organization_id=$2 and f.project_id=$3 and f.client_id=$4 and f.task_id is null order by f.id for share of f`,[d.fileIds,a.organizationId,r.project_id,r.client_id])).rows;if(attachments.length!==d.fileIds.length)throw new PendingError(400,'INVALID_FILES');
    await c.query('insert into client_request_responses(id,request_id,cycle,actor_id,message,answers,attachments) values($1,$2,$3,$4,$5,$6,$7)',[randomUUID(),id,r.cycle,a.id,d.message,JSON.stringify(d.answers),JSON.stringify(attachments)]);
-   await c.query("update client_requests set state='answered',revision=revision+1,updated_at=now(),reminder_next_at=null where id=$1",[id]);
+   await c.query("update client_requests set state=case when review_required then 'answered' else 'completed' end,completed_at=case when review_required then null else now() end,revision=revision+1,updated_at=now(),reminder_next_at=null where id=$1",[id]);
   }else if(d.action==='complete'){
    if(r.state!=='answered')throw new PendingError(409,'RESPONSE_REQUIRED');if(await blocked(c,r))throw new PendingError(409,'DEPENDENCY_PENDING');
    await c.query("update client_requests set state='completed',revision=revision+1,updated_at=now(),completed_at=now(),reminder_next_at=null,reason=$2 where id=$1",[id,d.reason]);

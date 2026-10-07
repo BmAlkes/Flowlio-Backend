@@ -6,6 +6,7 @@ import { connection } from "./configs/connection.config";
 import { runReleaseMigrations } from "./utils/release-migrations.util";
 import { scheduleDue, runOne } from "./services/jobs/queue";
 import { handlers, schedules } from "./services/jobs/handlers";
+import { syncRetainerMonths } from "./modules/retainers/automation";
 import { logger } from "./utils/logger.util";
 let stopping = false;
 const abort = new AbortController();
@@ -20,6 +21,7 @@ async function main() {
     try {
         while (!stopping) {
             if (Date.now() >= nextPrune) {
+                await syncRetainerMonths(connection).catch(() => logger.warn("Monthly contracts could not be updated; retrying next cycle"));
                 await observability.prune().catch(() => logger.warn("Telemetry retention cleanup failed"));
                 nextPrune = Date.now() + 3600000;
             }

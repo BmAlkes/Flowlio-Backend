@@ -15,6 +15,7 @@ export async function trackTime(actor: Actor | undefined, taskId: string, operat
   if (operation === "stop" && !entryId) throw new TimeTrackingError(400, "Refresh the application before stopping this timer");
 
   return database.transaction(async tx => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"time-invoice:" + actor.organizationId}, 0))`);
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"time-tracking:" + actor.id}, 0))`);
     const [task] = await tx.select({ id: tasks.id, title: tasks.title, projectId: tasks.projectId })
       .from(tasks).innerJoin(projects, eq(tasks.projectId, projects.id))

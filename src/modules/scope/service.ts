@@ -97,6 +97,7 @@ export function createScopeChanges(pool:Pool){
    }else if(data.action==='estimate'){
     if(!money)throw new ScopeError(403,'FINANCIAL_ACCESS_REQUIRED');
     if(!['requested','analysis','awaiting','rejected','approved'].includes(row.state))throw new ScopeError(409,'INVALID_STATE');
+    if((await c.query('select id from invoices where organization_id=$1 and commercial_source=$2 limit 1',[a.organizationId,'scope:'+id])).rows.length)throw new ScopeError(409,'INVOICE_EXISTS');
     if(data.classification==='included'&&Number(data.amount)!==0)throw new ScopeError(400,'INCLUDED_MUST_BE_FREE');
     if(data.endDate&&p.start_date&&data.endDate<dateValue(p.start_date)!.slice(0,10))throw new ScopeError(400,'INVALID_DEADLINE');
     await c.query(`insert into scope_change_versions(change_id,revision,classification,estimated_hours,amount,currency,end_date,base_end_date,note,created_by) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[id,row.revision+1,data.classification,data.estimatedHours,data.amount,data.currency,data.endDate,p.end_date,data.note,a.id]);
@@ -113,6 +114,7 @@ export function createScopeChanges(pool:Pool){
     if(!manager&&row.requested_by!==a.id)throw new ScopeError(403,'FORBIDDEN');
     if(row.state==='cancelled'&&row.cancellation_reason===data.reason)return{id,existing:true};
     if(row.state==='applied'||row.state==='cancelled'||(!manager&&row.state==='approved'))throw new ScopeError(409,'INVALID_STATE');
+    if((await c.query('select id from invoices where organization_id=$1 and commercial_source=$2 limit 1',[a.organizationId,'scope:'+id])).rows.length)throw new ScopeError(409,'INVOICE_EXISTS');
     await c.query("update scope_change_requests set state='cancelled',cancellation_reason=$2,updated_at=now() where id=$1",[id,data.reason]);await audit(c,a,projectId,id,'cancelled',{state:row.state},{state:'cancelled',revision:row.revision});
    }else{
     if(!money)throw new ScopeError(403,'FINANCIAL_ACCESS_REQUIRED');
