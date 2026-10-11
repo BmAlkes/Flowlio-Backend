@@ -186,6 +186,7 @@ before(async () => {
       ["/invoices", "invoices"],
       ["/proposals", "proposals"],
       ["/files", "file"],
+      ["/organizations", "organization"],
     ])
       app.use(prefix, require(`../src/routes/${route}.routes`).default);
   } finally {
@@ -203,6 +204,28 @@ after(async () => {
 });
 
 const scenarios = [
+  ...["member", "manager", "viewer", "operator", "client", "unknown", "noOrg", null].flatMap(actor =>
+    [
+      ["GET", "/organizations/user-members"],
+      ["GET", "/organizations/current-org-user-members"],
+      ["POST", "/organizations/create-user-member"],
+      ["DELETE", "/organizations/user-members/member-id"],
+      ["PATCH", "/organizations/user-members/member-id/deactivate"],
+      ["PATCH", "/organizations/user-members/member-id/reactivate"],
+      ["PATCH", "/organizations/user-members/member-id/organization-manager"],
+      ["DELETE", "/organizations/activities/activity-id"],
+    ].map(([method, path]) => [`${actor} denied team administration ${method} ${path}`, actor, method, path, actor ? 403 : 401])
+  ),
+  ["owner can administer members", "owner", "POST", "/organizations/create-user-member", 200],
+  ["owner can list members", "owner", "GET", "/organizations/current-org-user-members", 200],
+  ["owner can promote members", "owner", "PATCH", "/organizations/user-members/member-id/organization-manager", 200],
+  ["debug route is not published", "owner", "GET", "/organizations/test-user-members", 404],
+  ...["member", "viewer", "operator", "client", "unknown"].flatMap(actor =>
+    ["/organizations/activities", "/organizations/stats/total-clients"].map(path => [`${actor} cannot read organization-wide commercial data ${path}`, actor, "GET", path, 403])
+  ),
+  ["manager retains activity access", "manager", "GET", "/organizations/activities", 200],
+  ["manager retains client statistics", "manager", "GET", "/organizations/stats/total-clients", 200],
+  ["member retains assignee directory", "member", "GET", "/projects/users/organization", 200],
   ["anonymous denied", undefined, "DELETE", "/projects/shared", 401],
   ["missing organization denied", "noOrg", "DELETE", "/projects/shared", 403],
   ["unknown role fails closed", "unknown", "DELETE", "/projects/shared", 403],
@@ -591,7 +614,7 @@ for (const [name, actor, method, route, status, body] of scenarios)
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    const payload = await response.json();
+    const payload = await response.text();
     assert.equal(response.status, status, JSON.stringify(payload));
     assert.equal(
       reached - previous,
@@ -609,4 +632,12 @@ test("resource policies keep tenant, visibility and financial boundaries", () =>
     canViewProjectFinancials({ ...actors.client, isOrganizationOwner: true }),
     false,
   );
+});
+
+test("team creation accepts only known staff roles", () => {
+  const { createUserMemberSchema } = require("../src/schema/validation");
+  for (const role of ["user", "viewer", "operator"])
+    assert.equal(createUserMemberSchema.shape.userrole.safeParse(role).success, true);
+  for (const role of ["superadmin", "subadmin", "client", "owner", "unknown", "USER", "", " superadmin "])
+    assert.equal(createUserMemberSchema.shape.userrole.safeParse(role).success, false);
 });

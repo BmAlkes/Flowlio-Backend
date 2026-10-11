@@ -208,6 +208,27 @@ export const requireOrgOwnerAccess = (
 };
 
 // Middleware to check if user belongs to organization
+// Team administration is reserved for owners; managers retain commercial access.
+export const requireOrgOwnerOnly = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  const actor = req.user;
+  if (!actor) {
+    res.status(401).json({ error: "Unauthorized", message: "Authentication required" });
+    return;
+  }
+  if (!actor.organizationId || !(
+    actor.role === "superadmin" || actor.role === "subadmin" ||
+    (actor.role === "user" && actor.isOrganizationOwner === true)
+  )) {
+    res.status(403).json({ error: "Forbidden", message: "Organization owner access required" });
+    return;
+  }
+  next();
+};
+
 export const requireOrganizationAccess = (
   req: Request,
   res: Response,

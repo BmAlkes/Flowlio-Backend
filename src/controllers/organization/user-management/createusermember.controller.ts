@@ -26,7 +26,6 @@ export const createUserMember = async (req: Request, res: Response) => {
       contentType,
       method: req.method,
       url: req.url,
-      headers: req.headers,
       bodyType: typeof req.body,
       bodyKeys: req.body ? Object.keys(req.body) : "no body",
     });
@@ -66,8 +65,6 @@ export const createUserMember = async (req: Request, res: Response) => {
 
     // Debug: Log what we received
     logger.info("🔍 Formidable parsing results:", {
-      fields: JSON.stringify(fields, null, 2),
-      files: JSON.stringify(files, null, 2),
       fieldsKeys: Object.keys(fields),
       filesKeys: Object.keys(files),
     });
@@ -82,7 +79,6 @@ export const createUserMember = async (req: Request, res: Response) => {
 
     // Debug: Log extracted fields
     logger.info("🔍 Extracted fields:", {
-      extractedFields: JSON.stringify(extractedFields, null, 2),
       extractedKeys: Object.keys(extractedFields),
     });
 
@@ -101,7 +97,6 @@ export const createUserMember = async (req: Request, res: Response) => {
     if (!validationResult.success) {
       logger.error("❌ Validation failed:", {
         errors: validationResult.error.errors,
-        extractedFields: extractedFields,
       });
       return res.status(400).json({
         success: false,
@@ -154,7 +149,6 @@ export const createUserMember = async (req: Request, res: Response) => {
         userId: req.user?.id,
         userEmail: req.user?.email,
         isSuperAdmin: req.user?.isSuperAdmin,
-        fullUserObject: JSON.stringify(req.user, null, 2),
       });
 
       return res.status(400).json({

@@ -9,10 +9,7 @@ export const createUserMemberSchema = z.object({
   phonenumber: z
     .string()
     .regex(/^\+?[1-9]\d{1,14}$/, "Must be a valid international phone number"),
-  userrole: z.string().min(2, "Must be a proper role").refine(
-    (val) => !["superadmin", "subadmin"].includes(val.toLowerCase()),
-    { message: "Invalid role" }
-  ),
+  userrole: z.enum(["user", "viewer", "operator"]),
   position: z.string().optional(),
   setpermission: z.string().min(2, "Must be a proper permission"),
   password: z
