@@ -367,7 +367,11 @@ export const createUserMember = async (req: Request, res: Response) => {
           image: newUser.image,
         },
         userOrganization: userOrg,
-        account: userAccount,
+        account: {
+          id: userAccount.id,
+          userId: userAccount.userId,
+          providerId: userAccount.providerId,
+        },
         userManagement: {
           id: userMemberRecord.id,
           firstname: userMemberRecord.firstname,
