@@ -1,7 +1,7 @@
 import {getFinancialSettings,updateFinancialSettings,unresolvedFinancialCurrencies,reconcileFinancialCurrencies} from '../controllers/organization/financial-settings.controller';
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
-import { requireOrgOwnerAccess, requireSuperAdmin } from "../middlewares/role.middleware";
+import { requireOrgOwnerAccess, requireOrgOwnerOnly, requireSuperAdmin } from "../middlewares/role.middleware";
 import {
   createOrganizationWithPlan,
   getUserOrganizations,
@@ -19,7 +19,6 @@ import {
   reactivateUserMember,
 } from "../controllers/organization/user-management/deleteusermember.controller";
 import { setOrganizationManager } from "../controllers/organization/user-management/setorganizationmanager.controller";
-import { testUserMembers } from "../controllers/organization/user-management/test-usermembers.controller";
 import { getOrganizationTotalClients } from "../controllers/organization/stats/gettotalclients.controller";
 import { getOrganizationActiveProjects } from "../controllers/organization/stats/getactiveprojects.controller";
 import { getOrganizationHoursTracked } from "../controllers/organization/stats/gethourstracked.controller";
@@ -38,6 +37,7 @@ import { getTeamProductivity } from "../controllers/organization/stats/getteampr
 const router = Router();
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
+const teamAdministration = [isAuthenticated, requireOrgOwnerOnly];
 router.get("/financial-settings/unresolved",...orgOwner,unresolvedFinancialCurrencies as any);
 router.post("/financial-settings/reconcile",...orgOwner,reconcileFinancialCurrencies as any);
 router.get("/financial-settings",isAuthenticated,getFinancialSettings as any);
@@ -49,37 +49,34 @@ router.get("/user-subscriptions", isAuthenticated, getUserSubscriptions as any);
 router.get("/all-organizations", isAuthenticated, requireSuperAdmin, getAllOrganizations as any);
 
 // User Management - requires org owner access (superadmin | subadmin | user + isOrganizationOwner)
-router.post("/create-user-member", ...orgOwner, createUserMember as any);
-router.get("/user-members", ...orgOwner, getAllUserMembers as any);
+router.post("/create-user-member", ...teamAdministration, createUserMember as any);
+router.get("/user-members", ...teamAdministration, getAllUserMembers as any);
 router.get(
   "/current-org-user-members",
-  ...orgOwner,
+  ...teamAdministration,
   getCurrentOrgUserMembers as any
 );
-router.delete("/user-members/:id", ...orgOwner, deleteUserMember as any);
+router.delete("/user-members/:id", ...teamAdministration, deleteUserMember as any);
 router.patch(
   "/user-members/:id/deactivate",
-  ...orgOwner,
+  ...teamAdministration,
   deactivateUserMember as any
 );
 router.patch(
   "/user-members/:id/reactivate",
-  ...orgOwner,
+  ...teamAdministration,
   reactivateUserMember as any
 );
 router.patch(
   "/user-members/:memberId/organization-manager",
-  ...orgOwner,
+  ...teamAdministration,
   setOrganizationManager as any
 );
-
-// Test endpoint for debugging user members
-router.get("/test-user-members", ...orgOwner, testUserMembers as any);
 
 // ==================== ORGANIZATION STATS ROUTES ====================
 router.get(
   "/stats/total-clients",
-  isAuthenticated,
+  ...orgOwner,
   getOrganizationTotalClients
 );
 router.get(
@@ -113,8 +110,8 @@ router.get(
   getTeamProductivity
 );
 
-router.get("/activities", isAuthenticated, getOrganizationActivities);
-router.delete("/activities/:id", isAuthenticated, deleteActivity);
+router.get("/activities", ...orgOwner, getOrganizationActivities);
+router.delete("/activities/:id", ...teamAdministration, deleteActivity);
 
 router.get("/plan-access/can-create-user", isAuthenticated, checkCanCreateUser);
 router.get(
