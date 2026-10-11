@@ -15,9 +15,17 @@ const acceptInput = z.object({ token: z.string().regex(/^[a-f0-9-]{36}\.[a-f0-9]
 
 async function target(c: PoolClient, actor: Actor, clientId: string) {
   if (!actor.organizationId || !canManageClients(actor)) throw new PortalInvitationError(403, 'FORBIDDEN');
-  const row = (await c.query(`select cl.id,cl.user_id,cl.email,cl.portal_access_enabled,u.role,u.status,u.email as identity_email
-    from clients cl join users u on u.id=cl.user_id where cl.id=$1 and cl.organization_id=$2 for update of cl`, [clientId, actor.organizationId])).rows[0];
-  if (!row || row.role !== 'client' || row.status !== 'active' || row.email !== row.identity_email) throw new PortalInvitationError(404, 'CLIENT_NOT_FOUND');
+  const row = (await c.query(`select id,name,user_id,email,portal_access_enabled
+    from clients where id=$1 and organization_id=$2 for update`, [clientId, actor.organizationId])).rows[0];
+  if (!row) throw new PortalInvitationError(404, 'CLIENT_NOT_FOUND');
+  if (row.user_id) {
+    // Read the identity after acquiring the client lock so concurrent provisioning
+    // cannot leave a waiting transaction with a stale outer-join snapshot.
+    const identity = (await c.query('select role,status,email from users where id=$1', [row.user_id])).rows[0];
+    if (!identity || identity.role !== 'client' || identity.status !== 'active' || row.email !== identity.email) throw new PortalInvitationError(409, 'PORTAL_IDENTITY_CONFLICT');
+  }
+  // A legacy contact without a login identity has never activated portal access.
+  if (!row.user_id) row.portal_access_enabled = false;
   return row;
 }
 async function audit(c: PoolClient, org: string, actor: string, action: string, clientId: string) {
@@ -66,6 +74,23 @@ export function createPortalInvitations(pool: Pool, hashPassword: (password: str
     }
     const recent = await c.query("select 1 from business_audit_events where organization_id=$1 and resource_type='client' and resource_id=$2 and action='client.portal_invited' and occurred_at>$3::timestamptz-interval '60 seconds'", [actor.organizationId,clientId,now()]);
     if (recent.rowCount) throw new PortalInvitationError(429, 'INVITATION_COOLDOWN');
+    if (!client.user_id) {
+      // Never adopt an existing account or reset somebody else's password.
+      const collision = await c.query('select 1 from users where lower(email)=lower($1)', [client.email]);
+      if (collision.rowCount) throw new PortalInvitationError(409, 'PORTAL_IDENTITY_CONFLICT');
+      const userId = randomUUID();
+      const created = await c.query(`insert into users(id,name,email,role,status,email_verified,two_factor_enabled,is_super_admin,timezone,created_at,updated_at)
+        values($1,$2,$3,'client','active',false,false,false,'UTC',now(),now()) on conflict(email) do nothing returning id`, [userId,client.name,client.email]);
+      if (!created.rowCount) throw new PortalInvitationError(409, 'PORTAL_IDENTITY_CONFLICT');
+      await c.query('update clients set user_id=$2,portal_access_enabled=false,updated_at=now() where id=$1', [clientId,userId]);
+      client.user_id = userId;
+    }
+    const credential = await c.query("select 1 from account where user_id=$1 and provider_id='credential'", [client.user_id]);
+    if (!credential.rowCount) {
+      const password = await hashPassword(randomBytes(48).toString('hex'));
+      await c.query(`insert into account(id,account_id,provider_id,user_id,password,created_at,updated_at)
+        values($1,$2,'credential',$2,$3,now(),now()) on conflict(user_id,provider_id) do nothing`, [randomUUID(),client.user_id,password]);
+    }
     const secret = randomBytes(32).toString('hex');
     const value: Invitation = {clientId, userId: client.user_id, email: client.email, organizationId: actor.organizationId!, issuedBy: actor.id, hash: hash(secret), language: data.language};
     const replaced = await c.query('delete from verification where identifier=$1 returning id', [identifier(clientId)]);
