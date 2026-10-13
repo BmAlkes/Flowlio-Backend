@@ -18,6 +18,31 @@ if(!process.env.PORTAL_INVITATION_TEST_DATABASE_URL)test('Portal invitation inte
  insert into account(id,account_id,provider_id,user_id,password,created_at,updated_at) values('a','client-user','credential','client-user','original',now(),now());`);});
  after(()=>pool.end());
  async function invite(){const key=randomUUID();await service.issue(owner,'client',{key,language:'pt'});return(await pool.query('select payload from durable_jobs where dedupe_key=$1',['portal-invitation:'+key])).rows[0].payload;}
+ test('legacy client status is readable without creating a login; invitation provisions one only on explicit send',async()=>{
+  await pool.query("update clients set user_id=null,portal_access_enabled=true; delete from users where id='client-user'");
+  assert.equal((await service.status(owner,'client')).state,'not_invited');
+  assert.equal((await pool.query("select count(*)::int n from users where role='client'")).rows[0].n,0);
+  const key=randomUUID();
+  const results=await Promise.all([service.issue(owner,'client',{key}),service.issue(owner,'client',{key})]);
+  assert.ok(results.every(r=>r.state==='queued'));
+  assert.equal((await pool.query("select count(*)::int n from users where role='client'")).rows[0].n,1);
+  assert.equal((await pool.query('select portal_access_enabled from clients')).rows[0].portal_access_enabled,false);
+  const payload=(await pool.query('select payload from durable_jobs')).rows[0].payload;
+  await service.accept({token:payload.token,password:'client-chosen-password'});
+  assert.equal((await service.status(owner,'client')).state,'active');
+ });
+ test('legacy contact never adopts an existing identity with the same email',async()=>{
+  await pool.query("update clients set user_id=null; update users set role='user' where id='client-user'");
+  await assert.rejects(service.issue(owner,'client',{key:randomUUID()}),{code:'PORTAL_IDENTITY_CONFLICT'});
+  assert.equal((await pool.query('select user_id from clients')).rows[0].user_id,null);
+  assert.equal((await pool.query('select password from account')).rows[0].password,'original');
+  assert.equal((await pool.query('select count(*)::int n from durable_jobs')).rows[0].n,0);
+ });
+ test('linked client without credentials can accept an invitation',async()=>{
+  await pool.query('delete from account');const payload=await invite();
+  await service.accept({token:payload.token,password:'client-chosen-password'});
+  assert.equal((await pool.query('select password from account')).rows[0].password,'hashed:client-chosen-password');
+ });
  test('invitation is queued once, hides token from responses, and never grants access before acceptance',async()=>{
   const key=randomUUID();const responses=await Promise.all([service.issue(owner,'client',{key}),service.issue(owner,'client',{key})]);
   assert.equal(responses[0].state,'queued');assert.equal(JSON.stringify(responses).includes('token'),false);
