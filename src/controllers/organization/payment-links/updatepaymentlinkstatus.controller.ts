@@ -23,7 +23,7 @@ export const updatePaymentLinkStatus = async (
       res.status(400).json({
         success: false,
         message: "Validation failed",
-        errors: bodyResult.error.errors,
+        errors: bodyResult.error.issues,
       });
       return;
     }
@@ -48,7 +48,7 @@ export const updatePaymentLinkStatus = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ success: false, message: "Validation failed", errors: error.errors });
+      res.status(400).json({ success: false, message: "Validation failed", errors: error.issues });
       return;
     }
     logger.error("Error updating payment link status:", error);

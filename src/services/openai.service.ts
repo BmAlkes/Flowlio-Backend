@@ -620,8 +620,8 @@ export class OpenAIService {
                 // Fallback to pdfjs-dist - lazy import
                 debugLog("🔍 Trying pdfjs-dist parsing...");
                 parsingMethod = "pdfjs-dist";
-                const pdfjsLib = await import("pdfjs-dist");
-                const loadingTask = pdfjsLib.getDocument({ data: fileBuffer });
+                const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+                const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(fileBuffer) });
                 const pdfDoc = await loadingTask.promise;
                 const numPages = pdfDoc.numPages;
                 let extractedText = "";

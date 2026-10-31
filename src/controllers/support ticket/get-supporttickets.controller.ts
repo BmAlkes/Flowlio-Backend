@@ -34,7 +34,7 @@ export const getSupportTickets = async (
       res.status(status.BAD_REQUEST).json({
         success: false,
         message: "Invalid query parameters",
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return;
     }

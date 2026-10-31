@@ -37,6 +37,9 @@ export const users = pgTable(
     billingEmail: text("billing_email"),
     role: text("role").$defaultFn(() => "user"), // Required by Better Auth admin plugin
     status: text("status").$defaultFn(() => "pending"),
+    banned: boolean("banned").notNull().default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires"),
     isOrganizationOwner: boolean("is_organization_owner").$defaultFn(
       () => false,
     ),
@@ -99,6 +102,9 @@ export const twoFactor = pgTable("two_factor", {
     .references(() => users.id, { onDelete: "cascade" }),
   secret: text("secret").notNull(),
   backupCodes: json("backup_codes").$type<string[]>(),
+  verified: boolean("verified").notNull().default(true),
+  failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
   createdAt: timestamp("created_at")
     .$defaultFn(() => new Date())
     .notNull(),
@@ -723,6 +729,7 @@ export const session = pgTable("session", {
   updatedAt: timestamp("updated_at").notNull(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
+  impersonatedBy: text("impersonated_by"),
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),

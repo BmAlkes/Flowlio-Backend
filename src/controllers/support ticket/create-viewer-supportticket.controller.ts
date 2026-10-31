@@ -146,7 +146,7 @@ export const createViewerSupportTicket = async (
       req.body,
     );
     if (!validationResult.success) {
-      logger.error("Validation failed:", validationResult.error.errors);
+      logger.error("Validation failed:", validationResult.error.issues);
       logger.error("Request body:", req.body);
       logger.error(
         "Validation error details:",
@@ -155,7 +155,7 @@ export const createViewerSupportTicket = async (
       res.status(status.BAD_REQUEST).json({
         success: false,
         message: "Validation failed",
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return;
     }

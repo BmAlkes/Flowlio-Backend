@@ -110,12 +110,12 @@ export const updateUserProfile = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.log("🚨 Zod validation error:", error.errors);
-      logger.warn("Validation error in update user profile:", error.errors);
+      console.log("🚨 Zod validation error:", error.issues);
+      logger.warn("Validation error in update user profile:", error.issues);
       res.status(400).json({
         success: false,
         message: "Validation failed",
-        errors: error.errors,
+        errors: error.issues,
       });
       return;
     }

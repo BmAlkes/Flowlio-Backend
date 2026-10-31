@@ -69,7 +69,7 @@ export function meteredChat(client: OpenAI, params: ChatParams) {
     });
 }
 
-export function meteredImage(client: OpenAI, params: OpenAI.Images.ImageGenerateParams) {
+export function meteredImage(client: OpenAI, params: OpenAI.Images.ImageGenerateParamsNonStreaming) {
   return meterAI(String(params.model), 1000, () => client.images.generate(params),
     () => ({ promptTokens: 1000, completionTokens: 0, totalTokens: 1000 }),
     { accounting: "fixed_image_credits", creditsPerImage: 1000 });

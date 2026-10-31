@@ -9,10 +9,10 @@ import { database, connection } from "../configs/connection.config";
 import { claimLoginOtpSend } from "./otp-send-gate";
 import * as schema from "../schema/schema";
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { symmetricEncrypt, generateRandomString } from "better-auth/crypto";
 import { env } from "@/utils/env.util";
-import { createAuthMiddleware, emailOTP, twoFactor } from "better-auth/plugins";
+import { emailOTP, twoFactor } from "better-auth/plugins";
 import { admin as adminPlugin } from "better-auth/plugins";
 import { ac, roles } from "./permission";
 import { eq, and } from "drizzle-orm";
@@ -302,7 +302,7 @@ export const auth = betterAuth({
           }, twoFactorEnabled: ${user?.twoFactorEnabled}`,
         );
 
-        const reqUrl = new URL(req!.url);
+        const reqUrl = new URL(req?.request?.url ?? getBaseURL());
         const url = env.FRONTEND_DOMAIN;
         const password = reqUrl.searchParams.get("password");
         const name = reqUrl.searchParams.get("name");
@@ -581,21 +581,21 @@ export const auth = betterAuth({
       },
       isSuperAdmin: {
         input: false,
-        fieldName: "is_super_admin",
+        fieldName: "isSuperAdmin",
         defaultValue: false,
         required: false,
         type: "boolean",
       },
       subadminId: {
         input: false,
-        fieldName: "subadmin_id",
+        fieldName: "subadminId",
         defaultValue: null,
         required: false,
         type: "string",
       },
       isOrganizationOwner: {
         input: false,
-        fieldName: "is_organization_owner",
+        fieldName: "isOrganizationOwner",
         defaultValue: false,
         required: false,
         type: "boolean",

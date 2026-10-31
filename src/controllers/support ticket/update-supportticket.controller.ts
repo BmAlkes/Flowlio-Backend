@@ -49,7 +49,7 @@ export const updateSupportTicket = async (
       res.status(status.BAD_REQUEST).json({
         success: false,
         message: "Validation failed",
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return;
     }

@@ -117,7 +117,8 @@ export const exportInvoices = async (
       const page = await browser.newPage();
       logger.info("New page created");
 
-      await page.setContent(htmlContent, { waitUntil: "networkidle0" });
+      await page.setContent(htmlContent, { waitUntil: "load" });
+      await page.waitForNetworkIdle();
       logger.info("HTML content set on page");
 
       const pdfBuffer = await page.pdf({
@@ -173,7 +174,7 @@ export const exportInvoices = async (
       res.status(400).json({
         success: false,
         message: "Invalid request data",
-        errors: error.errors,
+        errors: error.issues,
       });
       return;
     }

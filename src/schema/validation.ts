@@ -24,8 +24,7 @@ export const createUserMemberSchema = z.object({
 
 export const setOrganizationManagerSchema = z.object({
   setAsManager: z.boolean({
-    required_error: "setAsManager is required",
-    invalid_type_error: "setAsManager must be a boolean",
+    error: (issue) => issue.input === undefined ? "setAsManager is required" : "setAsManager must be a boolean",
   }),
 });
 
@@ -136,7 +135,7 @@ const projectBaseSchema = z.object({
       }),
     )
     .optional(),
-  customFields: z.record(z.any()).optional(),
+  customFields: z.record(z.string(), z.any()).optional(),
   status: projectStatusSchema.optional(),
   progress: z.number().min(0).max(100).optional(),
   visibility: z.enum(["public", "private"]).optional().default("private"),
@@ -159,6 +158,8 @@ export const createProjectSchema = projectBaseSchema.refine(
 export const updateProjectSchema = projectBaseSchema
   .partial()
   .extend({
+    // Updates must not apply the creation default to an omitted visibility.
+    visibility: z.enum(["public", "private"]).optional(),
     organizationId: z
       .string()
       .min(1, {
@@ -203,27 +204,25 @@ export const createCalendarEventSchema = z
     date: z.string().min(1, "Date is required"),
     startHour: z
       .number({
-        required_error: "Start hour is required",
-        invalid_type_error: "Start hour must be a number",
+        error: (issue) => issue.input === undefined ? "Start hour is required" : "Start hour must be a number",
       })
       .min(0, "Start hour must be between 0 and 23")
       .max(23, "Start hour must be between 0 and 23"),
     endHour: z
       .number({
-        required_error: "End hour is required",
-        invalid_type_error: "End hour must be a number",
+        error: (issue) => issue.input === undefined ? "End hour is required" : "End hour must be a number",
       })
       .min(0, "End hour must be between 0 and 23")
       .max(23, "End hour must be between 0 and 23"),
     calendarType: z.enum(["work", "education", "personal", "meeting"], {
-      errorMap: () => ({
+      error: () => ({
         message:
           "Calendar type must be one of: work, education, personal, meeting",
       }),
     }),
     platform: z
       .enum(["google_meet", "whatsapp", "outlook", "none", "meeting"], {
-        errorMap: () => ({
+        error: () => ({
           message:
             "Platform must be one of: google_meet, whatsapp, outlook, none, meeting",
         }),
@@ -296,7 +295,7 @@ export const clientBaseSchema = z.object({
     )
     .optional(),
   status: clientStatusSchema.optional(),
-  customFields: z.record(z.any()).optional(),
+  customFields: z.record(z.string(), z.any()).optional(),
 });
 
 export const createClientSchema = clientBaseSchema;
