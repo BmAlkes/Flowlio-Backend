@@ -96,12 +96,12 @@ export const createUserMember = async (req: Request, res: Response) => {
     const validationResult = createUserMemberSchema.safeParse(extractedFields);
     if (!validationResult.success) {
       logger.error("❌ Validation failed:", {
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
       return res.status(400).json({
         success: false,
         message: "Validation failed",
-        errors: validationResult.error.errors,
+        errors: validationResult.error.issues,
       });
     }
 

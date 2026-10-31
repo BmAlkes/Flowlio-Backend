@@ -32,7 +32,7 @@ export const updatePaymentLink = async (
       res.status(400).json({
         success: false,
         message: "Validation failed",
-        errors: bodyResult.error.errors,
+        errors: bodyResult.error.issues,
       });
       return;
     }

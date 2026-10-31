@@ -151,6 +151,7 @@ app.get("/api/health", async (_, res) => {
     status: "healthy",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    runtime: { node: process.versions.node },
     memory: {
       used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
       total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),

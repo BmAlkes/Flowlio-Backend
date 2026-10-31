@@ -37,6 +37,9 @@ export const users = pgTable(
     billingEmail: text("billing_email"),
     role: text("role").$defaultFn(() => "user"), // Required by Better Auth admin plugin
     status: text("status").$defaultFn(() => "pending"),
+    banned: boolean("banned").notNull().default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires"),
     isOrganizationOwner: boolean("is_organization_owner").$defaultFn(
       () => false,
     ),
@@ -99,6 +102,9 @@ export const twoFactor = pgTable("two_factor", {
     .references(() => users.id, { onDelete: "cascade" }),
   secret: text("secret").notNull(),
   backupCodes: json("backup_codes").$type<string[]>(),
+  verified: boolean("verified").notNull().default(true),
+  failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
   createdAt: timestamp("created_at")
     .$defaultFn(() => new Date())
     .notNull(),
@@ -347,6 +353,9 @@ export const projects = pgTable(
       onDelete: "set null",
     }),
     status: text("status").$defaultFn(() => "pending"),
+    banned: boolean("banned").notNull().default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires"),
     visibility: text("visibility")
       .$type<"public" | "private">()
       .default("private"),
@@ -723,6 +732,7 @@ export const session = pgTable("session", {
   updatedAt: timestamp("updated_at").notNull(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
+  impersonatedBy: text("impersonated_by"),
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
@@ -1340,6 +1350,7 @@ export const auditLogs = pgTable(
     newValues: json("new_values"),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+  impersonatedBy: text("impersonated_by"),
     metadata: json("metadata"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
@@ -1381,7 +1392,10 @@ export const invitations = pgTable(
     token: text("token").notNull().unique(),
     expiresAt: timestamp("expires_at").notNull(),
     acceptedAt: timestamp("accepted_at"),
-    status: text("status").$defaultFn(() => "pending"), // pending, accepted, expired, cancelled
+    status: text("status").$defaultFn(() => "pending"),
+    banned: boolean("banned").notNull().default(false),
+    banReason: text("ban_reason"),
+    banExpires: timestamp("ban_expires"), // pending, accepted, expired, cancelled
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -1879,6 +1893,7 @@ export const blogPostViews = pgTable("blog_post_views", {
   ipHash:    text("ip_hash"),
   referrer:  text("referrer"),
   userAgent: text("user_agent"),
+  impersonatedBy: text("impersonated_by"),
   country:   text("country"),
   createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
 });

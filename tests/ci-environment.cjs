@@ -19,6 +19,7 @@ const values = {
 };
 Object.assign(process.env, values);
 const databases = {
+  AUTH_TEST_DATABASE_URL: [55442, "flowlio_auth_test"],
   PORTAL_INVITATION_TEST_DATABASE_URL: [55442, "flowlio_portal_invitation_test"],
   SIMPLER_WORKFLOWS_TEST_DATABASE_URL: [55442, "flowlio_simpler_workflows_test"],
   AGENT_TEST_DATABASE_URL: [55442, "flowlio_agent_test"],

@@ -123,11 +123,11 @@ export const createPaymentLink = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      logger.warn("Validation error in create payment link:", error.errors);
+      logger.warn("Validation error in create payment link:", error.issues);
       res.status(400).json({
         success: false,
         message: "Validation failed",
-        errors: error.errors,
+        errors: error.issues,
       });
       return;
     }

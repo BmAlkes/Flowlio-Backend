@@ -35,7 +35,7 @@ export const setOrganizationManager = async (req: Request, res: Response) => {
       return res.status(400).json({
         success: false,
         message: "Validation failed",
-        errors: bodyResult.error.errors,
+        errors: bodyResult.error.issues,
       });
     }
     const { setAsManager } = bodyResult.data;

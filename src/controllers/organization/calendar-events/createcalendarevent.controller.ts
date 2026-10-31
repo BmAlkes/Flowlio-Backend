@@ -38,13 +38,13 @@ export const createCalendarEvent = async (
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {
         logger.error("Validation error details:", {
-          errors: validationError.errors,
+          errors: validationError.issues,
           receivedData: req.body,
         });
         res.status(400).json({
           success: false,
           message: "Validation failed",
-          errors: validationError.errors,
+          errors: validationError.issues,
           receivedData: req.body, // Include received data for debugging
         });
         return;
@@ -276,11 +276,11 @@ export const createCalendarEvent = async (
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      logger.warn("Validation error in create calendar event:", error.errors);
+      logger.warn("Validation error in create calendar event:", error.issues);
       res.status(400).json({
         success: false,
         message: "Validation failed",
-        errors: error.errors,
+        errors: error.issues,
       });
       return;
     }

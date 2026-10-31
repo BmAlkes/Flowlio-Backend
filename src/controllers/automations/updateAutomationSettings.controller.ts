@@ -16,7 +16,7 @@ export const updateAutomationSettings = async (req: Request, res: Response): Pro
     const { key } = req.params;
     const bodyResult = schema.safeParse(req.body);
     if (!bodyResult.success) {
-      res.status(400).json({ success: false, message: "Validation failed", errors: bodyResult.error.errors });
+      res.status(400).json({ success: false, message: "Validation failed", errors: bodyResult.error.issues });
       return;
     }
 
