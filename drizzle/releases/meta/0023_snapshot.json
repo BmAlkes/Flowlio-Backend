@@ -5928,12 +5928,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "impersonated_by": {
-          "name": "impersonated_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "metadata": {
           "name": "metadata",
           "type": "json",
@@ -6119,25 +6113,6 @@
         "status": {
           "name": "status",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "banned": {
-          "name": "banned",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "ban_reason": {
-          "name": "ban_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ban_expires": {
-          "name": "ban_expires",
-          "type": "timestamp",
           "primaryKey": false,
           "notNull": false
         },
@@ -8223,12 +8198,6 @@
         },
         "user_agent": {
           "name": "user_agent",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "impersonated_by": {
-          "name": "impersonated_by",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -13210,6 +13179,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "60ebaa21-82db-455c-94d2-d29dbac381bc",
+  "id": "2d742646-31b1-4fb1-bb0d-60b10e2c7b80",
   "prevId": "33087733-fcb2-4fc9-ad06-7b6b236da71a"
 }

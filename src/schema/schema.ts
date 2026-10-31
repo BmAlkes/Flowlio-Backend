@@ -1347,7 +1347,6 @@ export const auditLogs = pgTable(
     newValues: json("new_values"),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-  impersonatedBy: text("impersonated_by"),
     metadata: json("metadata"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
@@ -1389,10 +1388,7 @@ export const invitations = pgTable(
     token: text("token").notNull().unique(),
     expiresAt: timestamp("expires_at").notNull(),
     acceptedAt: timestamp("accepted_at"),
-    status: text("status").$defaultFn(() => "pending"),
-    banned: boolean("banned").notNull().default(false),
-    banReason: text("ban_reason"),
-    banExpires: timestamp("ban_expires"), // pending, accepted, expired, cancelled
+    status: text("status").$defaultFn(() => "pending"), // pending, accepted, expired, cancelled
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -1890,7 +1886,6 @@ export const blogPostViews = pgTable("blog_post_views", {
   ipHash:    text("ip_hash"),
   referrer:  text("referrer"),
   userAgent: text("user_agent"),
-  impersonatedBy: text("impersonated_by"),
   country:   text("country"),
   createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
 });
