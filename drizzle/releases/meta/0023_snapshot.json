@@ -1090,25 +1090,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "banned": {
-          "name": "banned",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "ban_reason": {
-          "name": "ban_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ban_expires": {
-          "name": "ban_expires",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
         "visibility": {
           "name": "visibility",
           "type": "text",
@@ -13229,6 +13210,6 @@
     "tables": {},
     "columns": {}
   },
-  "id": "896a6745-d064-4056-9d01-e994463c4037",
+  "id": "60ebaa21-82db-455c-94d2-d29dbac381bc",
   "prevId": "33087733-fcb2-4fc9-ad06-7b6b236da71a"
 }

@@ -353,9 +353,6 @@ export const projects = pgTable(
       onDelete: "set null",
     }),
     status: text("status").$defaultFn(() => "pending"),
-    banned: boolean("banned").notNull().default(false),
-    banReason: text("ban_reason"),
-    banExpires: timestamp("ban_expires"),
     visibility: text("visibility")
       .$type<"public" | "private">()
       .default("private"),
