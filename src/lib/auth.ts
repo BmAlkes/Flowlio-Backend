@@ -7,6 +7,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { brevoTransactionApi } from "@/configs/brevo.config";
 import { database, connection } from "../configs/connection.config";
 import { claimLoginOtpSend } from "./otp-send-gate";
+import { signInVerificationEmail } from "@/utils/sign-in-email.util";
 import * as schema from "../schema/schema";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
@@ -266,10 +267,7 @@ export const auth = betterAuth({
             to: [{ email: user.email }],
             subject: "Your Flowlio sign-in verification code",
             sender: { name: "Flowlio", email: env.BREVO_SENDER },
-            htmlContent:
-              "<p>Your Flowlio verification code is:</p><p><strong>" +
-              otp +
-              "</strong></p><p>This code expires in 5 minutes. Do not share it.</p>",
+            ...signInVerificationEmail(otp),
           });
         },
       },
