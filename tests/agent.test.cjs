@@ -92,4 +92,14 @@ else{
   await assert.rejects(svc.create(owner,req,new AbortController().signal));
   assert.equal((await pool.query('select error_code from ai_agent_runs where id=$1',[req.id])).rows[0].error_code,'ORG_TOKEN_LIMIT_EXCEEDED');
  });
+ test('actions can be confirmed one at a time and each confirmation is idempotent',async()=>{
+  output.actions=[task(),{...task(),title:'Second task'}];const r=await service.create(owner,input(),new AbortController().signal);
+  const first=await service.apply(owner,r.id,apply({selected:[0]}));assert.equal(first.state,'ready');assert.deepEqual(first.receipts.map(x=>x.index),[0]);
+  assert.equal((await service.apply(owner,r.id,apply({selected:[0]}))).receipts.length,1);
+  await assert.rejects(service.apply(owner,r.id,apply({selected:[0,1]})),{code:'ALREADY_APPLIED'});
+  const second=await service.apply(owner,r.id,apply({selected:[1]}));assert.equal(second.state,'applied');assert.deepEqual(second.receipts.map(x=>x.index),[0,1]);
+  assert.equal((await pool.query("select count(*)::int n from tasks where title in ('Review design','Second task')")).rows[0].n,2);
+  const conversationId=randomUUID();output.actions=[task(),{...task(),title:'Third task'}];const c1=await service.create(owner,input({conversationId}),new AbortController().signal);await service.apply(owner,c1.id,apply({selected:[0]}));
+  output.actions=[];await service.create(owner,input({conversationId}),new AbortController().signal);assert.equal(seen[0].executed,true);
+ });
 }

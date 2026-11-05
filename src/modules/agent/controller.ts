@@ -7,7 +7,7 @@ import { logAIUsage } from '../../middlewares/ai-usage-log.middleware';
 import { aiRateLimit } from '../../middlewares/ai-rate-limit.middleware';
 import { logger } from '../../utils/logger.util';
 import { AgentError,authorize,scopeInput } from './policy';
-import { capture } from './context';
+import { capture,projectVisible } from './context';
 import { createAgent } from './service';
 import { generate } from './provider';
 export const agentRoutes=Router();const service=createAgent(connection,generate);
@@ -18,7 +18,9 @@ const route=(fn:(req:any,signal:AbortSignal)=>Promise<unknown>):RequestHandler=>
  try{res.json({success:true,data:await fn(req,controller.signal)});}catch(e){if(e instanceof AgentError){res.status(e.status).json({success:false,code:e.code});return;}logger.error({code:(e as any)?.code},'Agent request failed');res.status(503).json({success:false,code:'AGENT_FAILED'});}finally{res.off('close',abort);}
 };
 agentRoutes.get('/',route(req=>service.list(req.user)));
-agentRoutes.get('/context',route(async req=>{const parsed=scopeInput.safeParse(req.query);if(!parsed.success)throw new AgentError(400,'INVALID_INPUT');const ctx=await capture(connection,req.user,parsed.data);return{sources:ctx.sources.map(({key,kind,id,title,href})=>({key,kind,id,title,href})),members:ctx.members,capabilities:ctx.capabilities,limits:ctx.limits};}));
+agentRoutes.get('/context',route(async req=>{const parsed=scopeInput.safeParse(req.query);if(!parsed.success)throw new AgentError(400,'INVALID_INPUT');const ctx=await capture(connection,req.user,parsed.data);// Broad areas preload no records, so the project picker gets its own short list of visible projects.
+ const projects=(await connection.query(`select p.id,p.name title from projects p where ${projectVisible} order by p.updated_at desc,p.id limit 30`,[req.user.organizationId,req.user.id])).rows;
+ return{sources:ctx.sources.map(({key,kind,id,title,href})=>({key,kind,id,title,href})),projects,members:ctx.members,capabilities:ctx.capabilities,limits:ctx.limits};}));
 agentRoutes.get('/:id',route(req=>service.detail(req.user,req.params.id)));
 agentRoutes.post('/',aiRateLimit,checkAITokenLimit,logAIUsage,route((req,signal)=>service.create(req.user,req.body,signal)));
 agentRoutes.post('/:id/apply',route(req=>service.apply(req.user,req.params.id,req.body)));
