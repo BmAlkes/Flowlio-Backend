@@ -2,9 +2,9 @@ import type { Pool } from 'pg';
 import type { Actor } from '../../security/resource-policy';
 import { capture,requireMember } from './context';
 import { execute } from './actions';
-import { authorize,hash,generationInput,applyInput,validateOutput,AgentError,type Context,type Generation,type Action } from './policy';
+import { authorize,hash,generationInput,applyInput,validateOutput,AgentError,type Context,type Generation,type Action,type Turn } from './policy';
 
-type Provider=(input:Generation,context:Context,signal:AbortSignal)=>Promise<unknown>;
+type Provider=(input:Generation,context:Context,signal:AbortSignal,history:Turn[])=>Promise<unknown>;
 const permissionKey=(a:Actor)=>hash([a.role,!!a.isOrganizationOwner,!!a.isOrganizationManager]);
 // JSONB does not preserve object-key order; compare values, including nested reports.
 // JSON serialization also normalizes Date objects from fresh PostgreSQL queries.
@@ -21,7 +21,7 @@ export function createAgent(pool:Pool,provider:Provider){
   // must still match, so revoked nested resources cannot survive behind a stable report key.
   for(const source of (r.context as Context).sources)if(['capacity','margin','attention','retainer'].includes(source.kind)&&snapshotHash(source.data)!==snapshotHash(current.sources.find(s=>s.key===source.key)?.data))throw new AgentError(403,'ACCESS_CHANGED');
  }
- function view(r:any){return{id:r.id,state:r.state,createdAt:r.created_at,input:r.input,error:r.error_code,result:r.result,receipts:r.receipts,sources:(r.context as Context).sources.map(({key,kind,id,title,href})=>({key,kind,id,title,href})),limits:r.context.limits,members:r.context.members};}
+ function view(r:any){return{id:r.id,state:r.state,createdAt:r.created_at,conversationId:r.conversation_id??null,input:r.input,error:r.error_code,result:r.result,receipts:r.receipts,sources:(r.context as Context).sources.map(({key,kind,id,title,href})=>({key,kind,id,title,href})),limits:r.context.limits,members:r.context.members};}
  async function detail(a:Actor,id:string){const r=await row(a,id);await visible(a,r);return view(r);}
  async function list(a:Actor){authorize(a);await requireMember(pool,a);return(await pool.query("select id,state,input->'scope'->>'area' area,created_at from ai_agent_runs where organization_id=$1 and actor_id=$2 and actor_scope=$3 order by created_at desc,id desc limit 30",[a.organizationId,a.id,permissionKey(a)])).rows;}
  async function apply(a:Actor,id:string,raw:unknown){
@@ -51,10 +51,10 @@ export function createAgent(pool:Pool,provider:Provider){
   const existing=(await pool.query('select id from ai_agent_runs where id=$1',[input.id])).rows[0];
   if(existing){const prior=await row(a,input.id);if(prior.input_hash!==hash(input))throw new AgentError(409,'RUN_CONFLICT');return detail(a,input.id);}
   const context=await capture(pool,a,input.scope);if(signal.aborted)throw new AgentError(409,'CANCELLED');
-  const inserted=await pool.query("insert into ai_agent_runs(id,organization_id,actor_id,actor_scope,input_hash,input,context,state) values($1,$2,$3,$4,$5,$6,$7,'running') on conflict(id) do nothing returning id",[input.id,a.organizationId,a.id,permissionKey(a),hash(input),JSON.stringify(input),JSON.stringify(context)]);
+  const inserted=await pool.query("insert into ai_agent_runs(id,organization_id,actor_id,actor_scope,input_hash,input,context,state,conversation_id) values($1,$2,$3,$4,$5,$6,$7,'running',$8) on conflict(id) do nothing returning id",[input.id,a.organizationId,a.id,permissionKey(a),hash(input),JSON.stringify(input),JSON.stringify(context),input.conversationId??null]);
   if(!inserted.rowCount){const prior=await row(a,input.id);if(prior.input_hash!==hash(input))throw new AgentError(409,'RUN_CONFLICT');return detail(a,input.id);}
   try{
-   const rawResult=await provider(input,context,signal);
+   const rawResult=await provider(input,context,signal,input.conversationId?await turns(a,input.conversationId,input.id):[]);
    if(signal.aborted)throw new AgentError(409,'CANCELLED');
    const result=validateOutput(rawResult,context);
    const saved=await pool.query("update ai_agent_runs set state='ready',result=$2,updated_at=now() where id=$1 and state='running' returning id",[input.id,JSON.stringify(result)]);
@@ -65,6 +65,11 @@ export function createAgent(pool:Pool,provider:Provider){
    }
    return detail(a,input.id);
   }catch(e){await pool.query("update ai_agent_runs set state=$2,error_code=$3,updated_at=now() where id=$1 and state='running'",[input.id,signal.aborted?'cancelled':'failed',e instanceof AgentError?e.code:'AI_PROVIDER_UNAVAILABLE']);throw e;}
+ }
+ // Earlier turns of the same author, permission scope and conversation; stale conversations are not replayed.
+ async function turns(a:Actor,conversationId:string,currentId:string):Promise<Turn[]>{
+  const rows=(await pool.query("select input->>'prompt' request,result->>'answer' answer,state from ai_agent_runs where organization_id=$1 and actor_id=$2 and actor_scope=$3 and conversation_id=$4 and id<>$5 and state in ('ready','applied') and result is not null and created_at>now()-interval '24 hours' order by created_at desc,id desc limit 6",[a.organizationId,a.id,permissionKey(a),conversationId,currentId])).rows;
+  return rows.reverse().map(r=>({request:String(r.request??'').slice(0,1000),answer:String(r.answer??'').slice(0,1500),executed:r.state==='applied'}));
  }
  async function cancel(a:Actor,id:string){await row(a,id);await pool.query("update ai_agent_runs set state='cancelled',updated_at=now() where id=$1 and state in ('running','ready')",[id]);const r=await row(a,id);return{id,state:r.state};}
  return{create,detail,list,apply,cancel};
