@@ -38,7 +38,10 @@ export function createAgent(pool:Pool,provider:Provider){
    await c.query('select pg_advisory_xact_lock(hashtextextended($1,0))',['proposal-conversion:'+a.organizationId]);await requireMember(c,a);
    const r=(await c.query('select * from ai_agent_runs where id=$1 and actor_id=$2 and organization_id=$3 for update',[id,a.id,a.organizationId])).rows[0];
    if(!r||r.actor_scope!==permissionKey(a))throw new AgentError(403,'ACCESS_CHANGED');
-   if(r.state==='applied'){if(r.apply_hash!==fingerprint)throw new AgentError(409,'ALREADY_APPLIED');await c.query('commit');return view(r);}
+   // Actions can be confirmed one at a time: receipts remember which proposal index each one executed.
+   const done=new Set<number>((r.receipts??[]).map((x:any)=>x.index).filter((v:unknown):v is number=>Number.isInteger(v)));
+   if(r.state==='applied'&&!done.size){if(r.apply_hash!==fingerprint)throw new AgentError(409,'ALREADY_APPLIED');await c.query('commit');return view(r);}
+   if(command.selected.some(i=>done.has(i))){if(!command.selected.every(i=>done.has(i)))throw new AgentError(409,'ALREADY_APPLIED');await c.query('commit');return view(r);}
    if(r.state!=='ready')throw new AgentError(409,'RUN_NOT_READY');
    if(Date.now()-new Date(r.created_at).getTime()>86400000)throw new AgentError(409,'DRAFT_EXPIRED');
    const actions:Action[]=command.selected.map(i=>{const original=r.result.actions[i];if(!original)throw new AgentError(400,'INVALID_SELECTION');const edited=command.edits[String(i)]??original;
@@ -46,8 +49,9 @@ export function createAgent(pool:Pool,provider:Provider){
    if(Object.keys(command.edits).some(k=>!command.selected.includes(Number(k))))throw new AgentError(400,'INVALID_SELECTION');
    validateOutput({...r.result,actions},r.context);
    if(actions.some(v=>v.type==='client_request')&&!command.shareWithClient)throw new AgentError(400,'SHARING_CONFIRMATION_REQUIRED');
-   const receipts=await execute(c,a,actions,r.context,id);
-   const updated=(await c.query("update ai_agent_runs set state='applied',apply_hash=$2,receipts=$3,updated_at=now() where id=$1 returning *",[id,fingerprint,JSON.stringify(receipts)])).rows[0];
+   const receipts=[...(r.receipts??[]),...(await execute(c,a,actions,r.context,id)).map((x,i)=>({...x,index:command.selected[i]}))];
+   const complete=(r.result.actions as Action[]).every((_,i)=>receipts.some(x=>x.index===i));
+   const updated=(await c.query("update ai_agent_runs set state=$4,apply_hash=$2,receipts=$3,updated_at=now() where id=$1 returning *",[id,fingerprint,JSON.stringify(receipts),complete?'applied':'ready'])).rows[0];
    await c.query('commit');return view(updated);
   }catch(e){await c.query('rollback');if((e as any).code==='40001')throw new AgentError(409,'SOURCE_CHANGED');throw e;}finally{c.release();}
  }
@@ -73,8 +77,8 @@ export function createAgent(pool:Pool,provider:Provider){
  }
  // Earlier turns of the same author, permission scope and conversation; stale conversations are not replayed.
  async function turns(a:Actor,conversationId:string,currentId:string):Promise<Turn[]>{
-  const rows=(await pool.query("select input->>'prompt' request,result->>'answer' answer,state from ai_agent_runs where organization_id=$1 and actor_id=$2 and actor_scope=$3 and conversation_id=$4 and id<>$5 and state in ('ready','applied') and result is not null and created_at>now()-interval '24 hours' order by created_at desc,id desc limit 6",[a.organizationId,a.id,permissionKey(a),conversationId,currentId])).rows;
-  return rows.reverse().map(r=>({request:String(r.request??'').slice(0,1000),answer:String(r.answer??'').slice(0,1500),executed:r.state==='applied'}));
+  const rows=(await pool.query("select input->>'prompt' request,result->>'answer' answer,state,jsonb_array_length(receipts) executed_count from ai_agent_runs where organization_id=$1 and actor_id=$2 and actor_scope=$3 and conversation_id=$4 and id<>$5 and state in ('ready','applied') and result is not null and created_at>now()-interval '24 hours' order by created_at desc,id desc limit 6",[a.organizationId,a.id,permissionKey(a),conversationId,currentId])).rows;
+  return rows.reverse().map(r=>({request:String(r.request??'').slice(0,1000),answer:String(r.answer??'').slice(0,1500),executed:r.state==='applied'||r.executed_count>0}));
  }
  async function cancel(a:Actor,id:string){await row(a,id);await pool.query("update ai_agent_runs set state='cancelled',updated_at=now() where id=$1 and state in ('running','ready')",[id]);const r=await row(a,id);return{id,state:r.state};}
  return{create,detail,list,apply,cancel};
