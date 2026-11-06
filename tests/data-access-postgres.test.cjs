@@ -22,6 +22,7 @@ if (!process.env.DATA_ACCESS_TEST_DATABASE_URL) {
   const { listProjects } = require("../src/modules/projects/read-projects");
   const { getTasks } = require("../src/controllers/organization/tasks/gettasks.controller");
   const { getAllTimeEntries } = require("../src/controllers/organization/tasks/getalltimeentries.controller");
+  const { getProjectScheduleData } = require("../src/controllers/organization/projects/getprojectscheduledata.controller");
   Module._load = original;
   const actor = { id: "owner", role: "user", organizationId: "org-a", isOrganizationOwner: true };
   function response() { return { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; } }; }
@@ -66,5 +67,25 @@ if (!process.env.DATA_ACCESS_TEST_DATABASE_URL) {
     assert.equal(all.length,1000); assert.equal(page.length,101);
     assert.ok(measurement.firstPage.bytes < measurement.before.bytes / 5);
     console.log("T14 local benchmark",JSON.stringify(measurement));
+  });
+  test("project schedule counts the tasks of a period, not the project's creation date", async () => {
+    await pool.query(`
+      insert into tasks(id,title,project_id,created_by,status,visibility,start_date,created_at,updated_at) values
+      ('s-done-before','Done in January','p-2','owner','completed','public',null,'2026-01-02','2026-01-10'),
+      ('s-done-in','Done in March','p-2','owner','completed','public',null,'2026-01-02','2026-03-15'),
+      ('s-open','Open since February','p-2','owner','in_progress','public','2026-02-01','2026-01-02','2026-02-01'),
+      ('s-late','Late','p-2','owner','delay','public',null,'2026-01-02','2026-01-05'),
+      ('s-future','Starts in May','p-4','owner','todo','public','2026-05-01','2026-01-02','2026-01-02')`);
+    const run = async query => { const res = response(); await getProjectScheduleData({ user: actor, query }, res); return res; };
+    const march = await run({ from: "2026-03-01T00:00:00.000Z", to: "2026-03-31T23:59:59.999Z" });
+    assert.equal(march.code, 200);
+    const p2 = march.body.data.find(row => row.id === "p-2");
+    assert.deepEqual([p2.completedTasks, p2.inProgressTasks, p2.delayedTasks, p2.totalTasks].map(Number), [1, 1, 1, 3]);
+    assert.ok(!march.body.data.some(row => row.id === "p-4"), "a project whose only task starts later is not in the period");
+    assert.ok(!march.body.data.some(row => row.id === "p-3"), "a project without tasks is not in a period");
+    const all = await run({});
+    assert.equal(all.body.data.length, 1000);
+    assert.equal(Number(all.body.data.find(row => row.id === "p-2").totalTasks), 4);
+    for (const query of [{ from: "2026-03-01" }, { from: "nope", to: "2026-03-31" }, { from: "2026-04-01", to: "2026-03-01" }]) assert.equal((await run(query)).code, 400);
   });
 }

@@ -69,8 +69,9 @@ export const getOngoingTasks = async (
           sql`${tasks.status} IN ('todo', 'in_progress', 'ongoing', 'pending', 'delay', 'changes', 'updated')`
         )
       )
-      .orderBy(desc(tasks.updatedAt), desc(tasks.createdAt))
-      .limit(10); // Limit to 10 most recent ongoing tasks for dashboard
+      // Most urgent first: the dashboard counts overdue work and fills the week calendar from this list
+      .orderBy(sql`${tasks.endDate} asc nulls last`, desc(tasks.updatedAt), desc(tasks.createdAt))
+      .limit(50);
 
     logger.info(
       `✅ getOngoingTasks -> org ${organizationId} returned ${ongoingTasks.length} tasks`
