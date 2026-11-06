@@ -10,7 +10,8 @@ import { AgentError,authorize,scopeInput } from './policy';
 import { capture,projectVisible } from './context';
 import { createAgent } from './service';
 import { generate } from './provider';
-export const agentRoutes=Router();const service=createAgent(connection,generate);
+import { syncEventsToGoogle } from './calendar-sync';
+export const agentRoutes=Router();const service=createAgent(connection,generate,{eventsCreated:syncEventsToGoogle});
 const internal:RequestHandler=(req,res,next)=>{try{authorize(req.user!);next();}catch{res.status(403).json({success:false,code:'AGENT_INTERNAL_ONLY'});}};
 agentRoutes.use(isAuthenticated,internal,requirePlanFeature('aiAssist'));
 const route=(fn:(req:any,signal:AbortSignal)=>Promise<unknown>):RequestHandler=>async(req,res)=>{

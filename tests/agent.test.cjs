@@ -144,4 +144,13 @@ else{
   await pool.query('update organizations set override_max_leads=1');output.actions=[{...lead,email:'new@example.test'}];const full=await service.create(owner,input(),new AbortController().signal);
   await assert.rejects(service.apply(owner,full.id,apply()),{code:'PLAN_LIMIT_REACHED'});
  });
+ test('confirmed events are handed to the Google Calendar sync after commit, and a failing sync keeps the event',async()=>{
+  const synced=[];const withSync=createAgent(pool,provider,{eventsCreated:async(userId,ids)=>{const saved=(await pool.query('select count(*)::int n from calendar_events where id=any($1)',[ids])).rows[0].n;synced.push({userId,ids,saved});throw Error('Google unavailable');}});
+  output={answer:'Planned',citations:[],missing:[],actions:[{type:'create_event',title:'Kickoff',description:'',date:'2026-11-10',startHour:14,endHour:15,calendarType:'meeting'},task()]};
+  const r=await withSync.create(owner,input(),new AbortController().signal);
+  await withSync.apply(owner,r.id,apply({selected:[1]}));assert.deepEqual(synced,[]);
+  const done=await withSync.apply(owner,r.id,apply({selected:[0]}));const eventId=done.receipts.find(x=>x.type==='create_event').id;
+  await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setTimeout(resolve,50));
+  assert.deepEqual(synced,[{userId:'owner',ids:[eventId],saved:1}]);assert.equal((await pool.query('select count(*)::int n from calendar_events where id=$1',[eventId])).rows[0].n,1);
+ });
 }
