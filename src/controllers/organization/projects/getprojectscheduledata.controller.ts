@@ -3,7 +3,7 @@ import { database } from "@/configs/connection.config";
 import { projects, tasks } from "@/schema/schema";
 import { logger } from "@/utils/logger.util";
 import { Request, Response } from "express";
-import { sql, eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import status from "http-status";
 
 export const getProjectScheduleData = async (
@@ -23,8 +23,18 @@ export const getProjectScheduleData = async (
       return;
     }
 
-    // Get all projects with task counts for this organization (no date filtering on backend)
-    // Frontend will handle the date filtering
+    // Optional period: a task belongs to it when it was open at some point in the period
+    // (started before it ended) or was completed during it. Without a period every task counts.
+    const from = req.query.from === undefined ? null : new Date(String(req.query.from));
+    const to = req.query.to === undefined ? null : new Date(String(req.query.to));
+    if ((from === null) !== (to === null) || (from && isNaN(from.getTime())) || (to && isNaN(to.getTime())) || (from && to && from > to)) {
+      res.status(400).json({ success: false, message: "Use both from and to as valid dates, with from before to" });
+      return;
+    }
+    const inPeriod = from && to
+      ? sql` and coalesce(${tasks.startDate}, ${tasks.createdAt}) <= ${to} and (${tasks.status} is distinct from 'completed' or coalesce(${tasks.updatedAt}, ${tasks.createdAt}) >= ${from})`
+      : sql``;
+
     const projectsWithTaskCounts = await database
       .select({
         id: projects.id,
@@ -38,7 +48,7 @@ export const getProjectScheduleData = async (
         totalTasks: sql<number>`COUNT(${tasks.id})`,
       })
       .from(projects)
-      .leftJoin(tasks, eq(projects.id, tasks.projectId))
+      .leftJoin(tasks, sql`${tasks.projectId} = ${projects.id}${inPeriod}`)
       .where(projectReadScope(req.user!))
       .groupBy(
         projects.id,
@@ -47,6 +57,7 @@ export const getProjectScheduleData = async (
         projects.status,
         projects.createdAt
       )
+      .having(from ? sql`count(${tasks.id}) > 0` : undefined)
       .orderBy(projects.createdAt);
 
     logger.info(
