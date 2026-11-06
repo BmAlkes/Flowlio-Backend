@@ -35,6 +35,8 @@ export function createAgent(pool:Pool,provider:Provider){
   const fingerprint=hash(command);const c=await pool.connect();
   try{
    await c.query('begin isolation level serializable');await c.query("set local statement_timeout='15s'");await c.query("set local time zone 'UTC'");
+   // Logged time touches invoicing: take its lock first, in the same order as the other billing flows.
+   if(command.selected.some(i=>initial.result?.actions?.[i]?.type==='log_time'))await c.query('select pg_advisory_xact_lock(hashtextextended($1,0))',['time-invoice:'+a.organizationId]);
    await c.query('select pg_advisory_xact_lock(hashtextextended($1,0))',['proposal-conversion:'+a.organizationId]);await requireMember(c,a);
    const r=(await c.query('select * from ai_agent_runs where id=$1 and actor_id=$2 and organization_id=$3 for update',[id,a.id,a.organizationId])).rows[0];
    if(!r||r.actor_scope!==permissionKey(a))throw new AgentError(403,'ACCESS_CHANGED');
@@ -49,7 +51,7 @@ export function createAgent(pool:Pool,provider:Provider){
    if(Object.keys(command.edits).some(k=>!command.selected.includes(Number(k))))throw new AgentError(400,'INVALID_SELECTION');
    validateOutput({...r.result,actions},r.context);
    if(actions.some(v=>v.type==='client_request')&&!command.shareWithClient)throw new AgentError(400,'SHARING_CONFIRMATION_REQUIRED');
-   const receipts=[...(r.receipts??[]),...(await execute(c,a,actions,r.context,id)).map((x,i)=>({...x,index:command.selected[i]}))];
+   const receipts=[...(r.receipts??[]),...(await execute(c,a,actions,r.context,id,command.timeZone)).map((x,i)=>({...x,index:command.selected[i]}))];
    const complete=(r.result.actions as Action[]).every((_,i)=>receipts.some(x=>x.index===i));
    const updated=(await c.query("update ai_agent_runs set state=$4,apply_hash=$2,receipts=$3,updated_at=now() where id=$1 returning *",[id,fingerprint,JSON.stringify(receipts),complete?'applied':'ready'])).rows[0];
    await c.query('commit');return view(updated);

@@ -3,6 +3,13 @@ const assert=require('node:assert/strict');const {randomUUID}=require('node:cryp
 const {validateOutput,authorize,areas,generationInput}=require('../src/modules/agent/policy');
 test('client roles cannot invoke the agent even with forged owner flags',()=>{for(const role of ['client','unknown'])assert.throws(()=>authorize({id:'x',organizationId:'org',role,isOrganizationOwner:true}),{code:'AGENT_INTERNAL_ONLY'});});
 test('untrusted output cannot introduce fake citations, unknown tools or foreign resources',()=>{const ctx={sources:[{key:'project:p',kind:'project',id:'p'}],members:[],capabilities:['create_task']};const base={answer:'Result',citations:[],actions:[],missing:[]};assert.throws(()=>validateOutput({...base,citations:['secret:x']},ctx),{code:'INVALID_AI_SOURCES'});assert.throws(()=>validateOutput({...base,actions:[{type:'delete_project',projectId:'p'}]},ctx),{code:'INVALID_AI_OUTPUT'});assert.throws(()=>validateOutput({...base,actions:[{type:'create_task',projectId:'foreign',title:'x',description:'',assignedTo:null,startDate:null,endDate:null,estimatedHours:null}]},ctx),{code:'INVALID_AI_ACTION'});});
+test('new records need no source, while status and time actions must target a shown task',()=>{const ctx={sources:[{key:'task:t',kind:'task',id:'t'}],members:[],capabilities:['create_event','create_lead','set_task_status','log_time']};const base={answer:'Ok',citations:[],missing:[]};
+ const event={type:'create_event',title:'Kickoff',description:'',date:'2026-11-10',startHour:9,endHour:10,calendarType:'meeting'};
+ assert.equal(validateOutput({...base,actions:[event,{type:'create_lead',name:'Ana',email:'ana@example.test',phone:null,businessIndustry:null,note:null,followUpAt:null}]},ctx).actions.length,2);
+ assert.throws(()=>validateOutput({...base,actions:[{type:'set_task_status',taskId:'other',status:'completed'}]},ctx),{code:'INVALID_AI_ACTION'});
+ assert.throws(()=>validateOutput({...base,actions:[{type:'log_time',taskId:'other',date:'2026-11-05',minutes:30,description:''}]},ctx),{code:'INVALID_AI_ACTION'});
+ for(const bad of [{...event,endHour:9},{...event,startHour:9.5},{type:'create_lead',name:'Ana',email:'not-an-email',phone:null,businessIndustry:null,note:null,followUpAt:null},{type:'log_time',taskId:'t',date:'2026-11-05',minutes:0,description:''},{type:'set_task_status',taskId:'t',status:'archived'}])assert.throws(()=>validateOutput({...base,actions:[bad]},ctx),{code:'INVALID_AI_OUTPUT'});
+});
 test('conversation ids must be UUIDs and stay optional',()=>{const base={id:randomUUID(),scope:{area:'projects'},prompt:'Continue that',language:'en'};assert.ok(generationInput.safeParse(base).success);assert.ok(generationInput.safeParse({...base,conversationId:randomUUID()}).success);assert.ok(!generationInput.safeParse({...base,conversationId:'../other'}).success);});
 test('earlier turns reach the model as untrusted data only when a conversation exists',()=>{const {messagesFor}=require('../src/modules/agent/provider');const input={id:randomUUID(),scope:{area:'projects'},prompt:'And the second one?',language:'en',mode:'review'};const ctx={sources:[],members:[],limits:[],capabilities:[],date:'2026-01-01'};const plain=messagesFor(input,ctx);assert.ok(!('conversation'in JSON.parse(plain[1].content)));const withHistory=messagesFor(input,ctx,[{request:'List risks',answer:'Two risks',executed:false}]);assert.deepEqual(JSON.parse(withHistory[1].content).conversation,[{request:'List risks',answer:'Two risks',executed:false}]);assert.match(withHistory[0].content,/UNTRUSTED history/);assert.match(withHistory[0].content,/[[project:abc]]/);assert.match(withHistory[0].content,/Never write URLs/);});
 const loopInput={id:randomUUID(),scope:{area:'dashboard'},prompt:'What is overdue?',language:'en',mode:'review'};const loopContext={sources:[],members:[],limits:[],capabilities:[],date:'2026-01-01'};
@@ -101,5 +108,40 @@ else{
   assert.equal((await pool.query("select count(*)::int n from tasks where title in ('Review design','Second task')")).rows[0].n,2);
   const conversationId=randomUUID();output.actions=[task(),{...task(),title:'Third task'}];const c1=await service.create(owner,input({conversationId}),new AbortController().signal);await service.apply(owner,c1.id,apply({selected:[0]}));
   output.actions=[];await service.create(owner,input({conversationId}),new AbortController().signal);assert.equal(seen[0].executed,true);
+ });
+ test('status changes follow task dependencies and update project progress',async()=>{
+  await pool.query("insert into tasks(id,title,project_id,created_by,visibility,status,created_at,updated_at) values('first','First step','project','owner','public','todo',now(),now())");
+  await pool.query("update tasks set start_after='first' where id='task'");
+  output.actions=[{type:'set_task_status',taskId:'task',status:'completed'}];
+  const blocked=await service.create(owner,input(),new AbortController().signal);
+  await assert.rejects(service.apply(owner,blocked.id,apply()),{code:'TASK_BLOCKED'});
+  assert.equal((await pool.query("select status from tasks where id='task'")).rows[0].status,'todo');
+  await pool.query("update tasks set status='completed' where id='first'");
+  const r=await service.create(owner,input(),new AbortController().signal);const done=await service.apply(owner,r.id,apply());
+  assert.equal(done.receipts[0].type,'set_task_status');assert.equal((await pool.query("select status from tasks where id='task'")).rows[0].status,'completed');
+  assert.ok((await pool.query("select progress from projects where id='project'")).rows[0].progress>0);
+  output.actions=[{type:'set_task_status',taskId:'task',status:'in_progress'}];const stale=await service.create(owner,input(),new AbortController().signal);
+  await pool.query("update tasks set updated_at=now()+interval '1 second' where id='task'");await assert.rejects(service.apply(owner,stale.id,apply()),{code:'SOURCE_CHANGED'});
+ });
+ test('events and logged time belong to the person confirming and land on their local day',async()=>{
+  output={answer:'Planned',citations:[],missing:[],actions:[{type:'create_event',title:'Kickoff',description:'',date:'2026-11-10',startHour:14,endHour:15,calendarType:'meeting'},{type:'log_time',taskId:'task',date:'2026-11-05',minutes:90,description:'Wireframes'}]};
+  const r=await service.create(member,input(),new AbortController().signal);
+  const done=await service.apply(member,r.id,apply({selected:[0,1],timeZone:'America/Sao_Paulo'}));assert.deepEqual(done.receipts.map(x=>x.type),['create_event','log_time']);
+  assert.deepEqual((await pool.query("select user_id,organization_id,to_char(date,'YYYY-MM-DD HH24:MI') d,start_hour,end_hour,calendar_type from calendar_events")).rows,[{user_id:'member',organization_id:'org',d:'2026-11-10 03:00',start_hour:14,end_hour:15,calendar_type:'meeting'}]);
+  assert.deepEqual((await pool.query("select user_id,project_id,task_id,duration,status,billable,to_char(start_time,'YYYY-MM-DD HH24:MI') s,to_char(end_time,'HH24:MI') e from time_entries")).rows,[{user_id:'member',project_id:'project',task_id:'task',duration:90,status:'completed',billable:true,s:'2026-11-05 12:00',e:'13:30'}]);
+  output.actions=[{type:'log_time',taskId:'task',date:'2099-12-31',minutes:30,description:''}];const future=await service.create(member,input(),new AbortController().signal);
+  await assert.rejects(service.apply(member,future.id,apply()),{code:'FUTURE_TIME'});
+  output.actions=[{type:'create_event',title:'Unknown zone',description:'',date:'2026-11-10',startHour:9,endHour:10,calendarType:'personal'}];const plain=await service.create(owner,input(),new AbortController().signal);
+  await service.apply(owner,plain.id,apply({timeZone:'Mars/Olympus'}));assert.equal((await pool.query("select to_char(date,'YYYY-MM-DD HH24:MI') d from calendar_events where user_id='owner'")).rows[0].d,'2026-11-10 00:00');
+ });
+ test('leads are created once per email, within the plan and only by people who manage clients',async()=>{
+  const lead={type:'create_lead',name:'Marina Souza',email:'Marina@Example.test',phone:null,businessIndustry:'Clinic',note:'Call about the offer',followUpAt:'2026-11-07T13:00:00.000Z'};
+  output={answer:'Lead drafted',citations:[],missing:[],actions:[lead]};
+  await assert.rejects(service.create(member,input(),new AbortController().signal),{code:'INVALID_AI_ACTION'});
+  const r=await service.create(owner,input(),new AbortController().signal);const done=await service.apply(owner,r.id,apply());assert.equal(done.receipts[0].href,'/dashboard/leads');
+  assert.deepEqual((await pool.query("select name,email,type,status,created_by,follow_up_note,to_char(follow_up_at,'YYYY-MM-DD HH24:MI') f from clients where id=$1",[done.receipts[0].id])).rows,[{name:'Marina Souza',email:'marina@example.test',type:'lead',status:'New Lead',created_by:'owner',follow_up_note:'Call about the offer',f:'2026-11-07 13:00'}]);
+  for(const email of ['marina@example.test','CLIENT@example.test']){output.actions=[{...lead,email}];const again=await service.create(owner,input(),new AbortController().signal);await assert.rejects(service.apply(owner,again.id,apply()),{code:'DUPLICATE_CONTACT'});}
+  await pool.query('update organizations set override_max_leads=1');output.actions=[{...lead,email:'new@example.test'}];const full=await service.create(owner,input(),new AbortController().signal);
+  await assert.rejects(service.apply(owner,full.id,apply()),{code:'PLAN_LIMIT_REACHED'});
  });
 }
