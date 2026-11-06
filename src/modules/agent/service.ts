@@ -15,7 +15,8 @@ const snapshotHash=(value:unknown)=>hash(JSON.parse(JSON.stringify(value??null,(
  if(item&&typeof item==='object'&&!Array.isArray(item))return Object.fromEntries(Object.entries(item).sort(([left],[right])=>left.localeCompare(right)));
  return item;
 })));
-export function createAgent(pool:Pool,provider:Provider){
+// eventsCreated runs after a confirmation is committed, e.g. to push new calendar events to Google.
+export function createAgent(pool:Pool,provider:Provider,hooks:{eventsCreated?:(userId:string,eventIds:string[])=>Promise<void>}={}){
  async function row(a:Actor,id:string){authorize(a);await requireMember(pool,a);const r=(await pool.query('select * from ai_agent_runs where id=$1 and organization_id=$2 and actor_id=$3',[id,a.organizationId,a.id])).rows[0];if(!r)throw new AgentError(404,'RUN_NOT_FOUND');if(r.actor_scope!==permissionKey(a))throw new AgentError(403,'ACCESS_CHANGED');return r;}
  async function visible(a:Actor,r:any){
   const current=await capture(pool,a,r.input.scope);const keys=new Set(current.sources.map(v=>v.key));
@@ -51,10 +52,15 @@ export function createAgent(pool:Pool,provider:Provider){
    if(Object.keys(command.edits).some(k=>!command.selected.includes(Number(k))))throw new AgentError(400,'INVALID_SELECTION');
    validateOutput({...r.result,actions},r.context);
    if(actions.some(v=>v.type==='client_request')&&!command.shareWithClient)throw new AgentError(400,'SHARING_CONFIRMATION_REQUIRED');
-   const receipts=[...(r.receipts??[]),...(await execute(c,a,actions,r.context,id,command.timeZone)).map((x,i)=>({...x,index:command.selected[i]}))];
+   const executed=(await execute(c,a,actions,r.context,id,command.timeZone)).map((x,i)=>({...x,index:command.selected[i]}));
+   const receipts=[...(r.receipts??[]),...executed];
    const complete=(r.result.actions as Action[]).every((_,i)=>receipts.some(x=>x.index===i));
    const updated=(await c.query("update ai_agent_runs set state=$4,apply_hash=$2,receipts=$3,updated_at=now() where id=$1 returning *",[id,fingerprint,JSON.stringify(receipts),complete?'applied':'ready'])).rows[0];
-   await c.query('commit');return view(updated);
+   await c.query('commit');
+   // Outside the transaction and never blocking the answer: a failed sync leaves the event in Flowlio, as on the Calendar page.
+   const events=executed.filter(x=>x.type==='create_event').map(x=>x.id);
+   if(events.length&&hooks.eventsCreated)void hooks.eventsCreated(a.id,events).catch(()=>{});
+   return view(updated);
   }catch(e){await c.query('rollback');if((e as any).code==='40001')throw new AgentError(409,'SOURCE_CHANGED');throw e;}finally{c.release();}
  }
  async function create(a:Actor,raw:unknown,signal:AbortSignal){
