@@ -7,11 +7,6 @@ import { eq, and } from "drizzle-orm";
 import crypto from "crypto";
 import { env } from "@/utils/env.util";
 
-// Debug: Log when the service module is loaded
-if (process.env.NODE_ENV === "development") {
-  logger.info("GoogleCalendarService module loaded");
-}
-
 export interface GoogleCalendarEvent {
   id?: string;
   summary: string;
@@ -43,39 +38,96 @@ export interface GoogleCalendarEvent {
   recurrence?: string[];
   htmlLink?: string;
   hangoutLink?: string;
+  status?: string;
 }
 
+const STATE_TTL_MS = 10 * 60 * 1000;
+const sign = (value: string) =>
+  crypto.createHmac("sha256", env.BETTER_AUTH_SECRET).update("google-calendar:" + value).digest("base64url");
+
+/** Calendar day (YYYY-MM-DD) of an instant in a time zone. */
+export const dayIn = (date: Date, timeZone: string) => date.toLocaleDateString("en-CA", { timeZone });
+
+function zoneOffsetMs(instant: number, timeZone: string) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      .formatToParts(new Date(instant)).map((p) => [p.type, p.value]),
+  );
+  return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second) - instant;
+}
+
+/** Midnight of a calendar day in a time zone, which is how the Calendar page shows a day. */
+export function zonedMidnight(day: string, timeZone: string): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  const guess = Date.UTC(y, m - 1, d);
+  let instant = guess - zoneOffsetMs(guess, timeZone);
+  instant = guess - zoneOffsetMs(instant, timeZone);
+  return new Date(instant);
+}
+
+/** Day and whole hours of a Google event as seen in the user's time zone. */
+export function fromGoogleTimes(event: calendar_v3.Schema$Event, timeZone: string) {
+  if (event.start?.date) return { day: event.start.date, startHour: 0, endHour: 0, allDay: true };
+  if (!event.start?.dateTime || !event.end?.dateTime) return null;
+  const hour = (value: string) =>
+    Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "2-digit", hourCycle: "h23" }).format(new Date(value)));
+  const start = new Date(event.start.dateTime);
+  const crossesMidnight = dayIn(new Date(event.end.dateTime), timeZone) !== dayIn(start, timeZone);
+  return { day: dayIn(start, timeZone), startHour: hour(event.start.dateTime), endHour: crossesMidnight ? 23 : hour(event.end.dateTime), allDay: false };
+}
+
+/** Flowlio event ids double as Google event ids, so a retried insert cannot create a duplicate. */
+export const googleIdFor = (appEventId: string) => {
+  const id = appEventId.replace(/-/g, "").toLowerCase();
+  return /^[a-v0-9]{5,1024}$/.test(id) ? id : undefined;
+};
+export const appIdFromGoogle = (googleEventId: string) =>
+  /^[0-9a-f]{32}$/.test(googleEventId)
+    ? googleEventId.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5")
+    : null;
+
 export class GoogleCalendarService {
+  // Only used for the consent URL and the code exchange; API calls get a client per user.
   private oauth2Client: OAuth2Client;
-  private calendar: calendar_v3.Calendar;
 
   constructor() {
-    // Debug environment variables (only in development)
-    if (process.env.NODE_ENV === "development") {
-      logger.info(
-        "GoogleCalendarService constructor - Environment variables:",
-        {
-          GOOGLE_CLIENT_ID: env.GOOGLE_CLIENT_ID ? "SET" : "NOT SET",
-          GOOGLE_CLIENT_SECRET: env.GOOGLE_CLIENT_SECRET ? "SET" : "NOT SET",
-          GOOGLE_REDIRECT_URI: env.GOOGLE_REDIRECT_URI ? "SET" : "NOT SET",
-          actualRedirectURI: env.GOOGLE_REDIRECT_URI,
-        },
-      );
-    }
+    this.oauth2Client = this.newClient();
+  }
 
-    this.oauth2Client = new google.auth.OAuth2(
-      env.GOOGLE_CLIENT_ID,
-      env.GOOGLE_CLIENT_SECRET,
-      env.GOOGLE_REDIRECT_URI,
-    );
-
-    this.calendar = google.calendar({ version: "v3", auth: this.oauth2Client });
+  private newClient() {
+    return new google.auth.OAuth2(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_REDIRECT_URI);
   }
 
   /**
-   * Get user's timezone from database
+   * A Calendar API client holding only this user's credentials. A shared client would let
+   * concurrent requests for different users swap tokens mid-call.
    */
-  private async getUserTimezone(userId: string): Promise<string> {
+  private async calendarFor(userId: string): Promise<calendar_v3.Calendar> {
+    const tokens = await this.getUserTokens(userId);
+    if (!tokens) throw new Error("No Google Calendar credentials found");
+    const auth = this.newClient();
+    auth.setCredentials({
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      expiry_date: tokens.expiresAt?.getTime(),
+    });
+    auth.on("tokens", (fresh) => {
+      if (!fresh.access_token) return;
+      database
+        .update(account)
+        .set({
+          accessToken: fresh.access_token,
+          accessTokenExpiresAt: fresh.expiry_date ? new Date(fresh.expiry_date) : null,
+          ...(fresh.refresh_token ? { refreshToken: fresh.refresh_token } : {}),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(account.userId, userId), eq(account.providerId, "google")))
+        .catch((error) => logger.error("Failed to store refreshed Google token", { userId, errorMessage: error instanceof Error ? error.message : "Unknown error" }));
+    });
+    return google.calendar({ version: "v3", auth });
+  }
+
+  async getUserTimezone(userId: string): Promise<string> {
     try {
       const user = await database
         .select({ timezone: users.timezone })
@@ -91,20 +143,35 @@ export class GoogleCalendarService {
   }
 
   /**
-   * Generate OAuth2 authorization URL
+   * Generate OAuth2 authorization URL. The state is signed and expires, so a callback
+   * cannot attach a Google account to somebody else's Flowlio user.
    */
   generateAuthUrl(userId: string): string {
     const scopes = [
       "https://www.googleapis.com/auth/calendar",
       "https://www.googleapis.com/auth/calendar.events",
     ];
+    const payload = `${userId}.${Date.now() + STATE_TTL_MS}`;
 
     return this.oauth2Client.generateAuthUrl({
       access_type: "offline",
       scope: scopes,
-      state: userId, // Pass user ID in state for callback
+      state: `${payload}.${sign(payload)}`,
       prompt: "consent", // Force consent screen to get refresh token
     });
+  }
+
+  /** Returns the user id carried by a valid, unexpired state, otherwise null. */
+  verifyAuthState(state: string): string | null {
+    const signatureAt = state.lastIndexOf(".");
+    const expiryAt = state.lastIndexOf(".", signatureAt - 1);
+    if (signatureAt < 0 || expiryAt <= 0) return null;
+    const payload = state.slice(0, signatureAt);
+    const expected = Buffer.from(sign(payload));
+    const given = Buffer.from(state.slice(signatureAt + 1));
+    if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) return null;
+    if (!(Number(state.slice(expiryAt + 1, signatureAt)) > Date.now())) return null;
+    return state.slice(0, expiryAt);
   }
 
   /**
@@ -112,12 +179,6 @@ export class GoogleCalendarService {
    */
   async exchangeCodeForTokens(code: string, userId: string): Promise<void> {
     try {
-      logger.info("Exchanging code for tokens", {
-        userId,
-        code: code.substring(0, 10) + "...",
-        redirectURI: env.GOOGLE_REDIRECT_URI,
-      });
-
       const { tokens } = await this.oauth2Client.getToken(code);
 
       logger.info("Tokens received from Google", {
@@ -127,34 +188,22 @@ export class GoogleCalendarService {
         scope: tokens.scope,
       });
 
-      // Store tokens in database
-      logger.info("Storing tokens in database", {
-        userId,
-        hasAccessToken: !!tokens.access_token,
-        hasRefreshToken: !!tokens.refresh_token,
-        expiryDate: tokens.expiry_date,
-      });
-
-      const accountData = {
-        id: crypto.randomUUID(),
-        accountId: userId,
-        providerId: "google",
-        userId: userId,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        accessTokenExpiresAt: tokens.expiry_date
-          ? new Date(tokens.expiry_date)
-          : null,
-        scope: tokens.scope,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      logger.info("Account data to insert:", accountData);
-
       await database
         .insert(account)
-        .values(accountData)
+        .values({
+          id: crypto.randomUUID(),
+          accountId: userId,
+          providerId: "google",
+          userId: userId,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          accessTokenExpiresAt: tokens.expiry_date
+            ? new Date(tokens.expiry_date)
+            : null,
+          scope: tokens.scope,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
         .onConflictDoUpdate({
           target: [account.userId, account.providerId],
           set: {
@@ -170,25 +219,14 @@ export class GoogleCalendarService {
 
       logger.info("Google Calendar tokens stored successfully", { userId });
     } catch (error) {
-      logger.error("Error exchanging code for tokens:", error);
-
-      // Log detailed error information
-      const errorDetails = {
+      logger.error("Error exchanging code for tokens:", {
         message: error instanceof Error ? error.message : "Unknown error",
-        stack: error instanceof Error ? error.stack : undefined,
         userId,
-        code: code.substring(0, 10) + "...",
         redirectURI: env.GOOGLE_REDIRECT_URI,
-        errorType:
-          error instanceof Error ? error.constructor.name : typeof error,
         errorCode: (error as any)?.code,
         errorStatus: (error as any)?.status,
         errorResponse: (error as any)?.response?.data,
-        fullError: JSON.stringify(error, null, 2),
-      };
-
-      logger.error("Error details:", errorDetails);
-      console.error("Full error object:", error);
+      });
 
       throw new Error("Failed to exchange authorization code for tokens");
     }
@@ -200,6 +238,7 @@ export class GoogleCalendarService {
   async getUserTokens(userId: string): Promise<{
     accessToken: string;
     refreshToken: string;
+    expiresAt: Date | null;
   } | null> {
     try {
       const userAccount = await database.query.account.findFirst({
@@ -216,6 +255,7 @@ export class GoogleCalendarService {
       return {
         accessToken: userAccount.accessToken,
         refreshToken: userAccount.refreshToken,
+        expiresAt: userAccount.accessTokenExpiresAt ?? null,
       };
     } catch (error) {
       logger.error("Error getting user tokens:", error);
@@ -224,65 +264,11 @@ export class GoogleCalendarService {
   }
 
   /**
-   * Set credentials for API calls
+   * Whether the user has Google Calendar connected. Credentials are no longer stored on
+   * a shared client; each call below builds its own.
    */
   async setCredentials(userId: string): Promise<boolean> {
-    try {
-      const tokens = await this.getUserTokens(userId);
-      if (!tokens) {
-        return false;
-      }
-
-      this.oauth2Client.setCredentials({
-        access_token: tokens.accessToken,
-        refresh_token: tokens.refreshToken,
-      });
-
-      return true;
-    } catch (error) {
-      logger.error("Error settings credentials:", error);
-      return false;
-    }
-  }
-
-  /**
-   * Refresh access token if needed
-   */
-  async refreshAccessToken(userId: string): Promise<boolean> {
-    try {
-      const tokens = await this.getUserTokens(userId);
-      if (!tokens?.refreshToken) {
-        return false;
-      }
-
-      this.oauth2Client.setCredentials({
-        refresh_token: tokens.refreshToken,
-      });
-
-      const { credentials } = await this.oauth2Client.refreshAccessToken();
-
-      // Update tokens in database
-      await database
-        .update(account)
-        .set({
-          accessToken: credentials.access_token,
-          accessTokenExpiresAt: credentials.expiry_date
-            ? new Date(credentials.expiry_date)
-            : null,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(eq(account.userId, userId), eq(account.providerId, "google")),
-        );
-
-      // Set new credentials
-      this.oauth2Client.setCredentials(credentials);
-
-      return true;
-    } catch (error) {
-      logger.error("Error refreshing access token:", error);
-      return false;
-    }
+    return !!(await this.getUserTokens(userId));
   }
 
   /**
@@ -292,12 +278,8 @@ export class GoogleCalendarService {
     userId: string,
   ): Promise<calendar_v3.Schema$CalendarListEntry[]> {
     try {
-      const hasCredentials = await this.setCredentials(userId);
-      if (!hasCredentials) {
-        throw new Error("No Google Calendar credentials found");
-      }
-
-      const response = await this.calendar.calendarList.list();
+      const calendar = await this.calendarFor(userId);
+      const response = await calendar.calendarList.list();
       return response.data.items || [];
     } catch (error) {
       logger.error("Error getting user calendars:", error);
@@ -313,15 +295,12 @@ export class GoogleCalendarService {
     calendarId: string = "primary",
     event: GoogleCalendarEvent,
   ): Promise<calendar_v3.Schema$Event> {
+    const calendar = await this.calendarFor(userId);
     try {
-      const hasCredentials = await this.setCredentials(userId);
-      if (!hasCredentials) {
-        throw new Error("No Google Calendar credentials found");
-      }
-
-      const response = await this.calendar.events.insert({
+      const response = await calendar.events.insert({
         calendarId,
         requestBody: event,
+        conferenceDataVersion: event.conferenceData ? 1 : undefined,
       });
 
       logger.info("Google Calendar event created successfully", {
@@ -332,6 +311,12 @@ export class GoogleCalendarService {
 
       return response.data;
     } catch (error) {
+      // The id already exists: an earlier attempt went through, or the event was deleted in Google.
+      if ((error as any)?.code === 409 && event.id) {
+        const existing = (await calendar.events.get({ calendarId, eventId: event.id })).data;
+        if (existing.status !== "cancelled") return existing;
+        return (await calendar.events.update({ calendarId, eventId: event.id, requestBody: { ...event, status: "confirmed" } })).data;
+      }
       logger.error("Error creating Google Calendar event:", error);
       throw error;
     }
@@ -347,12 +332,8 @@ export class GoogleCalendarService {
     event: GoogleCalendarEvent,
   ): Promise<calendar_v3.Schema$Event> {
     try {
-      const hasCredentials = await this.setCredentials(userId);
-      if (!hasCredentials) {
-        throw new Error("No Google Calendar credentials found");
-      }
-
-      const response = await this.calendar.events.update({
+      const calendar = await this.calendarFor(userId);
+      const response = await calendar.events.patch({
         calendarId,
         eventId,
         requestBody: event,
@@ -380,12 +361,8 @@ export class GoogleCalendarService {
     eventId: string,
   ): Promise<void> {
     try {
-      const hasCredentials = await this.setCredentials(userId);
-      if (!hasCredentials) {
-        throw new Error("No Google Calendar credentials found");
-      }
-
-      await this.calendar.events.delete({
+      const calendar = await this.calendarFor(userId);
+      await calendar.events.delete({
         calendarId,
         eventId,
       });
@@ -412,12 +389,8 @@ export class GoogleCalendarService {
     maxResults: number = 100,
   ): Promise<calendar_v3.Schema$Event[]> {
     try {
-      const hasCredentials = await this.setCredentials(userId);
-      if (!hasCredentials) {
-        throw new Error("No Google Calendar credentials found");
-      }
-
-      const response = await this.calendar.events.list({
+      const calendar = await this.calendarFor(userId);
+      const response = await calendar.events.list({
         calendarId,
         timeMin,
         timeMax,
@@ -434,6 +407,70 @@ export class GoogleCalendarService {
   }
 
   /**
+   * Changes in the primary calendar since a sync token, or every event in a window when
+   * starting over. Deleted events come back with status "cancelled". An expired token
+   * fails with code 410; the caller starts over.
+   */
+  async listChanges(
+    userId: string,
+    from: { syncToken: string } | { timeMin: string; timeMax: string },
+  ): Promise<{ items: calendar_v3.Schema$Event[]; nextSyncToken: string | null }> {
+    const calendar = await this.calendarFor(userId);
+    const items: calendar_v3.Schema$Event[] = [];
+    let pageToken: string | undefined;
+    for (let page = 0; page < 40; page++) {
+      const response = await calendar.events.list({
+        calendarId: "primary",
+        singleEvents: true,
+        maxResults: 250,
+        pageToken,
+        ...("syncToken" in from ? { syncToken: from.syncToken, showDeleted: true } : { timeMin: from.timeMin, timeMax: from.timeMax }),
+      });
+      items.push(...(response.data.items || []));
+      if (!response.data.nextPageToken) return { items, nextSyncToken: response.data.nextSyncToken || null };
+      pageToken = response.data.nextPageToken;
+    }
+    throw new Error("Too many Google Calendar changes in one sync");
+  }
+
+  /** Ask Google to POST to `address` whenever the user's primary calendar changes. */
+  async watchEvents(
+    userId: string,
+    channel: { id: string; token: string; address: string },
+  ): Promise<{ resourceId: string; expiration: Date }> {
+    const calendar = await this.calendarFor(userId);
+    const response = await calendar.events.watch({
+      calendarId: "primary",
+      requestBody: { id: channel.id, token: channel.token, type: "web_hook", address: channel.address },
+    });
+    if (!response.data.resourceId) throw new Error("Google did not return a channel resource");
+    return {
+      resourceId: response.data.resourceId,
+      expiration: new Date(Number(response.data.expiration) || Date.now() + 7 * 86400000),
+    };
+  }
+
+  async stopChannel(userId: string, channel: { id: string; resourceId: string }): Promise<void> {
+    const calendar = await this.calendarFor(userId);
+    await calendar.channels.stop({ requestBody: { id: channel.id, resourceId: channel.resourceId } });
+  }
+
+  /** Google representation of a Flowlio event: its day and whole hours in the user's time zone. */
+  async toGoogleEvent(userId: string, appEvent: any): Promise<GoogleCalendarEvent> {
+    const userTimezone = await this.getUserTimezone(userId);
+    const day = dayIn(new Date(appEvent.date), userTimezone);
+    const at = (hour: number) => `${day}T${String(hour).padStart(2, "0")}:00:00`;
+
+    return {
+      summary: appEvent.title,
+      description: appEvent.description || "",
+      start: { dateTime: at(appEvent.startHour), timeZone: userTimezone },
+      end: { dateTime: at(appEvent.endHour), timeZone: userTimezone },
+      location: appEvent.location,
+    };
+  }
+
+  /**
    * Sync app event to Google Calendar
    */
   async syncAppEventToGoogle(
@@ -442,47 +479,9 @@ export class GoogleCalendarService {
     calendarId: string = "primary",
   ): Promise<calendar_v3.Schema$Event | null> {
     try {
-      // Get user's timezone from database
-      const userTimezone = await this.getUserTimezone(userId);
-
-      // appEvent.date is stored as a Date object
-      // startHour and endHour are in the user's local timezone
-      // We need to get the date components in the user's timezone, not UTC
-      // to avoid date shifting issues
-
-      const eventDate = new Date(appEvent.date);
-
-      // Convert the date to the user's timezone and extract date components
-      // This ensures we get the correct date that the user selected, not a UTC date
-      const dateStr = eventDate.toLocaleDateString("en-CA", {
-        timeZone: userTimezone,
-      }); // Returns YYYY-MM-DD format
-      const dateParts = dateStr.split("-");
-      const year = dateParts[0];
-      const month = dateParts[1];
-      const day = dateParts[2];
-
-      // Format hours with leading zeros
-      const startHourStr = String(appEvent.startHour).padStart(2, "0");
-      const endHourStr = String(appEvent.endHour).padStart(2, "0");
-
-      // Create date-time strings in the format Google Calendar expects
-      // Format: YYYY-MM-DDTHH:mm:ss (without timezone, Google will interpret based on timeZone field)
-      const startDateTimeStr = `${year}-${month}-${day}T${startHourStr}:00:00`;
-      const endDateTimeStr = `${year}-${month}-${day}T${endHourStr}:00:00`;
-
       const googleEvent: GoogleCalendarEvent = {
-        summary: appEvent.title,
-        description: appEvent.description,
-        start: {
-          dateTime: startDateTimeStr,
-          timeZone: userTimezone,
-        },
-        end: {
-          dateTime: endDateTimeStr,
-          timeZone: userTimezone,
-        },
-        location: appEvent.location,
+        id: googleIdFor(String(appEvent.id)),
+        ...(await this.toGoogleEvent(userId, appEvent)),
       };
 
       // Add conference data if platform is Google Meet
@@ -547,106 +546,43 @@ export class GoogleCalendarService {
     organizationId: string,
   ): Promise<any> {
     try {
-      const startDateTime =
-        googleEvent.start?.dateTime || googleEvent.start?.date;
-      const endDateTime = googleEvent.end?.dateTime || googleEvent.end?.date;
-
-      if (!startDateTime || !endDateTime) {
+      const userTimezone = await this.getUserTimezone(userId);
+      const times = fromGoogleTimes(googleEvent, userTimezone);
+      if (!times) {
         throw new Error("Invalid event start or end time");
       }
 
-      // Get user's timezone
-      const userTimezone = await this.getUserTimezone(userId);
-
-      // Parse the Google Calendar datetime (which includes timezone info)
-      const startDate = new Date(startDateTime);
-      const endDate = new Date(endDateTime);
-
-      // Get the date components in user's timezone
-      const startDateParts = startDate
-        .toLocaleDateString("en-CA", {
-          timeZone: userTimezone,
-        })
-        .split("-"); // Returns YYYY-MM-DD
-      const startYear = parseInt(startDateParts[0]);
-      const startMonth = parseInt(startDateParts[1]) - 1; // Month is 0-indexed
-      const startDay = parseInt(startDateParts[2]);
-
-      // Get hours in user's timezone
-      const startHourStr = startDate.toLocaleTimeString("en-US", {
-        timeZone: userTimezone,
-        hour: "2-digit",
-        hour12: false,
-      });
-      const startHour = parseInt(startHourStr.split(":")[0]);
-
-      const endHourStr = endDate.toLocaleTimeString("en-US", {
-        timeZone: userTimezone,
-        hour: "2-digit",
-        hour12: false,
-      });
-      const endHour = parseInt(endHourStr.split(":")[0]);
-
-      // Create date at midnight UTC for the date in user's timezone
-      // This represents the date (not time) in the user's timezone
-      const eventDate = new Date(
-        Date.UTC(startYear, startMonth, startDay, 0, 0, 0, 0),
-      );
-
-      const appEvent = {
-        id: crypto.randomUUID(),
-        title: googleEvent.summary || "Untitled Event",
-        description: googleEvent.description || "",
-        date: eventDate,
-        startHour: startHour,
-        endHour: endHour,
-        calendarType: "work" as const,
-        platform: "google_meet" as const,
-        meetLink: googleEvent.hangoutLink || "",
-        organizationId,
-        userId,
-        googleEventId: googleEvent.id || "",
-        googleCalendarId: "primary",
-        syncStatus: "synced" as const,
-        lastSyncAt: new Date(),
-        syncDirection: "google_to_app" as const,
-        googleEventData: {
-          htmlLink: googleEvent.htmlLink || undefined,
-          hangoutLink: googleEvent.hangoutLink || undefined,
-          conferenceData: googleEvent.conferenceData,
-          attendees: googleEvent.attendees,
-          location: googleEvent.location || undefined,
-          recurrence: googleEvent.recurrence || undefined,
-        },
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      // 🔍 BACKEND DEBUG: Log Google to App sync details
-      console.log("🔍 BACKEND Google to App Sync Debug:", {
-        userId,
-        organizationId,
-        googleEvent: {
-          id: googleEvent.id,
-          summary: googleEvent.summary,
-          startDateTime,
-          endDateTime,
-          startTimeZone: googleEvent.start?.timeZone,
-          endTimeZone: googleEvent.end?.timeZone,
-        },
-        appEvent: {
-          id: appEvent.id,
-          title: appEvent.title,
-          date: appEvent.date.toISOString(),
-          dateLocal: appEvent.date.toLocaleDateString(),
-          startHour: appEvent.startHour,
-          endHour: appEvent.endHour,
-        },
-      });
-
       const [createdEvent] = await database
         .insert(calendarEvents)
-        .values(appEvent)
+        .values({
+          id: crypto.randomUUID(),
+          title: googleEvent.summary || "Untitled Event",
+          description: googleEvent.description || "",
+          // Local midnight of the day, matching how the Calendar page reads dates.
+          date: zonedMidnight(times.day, userTimezone),
+          startHour: times.startHour,
+          endHour: times.endHour,
+          calendarType: "work" as const,
+          platform: "google_meet" as const,
+          meetLink: googleEvent.hangoutLink || "",
+          organizationId,
+          userId,
+          googleEventId: googleEvent.id || "",
+          googleCalendarId: "primary",
+          syncStatus: "synced" as const,
+          lastSyncAt: new Date(),
+          syncDirection: "google_to_app" as const,
+          googleEventData: {
+            htmlLink: googleEvent.htmlLink || undefined,
+            hangoutLink: googleEvent.hangoutLink || undefined,
+            conferenceData: googleEvent.conferenceData,
+            attendees: googleEvent.attendees,
+            location: googleEvent.location || undefined,
+            recurrence: googleEvent.recurrence || undefined,
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
         .returning();
 
       logger.info("Google Calendar event synced to app successfully", {
@@ -663,11 +599,4 @@ export class GoogleCalendarService {
   }
 }
 
-// Debug: Log when the service is instantiated (only in development)
-if (process.env.NODE_ENV === "development") {
-  logger.info("Instantiating GoogleCalendarService...");
-}
 export const googleCalendarService = new GoogleCalendarService();
-if (process.env.NODE_ENV === "development") {
-  logger.info("GoogleCalendarService instantiated successfully");
-}

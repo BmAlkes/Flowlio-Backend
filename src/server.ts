@@ -50,6 +50,7 @@ import revenueRoutes from "./routes/revenue.routes";
 import universalSupportTicketRoutes from "./routes/universalsupportticket.routes";
 import viewerRoutes from "./routes/viewer.routes";
 import googleCalendarRoutes from "./routes/googleCalendar.routes";
+import { googleCalendarWebhook } from "./modules/google-calendar";
 import aiRoutes from "./routes/ai.routes";
 import aiMonitoringRoutes from "./routes/ai-monitoring.routes";
 import webhookRoutes from "./routes/webhook.routes";
@@ -229,6 +230,10 @@ app.all("/api/auth/*splat", throttle("default"), (req, res) => {
     toNodeHandler(auth)(req, res);
   });
 });
+
+// Google sends every user's change notifications from shared addresses; the IP throttle would drop them.
+// The handler only accepts known channel tokens and does no work beyond queueing a sync.
+app.post("/api/google-calendar/webhook", googleCalendarWebhook);
 
 // enable after database connection
 app.use(throttle("default"));

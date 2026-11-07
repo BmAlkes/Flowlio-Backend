@@ -22,6 +22,8 @@ const schemaObject = z.object({
   GOOGLE_REDIRECT_URI: z.string(),
   OPEN_AI: z.string().optional(),
   ENABLE_BACKGROUND_SYNC: z.string().optional(),
+  // Public HTTPS URL of /api/google-calendar/webhook. When unset, calendars sync on the schedule only.
+  GOOGLE_CALENDAR_WEBHOOK_URL: z.string().url().optional(),
   PAYPAL_CLIENT_ID: z.string().optional(),
   PAYPAL_CLIENT_SECRET: z.string().optional(),
   PAYPAL_MODE: z.enum(["sandbox", "live"]).optional().default("live"),

@@ -6,6 +6,8 @@ import { env } from "@/utils/env.util";
 import { database } from "../../../configs/connection.config";
 import { account } from "@/schema/schema";
 import { eq, and } from "drizzle-orm";
+import { getSession } from "@/utils/getsession.util";
+import { calendarSync, queueUserSync } from "@/modules/google-calendar";
 
 /**
  * Generate Google Calendar OAuth URL
@@ -54,20 +56,24 @@ export const handleGoogleAuthCallback = async (
   res: Response
 ): Promise<void> => {
   try {
-    const { code, state: userId } = req.query;
+    const { code, state } = req.query;
+    const userId = typeof state === "string" ? googleCalendarService.verifyAuthState(state) : null;
 
-    if (!code || !userId) {
-      res.status(400).json({
-        success: false,
-        message: "Missing authorization code or user ID",
-      });
+    if (typeof code !== "string" || !userId) {
+      res.redirect(`${env.FRONTEND_DOMAIN}/dashboard/calender?google_auth=error`);
+      return;
+    }
+    // When the browser sends a session, it must be the person who started the connection.
+    const session = await getSession(req).catch(() => null);
+    if (session?.user && session.user.id !== userId) {
+      res.redirect(`${env.FRONTEND_DOMAIN}/dashboard/calender?google_auth=error`);
       return;
     }
 
-    await googleCalendarService.exchangeCodeForTokens(
-      code as string,
-      userId as string
-    );
+    // The previous sync position and channel belong to the account being replaced.
+    await calendarSync.forget(userId);
+    await googleCalendarService.exchangeCodeForTokens(code, userId);
+    await queueUserSync(userId, "connect");
 
     // logger.info("Google Calendar tokens exchanged successfully", {
     //   userId: userId as string,
@@ -143,7 +149,8 @@ export const disconnectGoogleCalendar = async (
       return;
     }
 
-    // Remove tokens from database by deleting the account record
+    // Stop push notifications while the tokens still exist, then remove them.
+    await calendarSync.forget(req.user.id);
     await database
       .delete(account)
       .where(

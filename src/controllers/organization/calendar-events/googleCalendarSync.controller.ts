@@ -3,7 +3,7 @@ import { googleCalendarService } from "../../../services/googleCalendar.service"
 import { logger } from "@/utils/logger.util";
 import { database } from "@/configs/connection.config";
 import { calendarEvents } from "@/schema/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import status from "http-status";
 
 /**
@@ -47,7 +47,7 @@ export const syncAppEventsToGoogle = async (
       try {
         // Get the app event from database
         const appEvent = await database.query.calendarEvents.findFirst({
-          where: eq(calendarEvents.id, eventId),
+          where: and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, req.user.id)),
         });
 
         if (!appEvent) {
@@ -155,7 +155,7 @@ export const syncGoogleEventsToApp = async (
       try {
         // Check if event already exists in app
         const existingEvent = await database.query.calendarEvents.findFirst({
-          where: eq(calendarEvents.googleEventId, googleEvent.id || ""),
+          where: and(eq(calendarEvents.userId, req.user.id), eq(calendarEvents.googleEventId, googleEvent.id || "")),
         });
 
         if (existingEvent) {
@@ -301,7 +301,7 @@ export const fullBidirectionalSync = async (
     for (const googleEvent of googleEvents) {
       try {
         const existingEvent = await database.query.calendarEvents.findFirst({
-          where: eq(calendarEvents.googleEventId, googleEvent.id || ""),
+          where: and(eq(calendarEvents.userId, req.user.id), eq(calendarEvents.googleEventId, googleEvent.id || "")),
         });
 
         if (existingEvent) {
