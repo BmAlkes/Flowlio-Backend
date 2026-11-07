@@ -13,7 +13,7 @@ import { retryWebhooks, followupReminders } from "./database-handlers";
 import { enqueue, type Handler, type Schedule } from "./queue";
 import { sendTransactionalEmail } from "../email/transactional.service";
 import { sendPushToUser } from "../../utils/web-push.util";
-import { backgroundSyncService } from "../backgroundSync.service";
+import { calendarSync } from "../../modules/google-calendar";
 import { autoRenewalService } from "../autoRenewal.service";
 import { nextMonthReset } from "../../utils/aiTokenLimit.util";
 const automations = [
@@ -31,7 +31,7 @@ export const schedules: Schedule[] = [
     { kind: "project-end", minutes: 1440, hour: 8 }, { kind: "recurring-invoices", minutes: 1440, hour: 8 },
     { kind: "ai-reset", minutes: 1440, hour: 0 }, { kind: "webhook-retries", minutes: 1 }, { kind: "followup-reminders", minutes: 60 },
     { kind: "subscription-renewal", minutes: 1440, hour: 0 },
-    { kind: "calendar-sync", minutes: 60 },
+    { kind: "calendar-sync", minutes: 15 },
 ];
 const transactional = (run: Handler["run"]): Handler => ({
     transactional: true, run: (job, client) => jobContext.run({ job, client, database: drizzle(client, { schema, casing: "snake_case" }) }, () => run(job, client))
@@ -88,9 +88,11 @@ export const handlers: Record<string, Handler> = {
     "calendar-sync": {
         transactional: false, run: async (job, client) => {
             if (job.payload.userId)
-                await backgroundSyncService.forceSyncUser(String(job.payload.userId), true);
+                await calendarSync.syncUser(String(job.payload.userId));
+            // The periodic run only fans out: one short job per connected user.
             else if ((await client.query("SELECT enabled FROM job_schedules WHERE kind='calendar-sync'")).rows[0]?.enabled)
-                await backgroundSyncService.performBackgroundSync(true);
+                for (const userId of await calendarSync.connectedUsers())
+                    await enqueue(client, "calendar-sync", job.id + ":" + userId, { userId }, job.scheduled_at);
         }
     },
     "subscription-renewal": { transactional: false, run: async () => { await autoRenewalService.performAutoRenewal(true); } },

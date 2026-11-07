@@ -151,37 +151,12 @@ export const updateCalendarEvent = async (
       );
 
       if (hasCredentials && updatedEvent.googleEventId) {
-        // Update the event in Google Calendar
+        // Same day and hours, in the user's time zone, as when the event was first sent to Google.
         await googleCalendarService.updateEvent(
           req.user.id,
           updatedEvent.googleCalendarId || "primary",
           updatedEvent.googleEventId,
-          {
-            summary: updatedEvent.title,
-            description: updatedEvent.description || undefined,
-            start: {
-              dateTime: new Date(
-                new Date(updatedEvent.date).setHours(
-                  updatedEvent.startHour,
-                  0,
-                  0,
-                  0
-                )
-              ).toISOString(),
-              timeZone: "UTC",
-            },
-            end: {
-              dateTime: new Date(
-                new Date(updatedEvent.date).setHours(
-                  updatedEvent.endHour,
-                  0,
-                  0,
-                  0
-                )
-              ).toISOString(),
-              timeZone: "UTC",
-            },
-          }
+          await googleCalendarService.toGoogleEvent(req.user.id, updatedEvent)
         );
       } else if (hasCredentials && !updatedEvent.googleEventId) {
         // If event doesn't have Google Calendar ID, sync it as new event

@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { connection } from "../../../configs/connection.config";
-import { enqueue } from "../../../services/jobs/queue";
+import { queueUserSync } from "@/modules/google-calendar";
 import { logger } from "@/utils/logger.util";
 import status from "http-status";
 
@@ -22,7 +22,7 @@ export const forceSyncUser = async (
 
     logger.info(`Force sync requested by user: ${req.user.id}`);
 
-    await enqueue(connection,"calendar-sync","calendar-user:"+req.user.id+":"+Math.floor(Date.now()/60000),{userId:req.user.id});
+    await queueUserSync(req.user.id,"user",60000);
 
     res.status(202).json({
       success: true,
@@ -42,12 +42,22 @@ export const forceSyncUser = async (
  * Get background sync status
  */
 export const getSyncStatus = async (
-  _req: Request,
+  req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const result = await connection.query("SELECT EXISTS(SELECT 1 FROM durable_jobs WHERE kind='calendar-sync' AND status='running') AS running, EXISTS(SELECT 1 FROM job_schedules WHERE kind='calendar-sync' AND enabled=true) AS enabled");
-    const status = {isRunning:result.rows[0].running,hasInterval:result.rows[0].enabled};
+    if (!req.user) {
+      res.status(401).json({ success: false, message: "User not authenticated" });
+      return;
+    }
+    const result = await connection.query(`SELECT
+      EXISTS(SELECT 1 FROM durable_jobs WHERE kind='calendar-sync' AND status IN ('pending','running','retry') AND payload->>'userId'=$1) AS running,
+      EXISTS(SELECT 1 FROM job_schedules WHERE kind='calendar-sync' AND enabled=true) AS enabled,
+      (SELECT last_synced_at FROM google_calendar_sync_state WHERE user_id=$1) AS last_synced_at,
+      (SELECT last_error FROM google_calendar_sync_state WHERE user_id=$1) AS last_error,
+      (SELECT channel_expires_at>now() FROM google_calendar_sync_state WHERE user_id=$1) AS live`, [req.user.id]);
+    const row = result.rows[0];
+    const status = {isRunning:row.running,hasInterval:row.enabled,lastSyncedAt:row.last_synced_at,lastError:row.last_error?"SYNC_FAILED":null,live:!!row.live};
 
     res.status(200).json({
       success: true,

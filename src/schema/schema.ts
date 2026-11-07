@@ -2652,6 +2652,18 @@ export const jobSchedules = pgTable("job_schedules", {
   intervalMinutes: integer("interval_minutes"),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
 });
+// Per-user Google Calendar sync position (incremental sync token) and push-notification channel.
+export const googleCalendarSyncState = pgTable("google_calendar_sync_state", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  syncToken: text("sync_token"),
+  channelId: text("channel_id").unique(),
+  channelResourceId: text("channel_resource_id"),
+  channelToken: text("channel_token"),
+  channelExpiresAt: timestamp("channel_expires_at", { withTimezone: true }),
+  lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 
 export const operationalEvents = pgTable("operational_events", {
