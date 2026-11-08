@@ -1,5 +1,6 @@
 import { createHmac,timingSafeEqual } from 'node:crypto';
 import { env } from '../../utils/env.util';
+import { logger } from '../../utils/logger.util';
 import { MAX_AUDIO_BYTES } from '../agent/transcribe';
 
 const GRAPH='https://graph.facebook.com/v25.0';
@@ -41,7 +42,13 @@ export function inboundMessages(body:any,phoneNumberId:string):Inbound[]{
 
 async function graph(path:string,init:RequestInit={}){
  const response=await fetch(path.startsWith('https://')?path:`${GRAPH}/${path}`,{...init,headers:{Authorization:`Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,...(init.body?{'Content-Type':'application/json'}:{}),...init.headers},signal:AbortSignal.timeout(20_000)});
- if(!response.ok)throw new Error(`WHATSAPP_HTTP_${response.status}`);
+ if(!response.ok){
+  // Meta's error code says what to fix (token, permission, recipient list); its message carries no secrets.
+  let detail:{code?:number;error_subcode?:number;type?:string;message?:string}={};
+  try{detail=((await response.json()) as {error?:typeof detail}).error??{};}catch{/* Not JSON. */}
+  logger.warn({status:response.status,metaCode:detail.code,metaSubcode:detail.error_subcode,metaType:detail.type,metaMessage:detail.message?.slice(0,300)},'WhatsApp API request failed');
+  throw Object.assign(new Error(`WHATSAPP_HTTP_${response.status}`),{code:`WHATSAPP_${detail.code??response.status}`});
+ }
  return response;
 }
 const send=(to:string,message:Record<string,unknown>)=>graph(`${env.WHATSAPP_PHONE_NUMBER_ID}/messages`,{method:'POST',body:JSON.stringify({messaging_product:'whatsapp',recipient_type:'individual',to,...message})}).then(()=>undefined);
