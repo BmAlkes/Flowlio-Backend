@@ -150,7 +150,8 @@ else{
   const r=await withSync.create(owner,input(),new AbortController().signal);
   await withSync.apply(owner,r.id,apply({selected:[1]}));assert.deepEqual(synced,[]);
   const done=await withSync.apply(owner,r.id,apply({selected:[0]}));const eventId=done.receipts.find(x=>x.type==='create_event').id;
-  await new Promise(resolve=>setImmediate(resolve));await new Promise(resolve=>setTimeout(resolve,50));
+  // The hook runs in the background after the answer; wait for it instead of a fixed delay.
+  for(let waited=0;!synced.length&&waited<5000;waited+=20)await new Promise(resolve=>setTimeout(resolve,20));
   assert.deepEqual(synced,[{userId:'owner',ids:[eventId],saved:1}]);assert.equal((await pool.query('select count(*)::int n from calendar_events where id=$1',[eventId])).rows[0].n,1);
  });
 }
