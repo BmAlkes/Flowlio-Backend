@@ -2,7 +2,11 @@
 export type Language='en'|'pt'|'es'|'he';
 type Text={notLinked:string;connected:string;invalidCode:string;newConversation:string;short:string;unsupported:string;heard:string;
  confirm:string;skip:string;done:string;skipped:string;already:string;expired:string;quota:string;plan:string;access:string;failed:string;audioFailed:string;inApp:string;missing:string;
- task:string;plan_task:string;status:string;event:string;lead:string;time:string;followup:string;statuses:Record<string,string>};
+ task:string;plan_task:string;status:string;event:string;lead:string;time:string;followup:string;statuses:Record<string,string>;
+ welcome:string;menuPrompt:string;quick:Record<Quick,string>;prompts:Record<Quick,string>};
+// Shortcut buttons offered with the greeting; each one sends a ready-made request.
+export const quicks=['agenda','overdue','summary'] as const;
+export type Quick=typeof quicks[number];
 const en:Text={
  notLinked:'This number is not connected to Flowlio yet. In Flowlio, open Settings → WhatsApp and send the code shown there.',
  connected:'✅ Connected, {name}! Ask me anything about your work, or send a voice note. Write "new" to start a new conversation.',
@@ -23,6 +27,10 @@ const en:Text={
  task:'📝 New task: {title}{project}{due}',plan_task:'🗓 Plan task: {title}{dates}',status:'✔️ {title} → {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 New lead: {name} ({email})',time:'⏱ Log {minutes} min on {title} ({date})',followup:'🔔 Follow-up with {title} · {date}',
  statuses:{todo:'To do',in_progress:'In progress',completed:'Completed',delay:'Delayed',changes:'Changes requested'},
+ welcome:'Hi{name}! 👋 This is Lio. How can I help you today?\n\nI can, for example:\n• Show your calendar and what is due\n• List overdue tasks and projects at risk\n• Create tasks, events and leads\n• Log the hours you worked\n\nTap an option, or write or send a voice note.',
+ menuPrompt:'Where would you like to start?',
+ quick:{agenda:'📅 My schedule',overdue:'⚠️ Overdue',summary:'📊 Summary'},
+ prompts:{agenda:'What is on my calendar today and over the next 7 days? Include calendar events and tasks due in that period.',overdue:'Which of my tasks, milestones and projects are overdue?',summary:'Give me a short summary of my work: projects, tasks and upcoming deadlines.'},
 };
 const pt:Text={
  notLinked:'Este número ainda não está conectado ao Flowlio. No Flowlio, abra Configurações → WhatsApp e envie o código que aparece lá.',
@@ -44,6 +52,10 @@ const pt:Text={
  task:'📝 Nova tarefa: {title}{project}{due}',plan_task:'🗓 Planejar tarefa: {title}{dates}',status:'✔️ {title} → {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 Novo lead: {name} ({email})',time:'⏱ Registrar {minutes} min em {title} ({date})',followup:'🔔 Follow-up com {title} · {date}',
  statuses:{todo:'A fazer',in_progress:'Em andamento',completed:'Concluída',delay:'Atrasada',changes:'Alterações pedidas'},
+ welcome:'Oi{name}! 👋 Aqui é o Lio. Em que posso te ajudar hoje?\n\nPosso, por exemplo:\n• Mostrar sua agenda e o que vence\n• Listar tarefas atrasadas e projetos em risco\n• Criar tarefas, eventos e leads\n• Registrar as horas trabalhadas\n\nToque numa opção, escreva ou mande um áudio.',
+ menuPrompt:'Por onde você quer começar?',
+ quick:{agenda:'📅 Minha agenda',overdue:'⚠️ Atrasados',summary:'📊 Resumo'},
+ prompts:{agenda:'O que tenho na agenda hoje e nos próximos 7 dias? Inclua os eventos do calendário e as tarefas que vencem nesse período.',overdue:'Quais das minhas tarefas, marcos e projetos estão atrasados?',summary:'Me dê um resumo curto do meu trabalho: projetos, tarefas e próximos prazos.'},
 };
 const es:Text={
  notLinked:'Este número aún no está conectado a Flowlio. En Flowlio, abre Configuración → WhatsApp y envía el código que aparece allí.',
@@ -65,6 +77,10 @@ const es:Text={
  task:'📝 Nueva tarea: {title}{project}{due}',plan_task:'🗓 Planificar tarea: {title}{dates}',status:'✔️ {title} → {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 Nuevo lead: {name} ({email})',time:'⏱ Registrar {minutes} min en {title} ({date})',followup:'🔔 Seguimiento con {title} · {date}',
  statuses:{todo:'Por hacer',in_progress:'En curso',completed:'Completada',delay:'Retrasada',changes:'Cambios pedidos'},
+ welcome:'¡Hola{name}! 👋 Soy Lio. ¿En qué te puedo ayudar hoy?\n\nPuedo, por ejemplo:\n• Mostrar tu agenda y lo que vence\n• Listar tareas atrasadas y proyectos en riesgo\n• Crear tareas, eventos y leads\n• Registrar las horas trabajadas\n\nToca una opción, escribe o envía un audio.',
+ menuPrompt:'¿Por dónde quieres empezar?',
+ quick:{agenda:'📅 Mi agenda',overdue:'⚠️ Atrasados',summary:'📊 Resumen'},
+ prompts:{agenda:'¿Qué tengo en la agenda hoy y en los próximos 7 días? Incluye los eventos del calendario y las tareas que vencen en ese periodo.',overdue:'¿Cuáles de mis tareas, hitos y proyectos están atrasados?',summary:'Dame un resumen corto de mi trabajo: proyectos, tareas y próximos plazos.'},
 };
 const he:Text={
  notLinked:'המספר הזה עדיין לא מחובר ל-Flowlio. ב-Flowlio, פתחו הגדרות → WhatsApp ושלחו את הקוד שמופיע שם.',
@@ -86,6 +102,10 @@ const he:Text={
  task:'📝 משימה חדשה: {title}{project}{due}',plan_task:'🗓 תכנון משימה: {title}{dates}',status:'✔️ {title} ← {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 ליד חדש: {name} ({email})',time:'⏱ רישום {minutes} דק׳ על {title} ({date})',followup:'🔔 מעקב עם {title} · {date}',
  statuses:{todo:'לביצוע',in_progress:'בתהליך',completed:'הושלמה',delay:'באיחור',changes:'נדרשים שינויים'},
+ welcome:'היי{name}! 👋 כאן Lio. במה אפשר לעזור היום?\n\nאני יכול, למשל:\n• להציג את היומן ואת מה שמגיע לתאריך יעד\n• לרשום משימות באיחור ופרויקטים בסיכון\n• ליצור משימות, אירועים ולידים\n• לרשום שעות עבודה\n\nבחרו אפשרות, כתבו או שלחו הודעה קולית.',
+ menuPrompt:'מאיפה תרצו להתחיל?',
+ quick:{agenda:'📅 היומן שלי',overdue:'⚠️ באיחור',summary:'📊 סיכום'},
+ prompts:{agenda:'מה יש לי ביומן היום ובשבעת הימים הקרובים? כלול אירועי יומן ומשימות שמגיעות לתאריך היעד בתקופה הזו.',overdue:'אילו מהמשימות, אבני הדרך והפרויקטים שלי באיחור?',summary:'תן לי סיכום קצר של העבודה שלי: פרויקטים, משימות ומועדים קרובים.'},
 };
 const all:Record<Language,Text>={en,pt,es,he};
 export const languages=Object.keys(all) as Language[];

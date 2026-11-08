@@ -84,6 +84,32 @@ else{
   assert.ok(ownerBox.definitions.some(d=>d.function.name==='list_clients'));assert.equal((await ownerBox.execute('list_clients',{})).records[0].title,'Client');
   assert.equal((await ownerBox.execute('list_invoices',{status:'overdue'})).total_matching,0);assert.equal((await ownerBox.execute('list_tasks',{limit:500})).error,'INVALID_ARGUMENTS');
  });
+ test('calendar, time, milestone and proposal tools show only what the user may see, in the user time zone',async()=>{
+  await pool.query("update users set timezone='Asia/Jerusalem' where id='owner'");
+  // 22:00 UTC on the day before is local midnight in Jerusalem, as the Calendar page stores it.
+  await pool.query(`insert into calendar_events(id,title,date,start_hour,end_hour,calendar_type,organization_id,user_id,created_at,updated_at) values
+   ('e1','Kickoff',((now() at time zone 'Asia/Jerusalem')::date::timestamp at time zone 'Asia/Jerusalem') at time zone 'UTC',9,10,'meeting','org','owner',now(),now()),
+   ('e2','Old',(now() at time zone 'UTC')-interval '30 days',9,10,'meeting','org','owner',now(),now()),
+   ('e3','Member call',now() at time zone 'UTC',9,10,'meeting','org','member',now(),now());
+   insert into time_entries(id,user_id,project_id,task_id,description,start_time,end_time,duration,status,billable,created_at,updated_at) values
+   ('te1','owner','project','task','Design work',now() at time zone 'UTC',now() at time zone 'UTC',90,'completed',true,now(),now()),
+   ('te2','owner','hidden-project',null,'Hidden work',now() at time zone 'UTC',now() at time zone 'UTC',30,'completed',true,now(),now());
+   insert into project_milestones(id,project_id,organization_id,title,status,due_date,position,created_at,updated_at) values
+   ('ms1','project','org','Beta','pending',now()-interval '2 days',0,now(),now()),('ms2','hidden-project','org','Secret','pending',now()-interval '2 days',0,now(),now());
+   insert into proposals(id,organization_id,client_id,created_by,project_title,client_name,status,created_at,updated_at) values('pr1','org','client','owner','Redesign','Client','pending',now(),now());`);
+  const ctx=await capture(pool,owner,{area:'dashboard'});const box=createToolbox(pool,owner,ctx);
+  const today=(await pool.query("select to_char((now() at time zone 'Asia/Jerusalem')::date,'YYYY-MM-DD') d")).rows[0].d;
+  const events=await box.execute('list_calendar_events',{});assert.deepEqual(events.records.map(r=>[r.title,r.date]),[['Kickoff',today]]);
+  assert.equal((await box.execute('list_calendar_events',{from:'2000-01-01',to:'2100-01-01'})).total_matching,2);
+  const time=await box.execute('list_time_entries',{});assert.deepEqual(time.records.map(r=>r.title),['Design work']);assert.equal(time.total_minutes,90);
+  assert.deepEqual((await box.execute('list_milestones',{overdue:true})).records.map(r=>r.title),['Beta']);
+  assert.deepEqual((await box.execute('list_proposals',{})).records.map(r=>r.title),['Redesign']);
+  const memberBox=createToolbox(pool,member,await capture(pool,member,{area:'dashboard'}));
+  assert.deepEqual((await memberBox.execute('list_calendar_events',{})).records.map(r=>r.title),['Member call']);assert.deepEqual(await memberBox.execute('list_proposals',{}),{error:'UNKNOWN_TOOL'});
+  const svc=createAgent(pool,async(_i,_c,_s,_h,b)=>{const e=await b.execute('list_calendar_events',{});return{answer:'Your day.',citations:[e.records[0].key],actions:[],missing:[]};});
+  const run=await svc.create(owner,input({scope:{area:'dashboard'}}),new AbortController().signal);assert.equal(run.state,'ready');
+  await pool.query("delete from calendar_events where id='e1'");await assert.rejects(svc.detail(owner,run.id),{code:'ACCESS_CHANGED'});
+ });
  test('answers built from tool results cite them and lose access when a fetched record is hidden',async()=>{
   const svc=createAgent(pool,async(_i,_c,_s,_h,box)=>{const p=await box.execute('list_projects',{});const t=await box.execute('list_tasks',{});return{answer:'Two things.',citations:[p.records[0].key,t.records[0].key],actions:[],missing:[]};});
   const run=await svc.create(owner,input({scope:{area:'dashboard'}}),new AbortController().signal);assert.equal(run.state,'ready');assert.ok(run.sources.some(s=>s.kind==='task'));

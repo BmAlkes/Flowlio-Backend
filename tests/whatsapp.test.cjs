@@ -1,7 +1,7 @@
 const {test,before,beforeEach,after}=require('node:test');
 const assert=require('node:assert/strict');const {createHmac,randomUUID}=require('node:crypto');
 const {validSignature,inboundMessages}=require('../src/modules/whatsapp/cloud-api');
-const {formatAnswer,describe,maskPhone,newCode,createWhatsApp}=require('../src/modules/whatsapp/service');
+const {formatAnswer,describe,maskPhone,newCode,createWhatsApp,detectLanguage}=require('../src/modules/whatsapp/service');
 
 test('only requests signed with the app secret are accepted',()=>{
  const raw=Buffer.from('{"entry":[]}');const sign=secret=>'sha256='+createHmac('sha256',secret).update(raw).digest('hex');
@@ -27,6 +27,7 @@ test('answers read naturally on WhatsApp and actions are summarized with record 
  assert.equal(describe({type:'create_task',projectId:'p',title:'Fix menu',description:'',assignedTo:null,startDate:null,endDate:'2026-11-20',estimatedHours:null},sources,'en'),'📝 New task: Fix menu · Website · 2026-11-20');
  assert.equal(describe({type:'set_task_status',taskId:'t',status:'completed'},sources,'pt'),'✔️ Homepage → Concluída');
  assert.equal(describe({type:'create_event',title:'Kickoff',description:'',date:'2026-11-10',startHour:9,endHour:10,calendarType:'meeting'},sources,'xx'),'📅 Kickoff · 2026-11-10 09:00–10:00');
+ for(const [phrase,lang] of [['O que tenho hoje?','pt'],['¿Qué tengo hoy?','es'],['What do I have today?','en'],['מה יש לי היום?','he'],['ok','null'],['Olá','pt']])assert.equal(String(detectLanguage(phrase)),lang,phrase);
  assert.equal(maskPhone('972501234567'),'+972 •••• 4567');assert.match(newCode(),/^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$/);
 });
 
@@ -57,7 +58,8 @@ else{
   await text('hello');assert.match(sent.pop()[1],/não está conectado/);
   const {code,expiresAt}=await wa.startLink(users.u1,'en');assert.equal(new Date(expiresAt).getTime(),clock+15*60000);
   assert.deepEqual((await wa.status(users.u1)).pending,{expiresAt:new Date(expiresAt)});
-  await text(`flowlio ${code.toLowerCase().replace('-','')}`);assert.equal(sent.pop()[1],'✅ Connected, Ana! Ask me anything about your work, or send a voice note. Write "new" to start a new conversation.');
+  await text(`flowlio ${code.toLowerCase().replace('-','')}`);assert.deepEqual(sent.pop(),[phone,'Where would you like to start?',['q:agenda','q:overdue','q:summary']]);
+  assert.equal(sent.pop()[1],'✅ Connected, Ana! Ask me anything about your work, or send a voice note. Write "new" to start a new conversation.');
   assert.deepEqual(await wa.status(users.u1),{linked:{phone:'+972 •••• 4567',since:(await wa.status(users.u1)).linked.since},pending:null});
   await text(`FLOWLIO ${code}`,'972509999999');assert.match(sent.pop()[1],/não é válido/);
   const {code:late}=await wa.startLink(users.u2,'en');clock+=16*60000;await text(`FLOWLIO ${late}`,'972508888888');assert.match(sent.pop()[1],/não é válido/);
@@ -94,6 +96,21 @@ else{
   assert.deepEqual(sent.slice(0,2),[[phone,'🎤 "what is due today"'],[phone,'Two tasks are due.']]);assert.equal(created[0].prompt,'what is due today');
   audio=new Error('WHATSAPP_HTTP_404');await wa.handle({id:'v2',from:phone,timestamp:0,kind:'audio',mediaId:'x'});assert.match(sent.pop()[1],/could not understand that voice note/);
   await wa.handle({id:'i1',from:phone,timestamp:0,kind:'other'});assert.match(sent.pop()[1],/text and voice notes/);
+ });
+ test('a greeting gets the welcome menu without an AI call, and its buttons send ready-made requests',async()=>{
+  await link();sent=[];
+  await text('Oi Lio!');assert.equal(created.length,0);
+  const [to,body,buttons]=sent.pop();assert.equal(to,phone);assert.match(body,/^Oi, Ana! 👋 Aqui é o Lio\. Em que posso te ajudar hoje\?/);assert.deepEqual(buttons,['q:agenda','q:overdue','q:summary']);
+  await wa.handle({id:'q1',from:phone,timestamp:0,kind:'button',reply:'q:agenda'});
+  assert.match(created[0].prompt,/^O que tenho na agenda hoje/);assert.equal(created[0].language,'pt');assert.equal(sent.pop()[1],'Two tasks are due.');
+  await wa.handle({id:'q2',from:phone,timestamp:0,kind:'button',reply:'q:unknown'});assert.match(sent.pop()[1],/Eu leio textos/);assert.equal(created.length,1);
+ });
+ test('Lio answers in the language the person writes in and remembers it',async()=>{
+  await link();sent=[];
+  await text('quais tarefas eu tenho hoje?');assert.equal(created[0].language,'pt');
+  assert.equal((await pool.query('select language from whatsapp_links where user_id=$1',['u1'])).rows[0].language,'pt');
+  await text('make it so');assert.equal(created[1].language,'pt');
+  await text('מה יש לי היום?');assert.equal(created[2].language,'he');
  });
  test('revoked access, a plan without Lio and an exhausted quota each get their own reply',async()=>{
   await link();sent=[];

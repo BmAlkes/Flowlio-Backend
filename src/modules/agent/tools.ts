@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import { canManageClients,canViewProjectFinancials,type Actor } from '../../security/resource-policy';
 import { clientCols,clientHref,makeSources,projectCols,projectHref,projectVisible,requireMember,taskCols,taskVisible } from './context';
 import { AgentError,type Context,type Source } from './policy';
+import { calendarDate } from '../capacity/calculation';
 
 // Read-only query tools. Each one applies the same organization, role and visibility predicates as
 // the preloaded context, so the model can never see more than the signed-in user can.
@@ -10,11 +11,18 @@ const MAX_ROWS=25,MAX_TOOL_SOURCES=250;
 const id=z.string().min(1).max(128);
 const text=z.string().trim().min(1).max(100);
 const limit=z.number().int().min(1).max(MAX_ROWS).default(15);
+const day=calendarDate;
+// Calendar days are stored as the owner's local midnight in UTC; read them back in the owner's zone.
+const userZone="coalesce((select z.name from users u join pg_timezone_names z on z.name=u.timezone where u.id=$2),'UTC')";
 const schemas={
  list_projects:z.object({status:z.enum(['pending','ongoing','delayed','completed']).optional(),overdue:z.boolean().optional(),query:text.optional(),limit}).strict(),
  list_tasks:z.object({status:z.enum(['todo','in_progress','completed']).optional(),overdue:z.boolean().optional(),due_within_days:z.number().int().min(0).max(90).optional(),assigned_to_me:z.boolean().optional(),unassigned:z.boolean().optional(),project_id:id.optional(),query:text.optional(),limit}).strict(),
  list_clients:z.object({type:z.enum(['lead','client']).optional(),status:text.optional(),follow_up_due:z.boolean().optional(),query:text.optional(),limit}).strict(),
  list_invoices:z.object({status:z.enum(['draft','sent','paid','overdue','cancelled']).optional(),client_id:id.optional(),limit}).strict(),
+ list_calendar_events:z.object({from:day.optional(),to:day.optional(),query:text.optional(),limit}).strict(),
+ list_time_entries:z.object({from:day.optional(),to:day.optional(),project_id:id.optional(),limit}).strict(),
+ list_milestones:z.object({project_id:id.optional(),overdue:z.boolean().optional(),due_within_days:z.number().int().min(0).max(90).optional(),limit}).strict(),
+ list_proposals:z.object({status:z.enum(['pending','approved','rejected']).optional(),client_id:id.optional(),limit}).strict(),
  get_overview_counts:z.object({}).strict(),
 };
 type ToolName=keyof typeof schemas;
@@ -26,15 +34,19 @@ const definitions:Record<ToolName,ReturnType<typeof fn>>={
  list_tasks:fn('list_tasks','List tasks the user can see, soonest end date first. Reports total_matching.',{status:{type:'string',enum:['todo','in_progress','completed']},overdue:{type:'boolean',description:'Only unfinished tasks whose end date has passed.'},due_within_days:{type:'integer',minimum:0,maximum:90,description:'Unfinished tasks ending from today within N days.'},assigned_to_me:{type:'boolean'},unassigned:{type:'boolean'},project_id:{type:'string'},query:{type:'string',description:'Title contains.'},...limitProp}),
  list_clients:fn('list_clients','List clients and leads (managers only). Reports total_matching.',{type:{type:'string',enum:['lead','client']},status:{type:'string'},follow_up_due:{type:'boolean',description:'Only records whose follow-up date has arrived.'},query:{type:'string',description:'Name contains.'},...limitProp}),
  list_invoices:fn('list_invoices','List invoices (owners and admins only). overdue means sent past the due date. Reports total_matching.',{status:{type:'string',enum:['draft','sent','paid','overdue','cancelled']},client_id:{type:'string'},...limitProp}),
+ list_calendar_events:fn('list_calendar_events',"The user's own calendar events (meetings, appointments, personal), earliest first, with local day and whole start/end hours. Defaults to today through the next 14 days. Use it for agenda, schedule, availability or \"what do I have\" questions. Reports total_matching.",{from:{type:'string',description:'First day, YYYY-MM-DD.'},to:{type:'string',description:'Last day, YYYY-MM-DD.'},query:{type:'string',description:'Title contains.'},...limitProp}),
+ list_time_entries:fn('list_time_entries',"Time the user tracked, newest first, with minutes and the project/task. Defaults to the last 7 days. Reports total_matching and total_minutes.",{from:{type:'string',description:'First day, YYYY-MM-DD.'},to:{type:'string',description:'Last day, YYYY-MM-DD.'},project_id:{type:'string'},...limitProp}),
+ list_milestones:fn('list_milestones','Project milestones the user can see, soonest due first. Reports total_matching.',{project_id:{type:'string'},overdue:{type:'boolean',description:'Only unfinished milestones whose due date has passed.'},due_within_days:{type:'integer',minimum:0,maximum:90,description:'Unfinished milestones due from today within N days.'},...limitProp}),
+ list_proposals:fn('list_proposals','List sales proposals (managers only), newest first. Reports total_matching.',{status:{type:'string',enum:['pending','approved','rejected']},client_id:{type:'string'},...limitProp}),
 };
 export type Toolbox={definitions:unknown[];execute:(name:string,args:unknown)=>Promise<unknown>};
 const like=(v:string)=>v.replace(/[\\%_]/g,'\\$&');
-const hidden=new Set(['created_by','visibility','updated_at','parent_id','start_after','finish_before','total']);
+const hidden=new Set(['created_by','visibility','updated_at','parent_id','start_after','finish_before','total','total_minutes']);
 // Compact projection for the model: drop internals and shorten long text.
 const view=(s:Source)=>({key:s.key,title:s.title,...Object.fromEntries(Object.entries(s.data).filter(([k])=>!hidden.has(k)).map(([k,v])=>[k,typeof v==='string'&&v.length>300?v.slice(0,300)+'…':v]))});
 
 export function toolNamesFor(a:Actor):ToolName[]{
- return['get_overview_counts','list_projects','list_tasks',...(canManageClients(a)?['list_clients' as const]:[]),...(canViewProjectFinancials(a)?['list_invoices' as const]:[])];
+ return['get_overview_counts','list_projects','list_tasks','list_calendar_events','list_time_entries','list_milestones',...(canManageClients(a)?['list_clients' as const,'list_proposals' as const]:[]),...(canViewProjectFinancials(a)?['list_invoices' as const]:[])];
 }
 
 export function createToolbox(pool:Pool,a:Actor,context:Context):Toolbox{
@@ -56,6 +68,25 @@ export function createToolbox(pool:Pool,a:Actor,context:Context):Toolbox{
    const status=args.status==='overdue'?"($3::text is null and (status='overdue' or (status='sent' and due_date<now())))":args.status?'status=$3':'$3::text is null';
    const rows=(await pool.query(`select id,invoice_number as title,client_id,amount,currency_code,status,due_date,(count(*) over())::int total from invoices where organization_id=$1 and ($2::text is null or client_id=$2) and ${status} order by due_date asc nulls last,created_at desc,id limit $4`,[org,args.client_id??null,args.status&&args.status!=='overdue'?args.status:null,args.limit])).rows;
    return{rows,kind:'invoice',href:()=>'/dashboard/invoice'};
+  }
+  if(name==='list_calendar_events'){
+   const rows=(await pool.query(`with z as (select ${userZone} tz),l as (select e.*,((e.date at time zone 'UTC') at time zone z.tz)::date local_day,(now() at time zone z.tz)::date today from calendar_events e cross join z where e.organization_id=$1 and e.user_id=$2)
+    select id,title,description,to_char(local_day,'YYYY-MM-DD') date,start_hour,end_hour,calendar_type,platform,(count(*) over())::int total from l where local_day between coalesce($3::date,today) and coalesce($4::date,coalesce($3::date,today)+14) and ($5::text is null or title ilike '%'||$5||'%') order by local_day,start_hour,id limit $6`,[org,a.id,args.from??null,args.to??null,args.query?like(args.query):null,args.limit])).rows;
+   return{rows,kind:'calendar',href:()=>'/dashboard/calender'};
+  }
+  if(name==='list_time_entries'){
+   const rows=(await pool.query(`with z as (select ${userZone} tz) select e.id,coalesce(nullif(e.description,''),t.title,p.name) title,e.project_id,p.name project_name,e.task_id,t.title task_title,to_char((e.start_time at time zone 'UTC') at time zone z.tz,'YYYY-MM-DD') date,e.duration minutes,e.status,e.billable,(count(*) over())::int total,(sum(e.duration) over())::int total_minutes
+    from time_entries e join projects p on p.id=e.project_id left join tasks t on t.id=e.task_id and t.project_id=p.id cross join z where ${projectVisible} and e.user_id=$2 and (e.task_id is null or ${taskVisible}) and ($3::text is null or p.id=$3)
+    and ((e.start_time at time zone 'UTC') at time zone z.tz)::date between coalesce($4::date,(now() at time zone z.tz)::date-6) and coalesce($5::date,(now() at time zone z.tz)::date) order by e.start_time desc,e.id limit $6`,[org,a.id,args.project_id??null,args.from??null,args.to??null,args.limit])).rows;
+   return{rows,kind:'time',href:()=>'/dashboard/time-tracking'};
+  }
+  if(name==='list_milestones'){
+   const rows=(await pool.query(`select m.id,m.title,m.project_id,p.name project_name,m.status,to_char(m.due_date,'YYYY-MM-DD') due_date,(count(*) over())::int total from project_milestones m join projects p on p.id=m.project_id where ${projectVisible} and m.organization_id=$1 and ($3::text is null or m.project_id=$3) and ($4::boolean is not true or (m.due_date<current_date and m.status<>'completed')) and ($5::int is null or (m.status<>'completed' and m.due_date>=current_date and m.due_date<current_date+($5::int+1))) order by m.due_date asc nulls last,m.id limit $6`,[org,a.id,args.project_id??null,args.overdue??null,args.due_within_days??null,args.limit])).rows;
+   return{rows,kind:'milestone',href:r=>projectHref(r)+'#delivery-reviews'};
+  }
+  if(name==='list_proposals'){
+   const rows=(await pool.query('select id,project_title as title,client_id,client_name,company_name,status,updated_at,(count(*) over())::int total from proposals where organization_id=$1 and ($2::text is null or status=$2) and ($3::text is null or client_id=$3) order by updated_at desc,id limit $4',[org,args.status??null,args.client_id??null,args.limit])).rows;
+   return{rows,kind:'proposal',href:()=>'/dashboard/proposals'};
   }
   const own=[org,a.id];
   const projects=(await pool.query(`select p.status,count(*)::int n from projects p where ${projectVisible} group by 1 order by 1`,own)).rows;
@@ -81,7 +112,7 @@ export function createToolbox(pool:Pool,a:Actor,context:Context):Toolbox{
   for(const s of added)context.sources.push({...s,tool:true});
   if('summary' in out)return{key:'summary:overview',...(out.summary as object)};
   const total=out.rows[0]?.total??0;
-  return{total_matching:total,returned:out.rows.length,truncated:total>out.rows.length,records:fresh.map(view)};
+  return{total_matching:total,returned:out.rows.length,truncated:total>out.rows.length,...(name==='list_time_entries'?{total_minutes:out.rows[0]?.total_minutes??0}:{}),records:fresh.map(view)};
  }
  return{definitions:toolNamesFor(a).map(n=>definitions[n]),execute};
 }
@@ -97,4 +128,9 @@ export async function stillVisible(pool:Pool,a:Actor,sources:Source[]){
  if(tasks.length)same((await pool.query(`select t.id from tasks t join projects p on p.id=t.project_id where ${projectVisible} and ${taskVisible} and t.id=any($3::text[])`,[org,a.id,tasks])).rows,tasks);
  if(clients.length){if(!canManageClients(a))throw new AgentError(403,'ACCESS_CHANGED');same((await pool.query('select id from clients where organization_id=$1 and id=any($2::text[])',[org,clients])).rows,clients);}
  if(invoices.length){if(!canViewProjectFinancials(a))throw new AgentError(403,'ACCESS_CHANGED');same((await pool.query('select id from invoices where organization_id=$1 and id=any($2::text[])',[org,invoices])).rows,invoices);}
+ const events=ids('calendar'),entries=ids('time'),milestones=ids('milestone'),proposals=ids('proposal');
+ if(events.length)same((await pool.query('select id from calendar_events where organization_id=$1 and user_id=$2 and id=any($3::text[])',[org,a.id,events])).rows,events);
+ if(entries.length)same((await pool.query(`select e.id from time_entries e join projects p on p.id=e.project_id left join tasks t on t.id=e.task_id and t.project_id=p.id where ${projectVisible} and e.user_id=$2 and (e.task_id is null or ${taskVisible}) and e.id=any($3::text[])`,[org,a.id,entries])).rows,entries);
+ if(milestones.length)same((await pool.query(`select m.id from project_milestones m join projects p on p.id=m.project_id where ${projectVisible} and m.id=any($3::text[])`,[org,a.id,milestones])).rows,milestones);
+ if(proposals.length){if(!canManageClients(a))throw new AgentError(403,'ACCESS_CHANGED');same((await pool.query('select id from proposals where organization_id=$1 and id=any($2::text[])',[org,proposals])).rows,proposals);}
 }

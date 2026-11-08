@@ -6,7 +6,7 @@ import { logger } from '../../utils/logger.util';
 import { authorize,type Action } from '../agent/policy';
 import type { Audio } from '../agent/transcribe';
 import type { CloudApi,Inbound } from './cloud-api';
-import { fill,languages,textFor } from './messages';
+import { fill,languages,quicks,textFor,type Language,type Quick } from './messages';
 
 type Source={key:string;kind:string;id:string;title:string};
 type Run={id:string;state:string;result:{answer:string;missing:string[];actions:Action[]}|null;sources:Source[]};
@@ -28,6 +28,21 @@ const codeHash=(code:string)=>createHash('sha256').update('whatsapp:'+code).dige
 const CODE=/FLOWLIO\s*[-:]?\s*([A-Z2-9]{4})\s*-?\s*([A-Z2-9]{4})/i;
 const NEW=/^\s*\/?(new|novo|nova conversa|nuevo|nueva conversación|חדש)\s*[.!]?\s*$/i;
 const BUTTON=/^(ok|no):([0-9a-f-]{36}):(\d{1,2})$/;
+const QUICK=/^q:(\w+)$/;
+// A message that only greets (or asks for the menu) gets the welcome menu without an AI call.
+const GREETING=/^\s*(oi+|ol[aá]|e a[ií]|eai|bom dia|boa tarde|boa noite|ajuda|hi|hello|hey|help|hola|buen[oa]s(?: d[ií]as| tardes| noches)?|ayuda|שלום|היי|עזרה|men[uú]|תפריט)(?:\s+lio)?\s*[!.,?]*\s*$/iu;
+// Words that only one supported language uses, to answer in the language the person writes in.
+const words=(list:string)=>new RegExp(`(?<!\\p{L})(?:${list})(?!\\p{L})`,'giu');
+const WORDS:Record<Exclude<Language,'he'>,RegExp>={
+ pt:words('oi|ol[aá]|voc[eê]|n[aã]o|tenho|minha|meu|hoje|amanh[aã]|tarefas?|quais|obrigad[oa]|bom dia|boa tarde|boa noite|ajuda|preciso|semana'),
+ es:words('hola|qu[eé]|tengo|mi|hoy|ma[nñ]ana|tareas?|cu[aá]les|gracias|buen[oa]s|ayuda|necesito|usted|semana que viene'),
+ en:words('hi|hello|hey|what|my|the|today|tomorrow|tasks?|which|please|thanks|help|need|week|overdue|have'),
+};
+export function detectLanguage(text:string):Language|null{
+ if(/[֐-׿]/.test(text))return 'he';
+ const scores=(Object.keys(WORDS) as (keyof typeof WORDS)[]).map(l=>[l,text.match(WORDS[l])?.length??0] as const).sort((x,y)=>y[1]-x[1]);
+ return scores[0][1]>0&&scores[0][1]>scores[1][1]?scores[0][0]:null;
+}
 const QUOTA=['ORG_TOKEN_LIMIT_EXCEEDED','USER_TOKEN_LIMIT_EXCEEDED','AI_QUOTA_DISABLED'];
 const ACCESS=['ACCESS_CHANGED','AGENT_INTERNAL_ONLY','SESSION_INVALID','USER_DEACTIVATED','SUBADMIN_DEACTIVATED','MEMBERSHIP_INACTIVE','ORGANIZATION_DEACTIVATED','TRIAL_EXPIRED','SUBSCRIPTION_EXPIRED','PORTAL_ACCESS_DISABLED','WHATSAPP_ORG_CHANGED'];
 export const maskPhone=(phone:string)=>`+${phone.slice(0,phone.length>11?3:2)} •••• ${phone.slice(-4)}`;
@@ -113,6 +128,9 @@ export function createWhatsApp(pool:Pool,deps:Deps){
    else await deps.api.sendButtons(m.from,summary,[{id:`ok:${run.id}:${index}`,title:t.confirm},{id:`no:${run.id}:${index}`,title:t.skip}]);
   }
  }
+ function menu(to:string,language:string,body:string){
+  const t=textFor(language);return deps.api.sendButtons(to,body,quicks.map(q=>({id:`q:${q}`,title:t.quick[q]})));
+ }
  async function tap(m:Inbound,link:Link,a:WhatsAppActor){
   const t=textFor(link.language);const match=BUTTON.exec(m.reply??'');if(!match){await deps.api.sendText(m.from,t.unsupported);return;}
   const [,choice,runId,raw]=match;const index=Number(raw);
@@ -131,13 +149,23 @@ export function createWhatsApp(pool:Pool,deps:Deps){
    const verified=await verify(m,`${code[1]}-${code[2]}`.toUpperCase());
    if(!verified){await deps.api.sendText(m.from,textFor(link?.language??'pt').invalidCode);return;}
    let name='';try{name=(await deps.actor(verified.user_id)).name?.split(' ')[0]??'';}catch{/* The link stands; access is checked on every message. */}
-   await deps.api.sendText(m.from,fill(textFor(verified.language).connected,{name}).replace(', !','!'));return;
+   await deps.api.sendText(m.from,fill(textFor(verified.language).connected,{name}).replace(', !','!'));
+   await menu(m.from,verified.language,textFor(verified.language).menuPrompt);return;
   }
   if(!link)return;
+  // Answer in the language the person writes in, and remember it for the next messages.
+  const spoken=m.kind==='text'?detectLanguage(m.text??''):null;
+  if(spoken&&spoken!==link.language){link.language=spoken;await pool.query('update whatsapp_links set language=$2,updated_at=now() where user_id=$1',[link.user_id,spoken]);}
   const t=textFor(link.language);
   try{
    const a=await actorFor(link);
+   if(m.kind==='button'&&QUICK.test(m.reply??'')){
+    const quick=QUICK.exec(m.reply??'')![1] as Quick;
+    if((quicks as readonly string[]).includes(quick))await ask(m,link,a,t.prompts[quick]);else await deps.api.sendText(m.from,t.unsupported);
+    return;
+   }
    if(m.kind==='button'){await tap(m,link,a);return;}
+   if(m.kind==='text'&&GREETING.test(m.text??'')){const first=(a as WhatsAppActor).name?.split(' ')[0];await menu(m.from,link.language,fill(t.welcome,{name:first?`, ${first}`:''}));return;}
    if(m.kind==='text'&&NEW.test(m.text??'')){await pool.query('update whatsapp_links set conversation_id=$2,updated_at=now() where user_id=$1',[link.user_id,randomUUID()]);await deps.api.sendText(m.from,t.newConversation);return;}
    if(m.kind==='audio'){
     let text:string;
