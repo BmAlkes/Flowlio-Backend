@@ -1,0 +1,93 @@
+// Replies Lio sends on WhatsApp, in the language the user chose when linking the number.
+export type Language='en'|'pt'|'es'|'he';
+type Text={notLinked:string;connected:string;invalidCode:string;newConversation:string;short:string;unsupported:string;heard:string;
+ confirm:string;skip:string;done:string;skipped:string;already:string;expired:string;quota:string;plan:string;access:string;failed:string;audioFailed:string;inApp:string;missing:string;
+ task:string;plan_task:string;status:string;event:string;lead:string;time:string;followup:string;statuses:Record<string,string>};
+const en:Text={
+ notLinked:'This number is not connected to Flowlio yet. In Flowlio, open Settings → WhatsApp and send the code shown there.',
+ connected:'✅ Connected, {name}! Ask me anything about your work, or send a voice note. Write "new" to start a new conversation.',
+ invalidCode:'That code is not valid or has expired. Create a new one in Flowlio under Settings → WhatsApp.',
+ newConversation:'Starting a new conversation. What do you need?',
+ short:'Tell me a bit more about what you need.',
+ unsupported:'I can read text and voice notes. Send your request in one of those.',
+ heard:'🎤 "{text}"',
+ confirm:'Confirm',skip:'Skip',done:'✅ Done: {action}',skipped:'OK, I did not do it.',already:'That was already done.',
+ expired:'This suggestion has expired. Ask me again.',
+ quota:'Your organization has used its AI credits for this period.',
+ plan:'Your plan does not include Lio. An admin can upgrade it in Flowlio.',
+ access:'Your Flowlio access changed. Connect this number again in Settings → WhatsApp.',
+ failed:'Something went wrong on my side. Try again in a moment.',
+ audioFailed:'I could not understand that voice note. Try again or write the request.',
+ inApp:'📨 {action}\nThis is shared with a client, so confirm it in Flowlio.',
+ missing:'Still missing:',
+ task:'📝 New task: {title}{project}{due}',plan_task:'🗓 Plan task: {title}{dates}',status:'✔️ {title} → {status}',
+ event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 New lead: {name} ({email})',time:'⏱ Log {minutes} min on {title} ({date})',followup:'🔔 Follow-up with {title} · {date}',
+ statuses:{todo:'To do',in_progress:'In progress',completed:'Completed',delay:'Delayed',changes:'Changes requested'},
+};
+const pt:Text={
+ notLinked:'Este número ainda não está conectado ao Flowlio. No Flowlio, abra Configurações → WhatsApp e envie o código que aparece lá.',
+ connected:'✅ Conectado, {name}! Pergunte o que quiser sobre o seu trabalho ou mande um áudio. Escreva "novo" para começar outra conversa.',
+ invalidCode:'Esse código não é válido ou expirou. Gere um novo no Flowlio em Configurações → WhatsApp.',
+ newConversation:'Começando uma nova conversa. Do que você precisa?',
+ short:'Me conte um pouco mais do que você precisa.',
+ unsupported:'Eu leio textos e áudios. Mande o seu pedido assim.',
+ heard:'🎤 "{text}"',
+ confirm:'Confirmar',skip:'Ignorar',done:'✅ Feito: {action}',skipped:'Ok, não fiz.',already:'Isso já foi feito.',
+ expired:'Essa sugestão expirou. Me peça de novo.',
+ quota:'Sua organização usou todos os créditos de IA deste período.',
+ plan:'O seu plano não inclui o Lio. Um administrador pode fazer o upgrade no Flowlio.',
+ access:'Seu acesso ao Flowlio mudou. Conecte este número de novo em Configurações → WhatsApp.',
+ failed:'Algo deu errado do meu lado. Tente de novo em instantes.',
+ audioFailed:'Não consegui entender esse áudio. Tente de novo ou escreva o pedido.',
+ inApp:'📨 {action}\nIsso é compartilhado com um cliente, então confirme no Flowlio.',
+ missing:'Ainda falta:',
+ task:'📝 Nova tarefa: {title}{project}{due}',plan_task:'🗓 Planejar tarefa: {title}{dates}',status:'✔️ {title} → {status}',
+ event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 Novo lead: {name} ({email})',time:'⏱ Registrar {minutes} min em {title} ({date})',followup:'🔔 Follow-up com {title} · {date}',
+ statuses:{todo:'A fazer',in_progress:'Em andamento',completed:'Concluída',delay:'Atrasada',changes:'Alterações pedidas'},
+};
+const es:Text={
+ notLinked:'Este número aún no está conectado a Flowlio. En Flowlio, abre Configuración → WhatsApp y envía el código que aparece allí.',
+ connected:'✅ ¡Conectado, {name}! Pregúntame lo que quieras sobre tu trabajo o envía un audio. Escribe "nuevo" para empezar otra conversación.',
+ invalidCode:'Ese código no es válido o expiró. Genera uno nuevo en Flowlio en Configuración → WhatsApp.',
+ newConversation:'Empezando una nueva conversación. ¿Qué necesitas?',
+ short:'Cuéntame un poco más de lo que necesitas.',
+ unsupported:'Leo textos y audios. Envía tu solicitud así.',
+ heard:'🎤 "{text}"',
+ confirm:'Confirmar',skip:'Omitir',done:'✅ Hecho: {action}',skipped:'Ok, no lo hice.',already:'Eso ya estaba hecho.',
+ expired:'Esta sugerencia expiró. Pídemelo de nuevo.',
+ quota:'Tu organización usó todos los créditos de IA de este período.',
+ plan:'Tu plan no incluye a Lio. Un administrador puede mejorarlo en Flowlio.',
+ access:'Tu acceso a Flowlio cambió. Conecta este número de nuevo en Configuración → WhatsApp.',
+ failed:'Algo salió mal de mi lado. Inténtalo de nuevo en un momento.',
+ audioFailed:'No entendí ese audio. Inténtalo de nuevo o escribe la solicitud.',
+ inApp:'📨 {action}\nEsto se comparte con un cliente, así que confírmalo en Flowlio.',
+ missing:'Todavía falta:',
+ task:'📝 Nueva tarea: {title}{project}{due}',plan_task:'🗓 Planificar tarea: {title}{dates}',status:'✔️ {title} → {status}',
+ event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 Nuevo lead: {name} ({email})',time:'⏱ Registrar {minutes} min en {title} ({date})',followup:'🔔 Seguimiento con {title} · {date}',
+ statuses:{todo:'Por hacer',in_progress:'En curso',completed:'Completada',delay:'Retrasada',changes:'Cambios pedidos'},
+};
+const he:Text={
+ notLinked:'המספר הזה עדיין לא מחובר ל-Flowlio. ב-Flowlio, פתחו הגדרות → WhatsApp ושלחו את הקוד שמופיע שם.',
+ connected:'✅ מחובר, {name}! שאלו אותי כל דבר על העבודה שלכם או שלחו הודעה קולית. כתבו "חדש" כדי להתחיל שיחה חדשה.',
+ invalidCode:'הקוד לא תקין או שפג תוקפו. צרו קוד חדש ב-Flowlio בהגדרות → WhatsApp.',
+ newConversation:'מתחילים שיחה חדשה. במה אפשר לעזור?',
+ short:'ספרו לי קצת יותר על מה שאתם צריכים.',
+ unsupported:'אני קורא טקסט והודעות קוליות. שלחו את הבקשה באחת מהדרכים האלה.',
+ heard:'🎤 "{text}"',
+ confirm:'אישור',skip:'דילוג',done:'✅ בוצע: {action}',skipped:'בסדר, לא ביצעתי.',already:'זה כבר בוצע.',
+ expired:'פג תוקף ההצעה. בקשו שוב.',
+ quota:'הארגון שלכם ניצל את כל קרדיטי ה-AI לתקופה הזו.',
+ plan:'התוכנית שלכם לא כוללת את Lio. מנהל יכול לשדרג ב-Flowlio.',
+ access:'הגישה שלכם ל-Flowlio השתנתה. חברו את המספר מחדש בהגדרות → WhatsApp.',
+ failed:'משהו השתבש אצלי. נסו שוב בעוד רגע.',
+ audioFailed:'לא הצלחתי להבין את ההודעה הקולית. נסו שוב או כתבו את הבקשה.',
+ inApp:'📨 {action}\nזה משותף עם לקוח, לכן אשרו ב-Flowlio.',
+ missing:'עדיין חסר:',
+ task:'📝 משימה חדשה: {title}{project}{due}',plan_task:'🗓 תכנון משימה: {title}{dates}',status:'✔️ {title} ← {status}',
+ event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 ליד חדש: {name} ({email})',time:'⏱ רישום {minutes} דק׳ על {title} ({date})',followup:'🔔 מעקב עם {title} · {date}',
+ statuses:{todo:'לביצוע',in_progress:'בתהליך',completed:'הושלמה',delay:'באיחור',changes:'נדרשים שינויים'},
+};
+const all:Record<Language,Text>={en,pt,es,he};
+export const languages=Object.keys(all) as Language[];
+export const textFor=(language:string)=>all[(languages as string[]).includes(language)?language as Language:'pt'];
+export const fill=(template:string,values:Record<string,string|number>)=>template.replace(/\{(\w+)\}/g,(_,k)=>String(values[k]??''));

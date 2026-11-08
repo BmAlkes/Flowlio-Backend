@@ -14,6 +14,8 @@ import { enqueue, type Handler, type Schedule } from "./queue";
 import { sendTransactionalEmail } from "../email/transactional.service";
 import { sendPushToUser } from "../../utils/web-push.util";
 import { calendarSync } from "../../modules/google-calendar";
+import { handleWhatsAppMessage } from "../../modules/whatsapp";
+import type { Inbound } from "../../modules/whatsapp/cloud-api";
 import { autoRenewalService } from "../autoRenewal.service";
 import { nextMonthReset } from "../../utils/aiTokenLimit.util";
 const automations = [
@@ -95,6 +97,8 @@ export const handlers: Record<string, Handler> = {
                     await enqueue(client, "calendar-sync", job.id + ":" + userId, { userId }, job.scheduled_at);
         }
     },
+    // AI calls and WhatsApp replies cannot be undone, so a failed message is never retried.
+    "whatsapp-message": { transactional: false, retryable: false, run: async (job) => { await handleWhatsAppMessage(job.payload as unknown as Inbound); } },
     "subscription-renewal": { transactional: false, run: async () => { await autoRenewalService.performAutoRenewal(true); } },
 };
 for (const [kind, method, defaultHour] of automations) {
