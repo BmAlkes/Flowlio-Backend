@@ -51,6 +51,7 @@ import universalSupportTicketRoutes from "./routes/universalsupportticket.routes
 import viewerRoutes from "./routes/viewer.routes";
 import googleCalendarRoutes from "./routes/googleCalendar.routes";
 import { googleCalendarWebhook } from "./modules/google-calendar";
+import { whatsappRoutes, whatsappWebhook, whatsappWebhookVerify } from "./modules/whatsapp";
 import aiRoutes from "./routes/ai.routes";
 import aiMonitoringRoutes from "./routes/ai-monitoring.routes";
 import webhookRoutes from "./routes/webhook.routes";
@@ -234,6 +235,9 @@ app.all("/api/auth/*splat", throttle("default"), (req, res) => {
 // Google sends every user's change notifications from shared addresses; the IP throttle would drop them.
 // The handler only accepts known channel tokens and does no work beyond queueing a sync.
 app.post("/api/google-calendar/webhook", googleCalendarWebhook);
+// Meta delivers from shared addresses too. The signature check needs the raw bytes, so this runs before express.json.
+app.get("/api/whatsapp/webhook", whatsappWebhookVerify);
+app.post("/api/whatsapp/webhook", express.raw({ type: "*/*", limit: "2mb" }), whatsappWebhook);
 
 // enable after database connection
 app.use(throttle("default"));
@@ -268,6 +272,7 @@ app.use("/api/support-tickets", universalSupportTicketRoutes);
 app.use("/api/viewer", viewerRoutes);
 app.use("/api/google-calendar", googleCalendarRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/whatsapp", whatsappRoutes);
 app.use("/api/ai", aiMonitoringRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/notifications", notificationRoutes);

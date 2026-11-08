@@ -2665,6 +2665,19 @@ export const googleCalendarSyncState = pgTable("google_calendar_sync_state", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// One WhatsApp number per user. The link is pending (code set) until a message with the code arrives from that number.
+export const whatsappLinks = pgTable("whatsapp_links", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  phone: text("phone").unique(),
+  language: text("language").notNull().default("pt"),
+  codeHash: text("code_hash").unique(),
+  codeExpiresAt: timestamp("code_expires_at", { withTimezone: true }),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  conversationId: text("conversation_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 
 export const operationalEvents = pgTable("operational_events", {
   id: text("id").primaryKey(),

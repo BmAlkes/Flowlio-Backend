@@ -24,6 +24,11 @@ const schemaObject = z.object({
   ENABLE_BACKGROUND_SYNC: z.string().optional(),
   // Public HTTPS URL of /api/google-calendar/webhook. When unset, calendars sync on the schedule only.
   GOOGLE_CALENDAR_WEBHOOK_URL: z.string().url().optional(),
+  // WhatsApp Cloud API. Lio on WhatsApp stays off until all four are set.
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.string().optional(),
+  WHATSAPP_VERIFY_TOKEN: z.string().optional(),
   PAYPAL_CLIENT_ID: z.string().optional(),
   PAYPAL_CLIENT_SECRET: z.string().optional(),
   PAYPAL_MODE: z.enum(["sandbox", "live"]).optional().default("live"),

@@ -24,6 +24,7 @@ const databases = {
   SIMPLER_WORKFLOWS_TEST_DATABASE_URL: [55442, "flowlio_simpler_workflows_test"],
   AGENT_TEST_DATABASE_URL: [55442, "flowlio_agent_test"],
   GOOGLE_CALENDAR_TEST_DATABASE_URL: [55442, "flowlio_google_calendar_test"],
+  WHATSAPP_TEST_DATABASE_URL: [55442, "flowlio_whatsapp_test"],
   SCENARIO_TEST_DATABASE_URL: [55442, "flowlio_scenario_test"],
   CLIENT_PENDING_TEST_DATABASE_URL: [55442, "flowlio_client_pending_test"],
   RETAINER_TEST_DATABASE_URL: [55442, "flowlio_retainer_test"],
