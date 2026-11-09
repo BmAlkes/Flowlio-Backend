@@ -1,11 +1,11 @@
 import type { Pool } from 'pg';
 import type { Actor } from '../../security/resource-policy';
 import { capture,requireMember } from './context';
-import { execute } from './actions';
+import { execute,noEffects,type Effects } from './actions';
 import { createToolbox,stillVisible,type Toolbox } from './tools';
 import { AIAccessError } from '../../utils/ai-context.util';
 import { logger } from '../../utils/logger.util';
-import { authorize,hash,generationInput,applyInput,validateOutput,AgentError,type Context,type Generation,type Action,type Turn } from './policy';
+import { authorize,hash,generationInput,applyInput,validateOutput,clientFacing,AgentError,type Context,type Generation,type Action,type Turn } from './policy';
 
 type Provider=(input:Generation,context:Context,signal:AbortSignal,history:Turn[],tools:Toolbox)=>Promise<unknown>;
 const permissionKey=(a:Actor)=>hash([a.role,!!a.isOrganizationOwner,!!a.isOrganizationManager]);
@@ -15,17 +15,26 @@ const snapshotHash=(value:unknown)=>hash(JSON.parse(JSON.stringify(value??null,(
  if(item&&typeof item==='object'&&!Array.isArray(item))return Object.fromEntries(Object.entries(item).sort(([left],[right])=>left.localeCompare(right)));
  return item;
 })));
-// eventsCreated runs after a confirmation is committed, e.g. to push new calendar events to Google.
-export function createAgent(pool:Pool,provider:Provider,hooks:{eventsCreated?:(userId:string,eventIds:string[])=>Promise<void>}={}){
+// Hooks run after a confirmation is committed: they push calendar changes to Google and email clients.
+export type Hooks={
+ eventsCreated?:(userId:string,eventIds:string[])=>Promise<void>;
+ eventsUpdated?:(userId:string,eventIds:string[])=>Promise<void>;
+ eventsDeleted?:(userId:string,events:Effects['deletedEvents'])=>Promise<void>;
+ clientMessages?:(messages:Effects['messages'])=>Promise<void>;
+};
+export function createAgent(pool:Pool,provider:Provider,hooks:Hooks={}){
  async function row(a:Actor,id:string){authorize(a);await requireMember(pool,a);const r=(await pool.query('select * from ai_agent_runs where id=$1 and organization_id=$2 and actor_id=$3',[id,a.organizationId,a.id])).rows[0];if(!r)throw new AgentError(404,'RUN_NOT_FOUND');if(r.actor_scope!==permissionKey(a))throw new AgentError(403,'ACCESS_CHANGED');return r;}
  async function visible(a:Actor,r:any){
   const current=await capture(pool,a,r.input.scope);const keys=new Set(current.sources.map(v=>v.key));
-  if((r.context as Context).sources.some(s=>!s.tool&&!keys.has(s.key)))throw new AgentError(403,'ACCESS_CHANGED');
+  // Events this run deleted are gone on purpose; that is not an access change.
+  const deleted=new Set<string>((r.receipts??[]).filter((x:any)=>x.type==='delete_event').map((x:any)=>'calendar:'+x.id));
+  const sources=(r.context as Context).sources.filter(s=>!deleted.has(s.key));
+  if(sources.some(s=>!s.tool&&!keys.has(s.key)))throw new AgentError(403,'ACCESS_CHANGED');
   // Aggregate sources can embed task names and financial details. Their entire snapshot
   // must still match, so revoked nested resources cannot survive behind a stable report key.
   for(const source of (r.context as Context).sources)if(!source.tool&&['capacity','margin','attention','retainer'].includes(source.kind)&&snapshotHash(source.data)!==snapshotHash(current.sources.find(s=>s.key===source.key)?.data))throw new AgentError(403,'ACCESS_CHANGED');
   // Records fetched on demand are not part of the area sample: recheck each against current access.
-  await stillVisible(pool,a,(r.context as Context).sources.filter(s=>s.tool));
+  await stillVisible(pool,a,sources.filter(s=>s.tool));
  }
  function view(r:any){return{id:r.id,state:r.state,createdAt:r.created_at,conversationId:r.conversation_id??null,input:r.input,error:r.error_code,result:r.result,receipts:r.receipts,sources:(r.context as Context).sources.map(({key,kind,id,title,href})=>({key,kind,id,title,href})),limits:r.context.limits,members:r.context.members};}
  async function detail(a:Actor,id:string){const r=await row(a,id);await visible(a,r);return view(r);}
@@ -48,18 +57,22 @@ export function createAgent(pool:Pool,provider:Provider,hooks:{eventsCreated?:(u
    if(r.state!=='ready')throw new AgentError(409,'RUN_NOT_READY');
    if(Date.now()-new Date(r.created_at).getTime()>86400000)throw new AgentError(409,'DRAFT_EXPIRED');
    const actions:Action[]=command.selected.map(i=>{const original=r.result.actions[i];if(!original)throw new AgentError(400,'INVALID_SELECTION');const edited=command.edits[String(i)]??original;
-    if(edited.type!==original.type||('projectId'in edited&&edited.projectId!==original.projectId)||('taskId'in edited&&edited.taskId!==original.taskId)||('clientId'in edited&&edited.clientId!==original.clientId))throw new AgentError(400,'INVALID_SELECTION');return edited;});
+    if(edited.type!==original.type||('projectId'in edited&&edited.projectId!==original.projectId)||('taskId'in edited&&edited.taskId!==original.taskId)||('clientId'in edited&&edited.clientId!==original.clientId)||('eventId'in edited&&edited.eventId!==original.eventId))throw new AgentError(400,'INVALID_SELECTION');return edited;});
    if(Object.keys(command.edits).some(k=>!command.selected.includes(Number(k))))throw new AgentError(400,'INVALID_SELECTION');
    validateOutput({...r.result,actions},r.context);
-   if(actions.some(v=>v.type==='client_request')&&!command.shareWithClient)throw new AgentError(400,'SHARING_CONFIRMATION_REQUIRED');
-   const executed=(await execute(c,a,actions,r.context,id,command.timeZone)).map((x,i)=>({...x,index:command.selected[i]}));
+   if(actions.some(v=>clientFacing.includes(v.type))&&!command.shareWithClient)throw new AgentError(400,'SHARING_CONFIRMATION_REQUIRED');
+   const effects=noEffects();
+   const executed=(await execute(c,a,actions,r.context,id,command.timeZone,effects)).map((x,i)=>({...x,index:command.selected[i]}));
    const receipts=[...(r.receipts??[]),...executed];
    const complete=(r.result.actions as Action[]).every((_,i)=>receipts.some(x=>x.index===i));
    const updated=(await c.query("update ai_agent_runs set state=$4,apply_hash=$2,receipts=$3,updated_at=now() where id=$1 returning *",[id,fingerprint,JSON.stringify(receipts),complete?'applied':'ready'])).rows[0];
    await c.query('commit');
-   // Outside the transaction and never blocking the answer: a failed sync leaves the event in Flowlio, as on the Calendar page.
+   // Outside the transaction and never blocking the answer: a failed sync or email leaves the change in Flowlio, as on the Calendar and Comments pages.
    const events=executed.filter(x=>x.type==='create_event').map(x=>x.id);
    if(events.length&&hooks.eventsCreated)void hooks.eventsCreated(a.id,events).catch(()=>{});
+   if(effects.updatedEvents.length&&hooks.eventsUpdated)void hooks.eventsUpdated(a.id,effects.updatedEvents).catch(()=>{});
+   if(effects.deletedEvents.length&&hooks.eventsDeleted)void hooks.eventsDeleted(a.id,effects.deletedEvents).catch(()=>{});
+   if(effects.messages.length&&hooks.clientMessages)void hooks.clientMessages(effects.messages).catch(()=>{});
    return view(updated);
   }catch(e){await c.query('rollback');if((e as any).code==='40001')throw new AgentError(409,'SOURCE_CHANGED');throw e;}finally{c.release();}
  }

@@ -27,6 +27,12 @@ test('answers read naturally on WhatsApp and actions are summarized with record 
  assert.equal(describe({type:'create_task',projectId:'p',title:'Fix menu',description:'',assignedTo:null,startDate:null,endDate:'2026-11-20',estimatedHours:null},sources,'en'),'📝 New task: Fix menu · Website · 2026-11-20');
  assert.equal(describe({type:'set_task_status',taskId:'t',status:'completed'},sources,'pt'),'✔️ Homepage → Concluída');
  assert.equal(describe({type:'create_event',title:'Kickoff',description:'',date:'2026-11-10',startHour:9,endHour:10,calendarType:'meeting'},sources,'xx'),'📅 Kickoff · 2026-11-10 09:00–10:00');
+ const more=[...sources,{key:'calendar:e',kind:'calendar',id:'e',title:'Dentist'},{key:'client:c',kind:'client',id:'c',title:'Acme'}];
+ assert.equal(describe({type:'reschedule_event',eventId:'e',date:'2026-11-12',startHour:8,endHour:9},more,'pt'),'🔁 Remarcar Dentist → 2026-11-12 08:00–09:00');
+ assert.equal(describe({type:'delete_event',eventId:'e'},more,'en'),'🗑 Cancel event: Dentist');
+ assert.equal(describe({type:'create_project',name:'New site',description:'',clientId:'c',startDate:null,endDate:null},more,'es'),'📁 Nuevo proyecto: New site · Acme');
+ assert.equal(describe({type:'add_client_note',clientId:'c',interactionType:'call',content:'Agreed on scope'},more,'pt'),'🗒 Ligação em Acme: Agreed on scope');
+ assert.equal(describe({type:'message_client',clientId:'c',subject:'Update',message:'All done.'},more,'en'),'✉️ Message to Acme\n*Update*\n\nAll done.');
  for(const [phrase,lang] of [['O que tenho hoje?','pt'],['¿Qué tengo hoy?','es'],['What do I have today?','en'],['מה יש לי היום?','he'],['ok','null'],['Olá','pt']])assert.equal(String(detectLanguage(phrase)),lang,phrase);
  assert.equal(maskPhone('972501234567'),'+972 •••• 4567');assert.match(newCode(),/^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$/);
 });
@@ -72,12 +78,15 @@ else{
  });
  test('messages go to Lio in the same conversation, actions come with confirm buttons, and "new" starts over',async()=>{
   await link();sent=[];
-  nextRun=raw=>({id:raw.id,state:'ready',sources:[{key:'project:p',kind:'project',id:'p',title:'Website'}],result:{answer:'Here you go.',missing:[],actions:[
+  nextRun=raw=>({id:raw.id,state:'ready',sources:[{key:'project:p',kind:'project',id:'p',title:'Website'},{key:'client:c',kind:'client',id:'c',title:'Acme'}],result:{answer:'Here you go.',missing:[],actions:[
    {type:'create_task',projectId:'p',title:'Fix menu',description:'',assignedTo:null,startDate:null,endDate:null,estimatedHours:null},
-   {type:'client_request',projectId:'p',title:'Send logo',description:'Need the logo',questions:[]}]}});
+   {type:'client_request',projectId:'p',title:'Send logo',description:'Need the logo',questions:[]},
+   {type:'message_client',clientId:'c',subject:'Menu',message:'We are fixing the menu today.'},
+   {type:'message_client',clientId:'c',subject:'Long',message:'x'.repeat(1200)}]}});
   await text('create a task to fix the menu');
   const [first]=created;assert.deepEqual({...first,id:undefined,conversationId:undefined},{id:undefined,scope:{area:'dashboard'},prompt:'create a task to fix the menu',language:'en',conversationId:undefined,mode:'review'});
-  assert.deepEqual(sent,[[phone,'Here you go.'],[phone,'📝 New task: Fix menu · Website',[`ok:${first.id}:0`,`no:${first.id}:0`]],[phone,'📨 Send logo\nThis is shared with a client, so confirm it in Flowlio.']]);
+  assert.deepEqual(sent,[[phone,'Here you go.'],[phone,'📝 New task: Fix menu · Website',[`ok:${first.id}:0`,`no:${first.id}:0`]],[phone,'📨 Send logo\nThis is shared with a client, so confirm it in Flowlio.'],
+   [phone,'✉️ Message to Acme\n*Menu*\n\nWe are fixing the menu today.',[`sh:${first.id}:2`,`no:${first.id}:2`]],[phone,'📨 ✉️ Message to Acme\n*Long*\nThis is shared with a client, so confirm it in Flowlio.']]);
   await text('and another one');assert.equal(created[1].conversationId,first.conversationId);
   await text('new');assert.equal(sent.at(-1)[1],'Starting a new conversation. What do you need?');
   await text('fresh start');assert.notEqual(created[2].conversationId,first.conversationId);
@@ -86,9 +95,11 @@ else{
  test('a confirm tap applies only that action in the user time zone; skip does nothing',async()=>{
   await link();sent=[];const runId=randomUUID();
   await wa.handle({id:'t1',from:phone,timestamp:0,kind:'button',reply:`ok:${runId}:0`});
-  assert.deepEqual(applied,[[runId,{selected:[0],confirm:true,edits:{},timeZone:'Asia/Jerusalem'}]]);assert.equal(sent.pop()[1],'✅ Done: 📅 Kickoff · 2026-11-10 09:00–10:00');
+  assert.deepEqual(applied,[[runId,{selected:[0],confirm:true,shareWithClient:false,edits:{},timeZone:'Asia/Jerusalem'}]]);assert.equal(sent.pop()[1],'✅ Done: 📅 Kickoff · 2026-11-10 09:00–10:00');
   await wa.handle({id:'t2',from:phone,timestamp:0,kind:'button',reply:`no:${runId}:1`});assert.equal(sent.pop()[1],'OK, I did not do it.');
   await wa.handle({id:'t3',from:phone,timestamp:0,kind:'button',reply:'ok:../../x:0'});assert.equal(applied.length,1);
+  // Only the dedicated "send to client" button confirms sharing.
+  await wa.handle({id:'t4',from:phone,timestamp:0,kind:'button',reply:`sh:${runId}:2`});assert.deepEqual(applied[1],[runId,{selected:[2],confirm:true,shareWithClient:true,edits:{},timeZone:'Asia/Jerusalem'}]);
  });
  test('voice notes are transcribed, echoed and answered; unreadable ones get a clear reply',async()=>{
   await link();sent=[];

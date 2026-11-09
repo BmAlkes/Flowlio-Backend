@@ -7,6 +7,7 @@ export class AgentError extends Error { constructor(public status:number, public
 export const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const id=z.string().min(1).max(128);
 const date=calendarDate.refine(v=>v>='2000-01-01'&&v<='2100-12-31');
+const hour=z.number().int().min(0).max(23);
 export const areas=['dashboard','projects','tasks','clients','leads','proposals','scope','pending','capacity','financial','time','calendar','documents','attention','settings','support'] as const;
 export const scopeInput=z.object({area:z.enum(areas),projectId:id.optional(),clientId:id.optional()}).strict();
 export const generationInput=z.object({id:z.string().uuid(),scope:scopeInput,prompt:z.string().trim().min(3).max(8000),language:z.enum(['en','pt','es','he']),conversationId:z.string().uuid().optional(),mode:z.enum(['review','internal']).default('review')}).strict();
@@ -21,7 +22,14 @@ export const actionInput=z.discriminatedUnion('type',[
  z.object({type:z.literal('create_event'),title:z.string().trim().min(1).max(160),description:z.string().max(2000),date,startHour:z.number().int().min(0).max(23),endHour:z.number().int().min(0).max(23),calendarType:z.enum(['meeting','education','personal'])}).strict(),
  z.object({type:z.literal('create_lead'),name:z.string().trim().min(1).max(160),email:z.string().trim().toLowerCase().email().max(254),phone:z.string().trim().max(40).nullable(),businessIndustry:z.string().trim().max(120).nullable(),note:z.string().trim().max(2000).nullable(),followUpAt:z.string().datetime().nullable()}).strict(),
  z.object({type:z.literal('log_time'),taskId:id,date,minutes:z.number().int().min(1).max(1440),description:z.string().trim().max(500)}).strict(),
-]).superRefine((v,c)=>{if('startDate'in v&&v.startDate&&v.endDate&&v.startDate>v.endDate)c.addIssue({code:'custom',message:'Invalid date order'});if(v.type==='create_event'&&v.endHour<=v.startHour)c.addIssue({code:'custom',message:'Invalid hours'});});
+ z.object({type:z.literal('reschedule_event'),eventId:id,date,startHour:hour,endHour:hour}).strict(),
+ z.object({type:z.literal('delete_event'),eventId:id}).strict(),
+ z.object({type:z.literal('create_project'),name:z.string().trim().min(1).max(160),description:z.string().max(4000),clientId:id.nullable(),startDate:date.nullable(),endDate:date.nullable()}).strict(),
+ z.object({type:z.literal('add_client_note'),clientId:id,interactionType:z.enum(['note','call','email','meeting']),content:z.string().trim().min(1).max(4000)}).strict(),
+ z.object({type:z.literal('message_client'),clientId:id,subject:z.string().trim().min(1).max(160),message:z.string().trim().min(1).max(4000)}).strict(),
+]).superRefine((v,c)=>{if('startDate'in v&&v.startDate&&v.endDate&&v.startDate>v.endDate)c.addIssue({code:'custom',message:'Invalid date order'});if((v.type==='create_event'||v.type==='reschedule_event')&&v.endHour<=v.startHour)c.addIssue({code:'custom',message:'Invalid hours'});});
+// Actions that reach someone outside the team: they need the separate sharing confirmation.
+export const clientFacing=['client_request','message_client'];
 export type Action=z.infer<typeof actionInput>;
 export type Scope=z.infer<typeof scopeInput>;
 export type Generation=z.infer<typeof generationInput>;
@@ -32,15 +40,15 @@ export type Context={sources:Source[];members:{id:string;name:string}[];limits:s
 export const outputInput=z.object({answer:z.string().min(1).max(16000),citations:z.array(z.string().max(160)).max(30),actions:z.array(actionInput).max(12),missing:z.array(z.string().max(300)).max(15)}).strict();
 export const applyInput=z.object({selected:z.array(z.number().int().min(0).max(11)).min(1).max(12),confirm:z.literal(true),shareWithClient:z.boolean().default(false),edits:z.record(z.string(),actionInput).default({}),timeZone:z.string().min(1).max(64).regex(/^[A-Za-z0-9_+\-/]+$/).default('UTC')}).strict().refine(v=>new Set(v.selected).size===v.selected.length);
 export function authorize(a:Actor){if(!a.organizationId||!['user','operator','viewer','subadmin','superadmin'].includes(a.role))throw new AgentError(403,'AGENT_INTERNAL_ONLY');}
-export function capabilities(a:Actor){authorize(a);return[...(canPerform(a,'create')?['create_task']:[]),...(canPerform(a,'update')?['plan_task','set_task_status']:[]),...(canPerform(a,'track')?['log_time']:[]),'create_event',...(canManageClients(a)?['followup','client_request','create_lead']:[])];}
+export function capabilities(a:Actor){authorize(a);return[...(canPerform(a,'create')?['create_task']:[]),...(canPerform(a,'update')?['plan_task','set_task_status']:[]),...(canPerform(a,'track')?['log_time']:[]),...(canPerform(a,'create')?['create_project']:[]),'create_event','reschedule_event','delete_event',...(canManageClients(a)?['followup','client_request','create_lead','add_client_note','message_client']:[])];}
 export function validateOutput(raw:unknown,context:Context){
  const parsed=outputInput.safeParse(raw);if(!parsed.success)throw new AgentError(502,'INVALID_AI_OUTPUT');const result=parsed.data;
  const keys=new Set(context.sources.map(v=>v.key));
  if(result.citations.some(v=>!keys.has(v)))throw new AgentError(502,'INVALID_AI_SOURCES');
  for(const action of result.actions){
   if(!context.capabilities.includes(action.type))throw new AgentError(502,'INVALID_AI_ACTION');
-  // Events and leads are new records; every other action must target a record the model was shown.
-  const target='taskId'in action?['task',action.taskId]:'clientId'in action?['client',action.clientId]:'projectId'in action?['project',action.projectId]:null;
+  // New events, leads and projects need no source (a project's client does); every other action must target a record the model was shown.
+  const target='taskId'in action?['task',action.taskId]:'eventId'in action?['calendar',action.eventId]:'clientId'in action?(action.clientId?['client',action.clientId]:null):'projectId'in action?['project',action.projectId]:null;
   if(target&&!context.sources.some(s=>s.kind===target[0]&&s.id===target[1]))throw new AgentError(502,'INVALID_AI_ACTION');
   if('assignedTo'in action&&action.assignedTo&&!context.members.some(m=>m.id===action.assignedTo))throw new AgentError(502,'INVALID_AI_ACTION');
  }
