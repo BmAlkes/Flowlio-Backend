@@ -3,6 +3,7 @@ export type Language='en'|'pt'|'es'|'he';
 type Text={notLinked:string;connected:string;invalidCode:string;newConversation:string;short:string;unsupported:string;heard:string;
  confirm:string;skip:string;done:string;skipped:string;already:string;expired:string;quota:string;plan:string;access:string;failed:string;audioFailed:string;inApp:string;missing:string;
  task:string;plan_task:string;status:string;event:string;lead:string;time:string;followup:string;statuses:Record<string,string>;
+ reschedule:string;cancelEvent:string;project:string;note:string;message:string;send:string;interactions:Record<string,string>;
  welcome:string;menuPrompt:string;quick:Record<Quick,string>;prompts:Record<Quick,string>};
 // Shortcut buttons offered with the greeting; each one sends a ready-made request.
 export const quicks=['agenda','overdue','summary'] as const;
@@ -26,6 +27,8 @@ const en:Text={
  missing:'Still missing:',
  task:'📝 New task: {title}{project}{due}',plan_task:'🗓 Plan task: {title}{dates}',status:'✔️ {title} → {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 New lead: {name} ({email})',time:'⏱ Log {minutes} min on {title} ({date})',followup:'🔔 Follow-up with {title} · {date}',
+ reschedule:'🔁 Move {title} → {date} {start}:00–{end}:00',cancelEvent:'🗑 Cancel event: {title}',project:'📁 New project: {name}{client}',note:'🗒 {type} on {title}: {content}',message:'✉️ Message to {title}\n*{subject}*\n\n{message}',send:'Send to client',
+ interactions:{note:'Note',call:'Call',email:'Email',meeting:'Meeting'},
  statuses:{todo:'To do',in_progress:'In progress',completed:'Completed',delay:'Delayed',changes:'Changes requested'},
  welcome:'Hi{name}! 👋 This is Lio. How can I help you today?\n\nI can, for example:\n• Show your calendar and what is due\n• List overdue tasks and projects at risk\n• Create tasks, events and leads\n• Log the hours you worked\n\nTap an option, or write or send a voice note.',
  menuPrompt:'Where would you like to start?',
@@ -51,6 +54,8 @@ const pt:Text={
  missing:'Ainda falta:',
  task:'📝 Nova tarefa: {title}{project}{due}',plan_task:'🗓 Planejar tarefa: {title}{dates}',status:'✔️ {title} → {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 Novo lead: {name} ({email})',time:'⏱ Registrar {minutes} min em {title} ({date})',followup:'🔔 Follow-up com {title} · {date}',
+ reschedule:'🔁 Remarcar {title} → {date} {start}:00–{end}:00',cancelEvent:'🗑 Cancelar evento: {title}',project:'📁 Novo projeto: {name}{client}',note:'🗒 {type} em {title}: {content}',message:'✉️ Mensagem para {title}\n*{subject}*\n\n{message}',send:'Enviar ao cliente',
+ interactions:{note:'Nota',call:'Ligação',email:'Email',meeting:'Reunião'},
  statuses:{todo:'A fazer',in_progress:'Em andamento',completed:'Concluída',delay:'Atrasada',changes:'Alterações pedidas'},
  welcome:'Oi{name}! 👋 Aqui é o Lio. Em que posso te ajudar hoje?\n\nPosso, por exemplo:\n• Mostrar sua agenda e o que vence\n• Listar tarefas atrasadas e projetos em risco\n• Criar tarefas, eventos e leads\n• Registrar as horas trabalhadas\n\nToque numa opção, escreva ou mande um áudio.',
  menuPrompt:'Por onde você quer começar?',
@@ -76,6 +81,8 @@ const es:Text={
  missing:'Todavía falta:',
  task:'📝 Nueva tarea: {title}{project}{due}',plan_task:'🗓 Planificar tarea: {title}{dates}',status:'✔️ {title} → {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 Nuevo lead: {name} ({email})',time:'⏱ Registrar {minutes} min en {title} ({date})',followup:'🔔 Seguimiento con {title} · {date}',
+ reschedule:'🔁 Mover {title} → {date} {start}:00–{end}:00',cancelEvent:'🗑 Cancelar evento: {title}',project:'📁 Nuevo proyecto: {name}{client}',note:'🗒 {type} en {title}: {content}',message:'✉️ Mensaje para {title}\n*{subject}*\n\n{message}',send:'Enviar al cliente',
+ interactions:{note:'Nota',call:'Llamada',email:'Email',meeting:'Reunión'},
  statuses:{todo:'Por hacer',in_progress:'En curso',completed:'Completada',delay:'Retrasada',changes:'Cambios pedidos'},
  welcome:'¡Hola{name}! 👋 Soy Lio. ¿En qué te puedo ayudar hoy?\n\nPuedo, por ejemplo:\n• Mostrar tu agenda y lo que vence\n• Listar tareas atrasadas y proyectos en riesgo\n• Crear tareas, eventos y leads\n• Registrar las horas trabajadas\n\nToca una opción, escribe o envía un audio.',
  menuPrompt:'¿Por dónde quieres empezar?',
@@ -101,6 +108,8 @@ const he:Text={
  missing:'עדיין חסר:',
  task:'📝 משימה חדשה: {title}{project}{due}',plan_task:'🗓 תכנון משימה: {title}{dates}',status:'✔️ {title} ← {status}',
  event:'📅 {title} · {date} {start}:00–{end}:00',lead:'👤 ליד חדש: {name} ({email})',time:'⏱ רישום {minutes} דק׳ על {title} ({date})',followup:'🔔 מעקב עם {title} · {date}',
+ reschedule:'🔁 הזזת {title} ← {date} {start}:00–{end}:00',cancelEvent:'🗑 ביטול אירוע: {title}',project:'📁 פרויקט חדש: {name}{client}',note:'🗒 {type} אצל {title}: {content}',message:'✉️ הודעה ל{title}\n*{subject}*\n\n{message}',send:'שליחה ללקוח',
+ interactions:{note:'הערה',call:'שיחה',email:'אימייל',meeting:'פגישה'},
  statuses:{todo:'לביצוע',in_progress:'בתהליך',completed:'הושלמה',delay:'באיחור',changes:'נדרשים שינויים'},
  welcome:'היי{name}! 👋 כאן Lio. במה אפשר לעזור היום?\n\nאני יכול, למשל:\n• להציג את היומן ואת מה שמגיע לתאריך יעד\n• לרשום משימות באיחור ופרויקטים בסיכון\n• ליצור משימות, אירועים ולידים\n• לרשום שעות עבודה\n\nבחרו אפשרות, כתבו או שלחו הודעה קולית.',
  menuPrompt:'מאיפה תרצו להתחיל?',

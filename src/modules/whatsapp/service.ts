@@ -27,7 +27,7 @@ const CODE_MINUTES=15;
 const codeHash=(code:string)=>createHash('sha256').update('whatsapp:'+code).digest('hex');
 const CODE=/FLOWLIO\s*[-:]?\s*([A-Z2-9]{4})\s*-?\s*([A-Z2-9]{4})/i;
 const NEW=/^\s*\/?(new|novo|nova conversa|nuevo|nueva conversación|חדש)\s*[.!]?\s*$/i;
-const BUTTON=/^(ok|no):([0-9a-f-]{36}):(\d{1,2})$/;
+const BUTTON=/^(ok|no|sh):([0-9a-f-]{36}):(\d{1,2})$/;
 const QUICK=/^q:(\w+)$/;
 // A message that only greets (or asks for the menu) gets the welcome menu without an AI call.
 const GREETING=/^\s*(oi+|ol[aá]|e a[ií]|eai|bom dia|boa tarde|boa noite|ajuda|hi|hello|hey|help|hola|buen[oa]s(?: d[ií]as| tardes| noches)?|ayuda|שלום|היי|עזרה|men[uú]|תפריט)(?:\s+lio)?\s*[!.,?]*\s*$/iu;
@@ -66,6 +66,11 @@ export function describe(action:Action,sources:Source[],language:string){
   case 'log_time':return fill(t.time,{minutes:action.minutes,title:title('task',action.taskId),date:action.date});
   case 'followup':return fill(t.followup,{title:title('client',action.clientId),date:action.date.slice(0,10)});
   case 'client_request':return action.title;
+  case 'reschedule_event':return fill(t.reschedule,{title:title('calendar',action.eventId),date:action.date,start:hour(action.startHour),end:hour(action.endHour)});
+  case 'delete_event':return fill(t.cancelEvent,{title:title('calendar',action.eventId)});
+  case 'create_project':{const client=action.clientId?title('client',action.clientId):'';return fill(t.project,{name:action.name,client:client?` · ${client}`:''});}
+  case 'add_client_note':return fill(t.note,{type:t.interactions[action.interactionType]??action.interactionType,title:title('client',action.clientId),content:action.content.length>300?action.content.slice(0,300)+'…':action.content});
+  case 'message_client':return fill(t.message,{title:title('client',action.clientId),subject:action.subject,message:action.message});
  }
 }
 
@@ -124,7 +129,9 @@ export function createWhatsApp(pool:Pool,deps:Deps){
   if(run.state!=='ready')return;
   for(const [index,action] of (run.result?.actions??[]).slice(0,6).entries()){
    const summary=describe(action,run.sources,link.language);
-   if(action.type==='client_request')await deps.api.sendText(m.from,fill(t.inApp,{action:summary}));
+   // A message to a client is shown in full and sent only with its own "send to client" button.
+   if(action.type==='message_client'&&summary.length<=1000)await deps.api.sendButtons(m.from,summary,[{id:`sh:${run.id}:${index}`,title:t.send},{id:`no:${run.id}:${index}`,title:t.skip}]);
+   else if(action.type==='client_request'||action.type==='message_client')await deps.api.sendText(m.from,fill(t.inApp,{action:action.type==='message_client'?describe({...action,message:''},run.sources,link.language).trim():summary}));
    else await deps.api.sendButtons(m.from,summary,[{id:`ok:${run.id}:${index}`,title:t.confirm},{id:`no:${run.id}:${index}`,title:t.skip}]);
   }
  }
@@ -135,7 +142,7 @@ export function createWhatsApp(pool:Pool,deps:Deps){
   const t=textFor(link.language);const match=BUTTON.exec(m.reply??'');if(!match){await deps.api.sendText(m.from,t.unsupported);return;}
   const [,choice,runId,raw]=match;const index=Number(raw);
   if(choice==='no'){await deps.api.sendText(m.from,t.skipped);return;}
-  const run=await deps.agent.apply(a,runId,{selected:[index],confirm:true,edits:{},timeZone:a.timezone||'UTC'});
+  const run=await deps.agent.apply(a,runId,{selected:[index],confirm:true,shareWithClient:choice==='sh',edits:{},timeZone:a.timezone||'UTC'});
   const action=run.result?.actions[index];
   await deps.api.sendText(m.from,action?fill(t.done,{action:describe(action,run.sources,link.language)}):t.already);
  }

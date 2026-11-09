@@ -71,7 +71,7 @@ export function createToolbox(pool:Pool,a:Actor,context:Context):Toolbox{
   }
   if(name==='list_calendar_events'){
    const rows=(await pool.query(`with z as (select ${userZone} tz),l as (select e.*,((e.date at time zone 'UTC') at time zone z.tz)::date local_day,(now() at time zone z.tz)::date today from calendar_events e cross join z where e.organization_id=$1 and e.user_id=$2)
-    select id,title,description,to_char(local_day,'YYYY-MM-DD') date,start_hour,end_hour,calendar_type,platform,(count(*) over())::int total from l where local_day between coalesce($3::date,today) and coalesce($4::date,coalesce($3::date,today)+14) and ($5::text is null or title ilike '%'||$5||'%') order by local_day,start_hour,id limit $6`,[org,a.id,args.from??null,args.to??null,args.query?like(args.query):null,args.limit])).rows;
+    select id,title,description,to_char(local_day,'YYYY-MM-DD') date,start_hour,end_hour,calendar_type,platform,updated_at,(count(*) over())::int total from l where local_day between coalesce($3::date,today) and coalesce($4::date,coalesce($3::date,today)+14) and ($5::text is null or title ilike '%'||$5||'%') order by local_day,start_hour,id limit $6`,[org,a.id,args.from??null,args.to??null,args.query?like(args.query):null,args.limit])).rows;
    return{rows,kind:'calendar',href:()=>'/dashboard/calender'};
   }
   if(name==='list_time_entries'){

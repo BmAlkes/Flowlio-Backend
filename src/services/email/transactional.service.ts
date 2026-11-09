@@ -24,7 +24,7 @@ import {
 import { logger } from "@/utils/logger.util";
 import { env } from "@/utils/env.util";
 
-export type TransactionalTemplateKey = "portal_invitation" | "workflow"
+export type TransactionalTemplateKey = "portal_invitation" | "workflow" | "client_message"
   | "task_overdue"
   | "project_risk"
   | "lead_follow_up"
@@ -91,6 +91,7 @@ interface WeeklySummaryData {
 type TemplateDataMap = {
   portal_invitation: {title:string;message:string;url:string};
   workflow: { title: string; message: string };
+  client_message: { subject: string; message: string; from: string; clientName: string };
   task_overdue: TaskOverdueData;
   project_risk: ProjectRiskData;
   lead_follow_up: LeadFollowUpData;
@@ -122,6 +123,11 @@ function buildHtml<K extends TransactionalTemplateKey>(
       const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
       const url=new URL(value.url); if(!['https:','http:'].includes(url.protocol))throw new Error('Invalid invitation URL');
       return '<h1>'+escape(value.title)+'</h1><p style="white-space:pre-wrap">'+escape(value.message)+'</p><p><a href="'+escape(url.href)+'">'+escape(value.title)+'</a></p>';
+    }
+    case "client_message": {
+      const value=data as {subject:string;message:string;from:string;clientName:string};
+      const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+      return '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a202c"><p>Hi '+escape(value.clientName)+',</p><p><b>'+escape(value.from)+'</b> sent you a message:</p><div style="background:#f8f9fa;padding:16px;border-radius:8px;border-left:4px solid #2563eb"><p style="margin:0 0 8px;font-weight:bold">'+escape(value.subject)+'</p><p style="margin:0;white-space:pre-wrap">'+escape(value.message)+'</p></div></div>';
     }
     case "workflow": {
       const value=data as {title:string;message:string};
@@ -161,6 +167,8 @@ function buildSubject(templateKey: TransactionalTemplateKey, data: any): string 
   switch (templateKey) {
     case "portal_invitation":
       return `[Flowlio] ${data.title}`;
+    case "client_message":
+      return String(data.subject).replace(/[\r\n]+/g, " ");
     case "task_overdue":
       return `[Flowlio] Task overdue: ${data.taskTitle}`;
     case "project_risk":

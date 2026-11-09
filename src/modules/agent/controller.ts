@@ -10,10 +10,10 @@ import { AgentError,authorize,scopeInput } from './policy';
 import { capture,projectVisible } from './context';
 import { createAgent } from './service';
 import { generate } from './provider';
-import { syncEventsToGoogle } from './calendar-sync';
+import { agentHooks } from './calendar-sync';
 import multer from 'multer';
 import { MAX_AUDIO_BYTES,transcribe } from './transcribe';
-export const agentRoutes=Router();const service=createAgent(connection,generate,{eventsCreated:syncEventsToGoogle});
+export const agentRoutes=Router();const service=createAgent(connection,generate,agentHooks);
 const internal:RequestHandler=(req,res,next)=>{try{authorize(req.user!);next();}catch{res.status(403).json({success:false,code:'AGENT_INTERNAL_ONLY'});}};
 agentRoutes.use(isAuthenticated,internal,requirePlanFeature('aiAssist'));
 const route=(fn:(req:any,signal:AbortSignal)=>Promise<unknown>):RequestHandler=>async(req,res)=>{

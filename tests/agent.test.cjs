@@ -10,6 +10,12 @@ test('new records need no source, while status and time actions must target a sh
  assert.throws(()=>validateOutput({...base,actions:[{type:'log_time',taskId:'other',date:'2026-11-05',minutes:30,description:''}]},ctx),{code:'INVALID_AI_ACTION'});
  for(const bad of [{...event,endHour:9},{...event,startHour:9.5},{type:'create_lead',name:'Ana',email:'not-an-email',phone:null,businessIndustry:null,note:null,followUpAt:null},{type:'log_time',taskId:'t',date:'2026-11-05',minutes:0,description:''},{type:'set_task_status',taskId:'t',status:'archived'}])assert.throws(()=>validateOutput({...base,actions:[bad]},ctx),{code:'INVALID_AI_OUTPUT'});
 });
+test('event actions must target a shown calendar event, and a new project may only name a shown client',()=>{const ctx={sources:[{key:'calendar:e',kind:'calendar',id:'e'},{key:'client:c',kind:'client',id:'c'}],members:[],capabilities:['reschedule_event','delete_event','create_project','message_client']};const base={answer:'Ok',citations:[],missing:[]};
+ const project={type:'create_project',name:'Site',description:'',clientId:null,startDate:null,endDate:null};
+ assert.equal(validateOutput({...base,actions:[{type:'reschedule_event',eventId:'e',date:'2026-11-12',startHour:9,endHour:10},{type:'delete_event',eventId:'e'},project,{...project,clientId:'c'},{type:'message_client',clientId:'c',subject:'Hi',message:'Update'}]},ctx).actions.length,5);
+ for(const bad of [{type:'delete_event',eventId:'other'},{...project,clientId:'other'},{type:'message_client',clientId:'other',subject:'Hi',message:'x'}])assert.throws(()=>validateOutput({...base,actions:[bad]},ctx),{code:'INVALID_AI_ACTION'});
+ for(const bad of [{type:'reschedule_event',eventId:'e',date:'2026-11-12',startHour:10,endHour:10},{...project,startDate:'2026-12-01',endDate:'2026-11-01'},{type:'message_client',clientId:'c',subject:'Hi',message:''}])assert.throws(()=>validateOutput({...base,actions:[bad]},ctx),{code:'INVALID_AI_OUTPUT'});
+});
 test('conversation ids must be UUIDs and stay optional',()=>{const base={id:randomUUID(),scope:{area:'projects'},prompt:'Continue that',language:'en'};assert.ok(generationInput.safeParse(base).success);assert.ok(generationInput.safeParse({...base,conversationId:randomUUID()}).success);assert.ok(!generationInput.safeParse({...base,conversationId:'../other'}).success);});
 test('earlier turns reach the model as untrusted data only when a conversation exists',()=>{const {messagesFor}=require('../src/modules/agent/provider');const input={id:randomUUID(),scope:{area:'projects'},prompt:'And the second one?',language:'en',mode:'review'};const ctx={sources:[],members:[],limits:[],capabilities:[],date:'2026-01-01'};const plain=messagesFor(input,ctx);assert.ok(!('conversation'in JSON.parse(plain[1].content)));const withHistory=messagesFor(input,ctx,[{request:'List risks',answer:'Two risks',executed:false}]);assert.deepEqual(JSON.parse(withHistory[1].content).conversation,[{request:'List risks',answer:'Two risks',executed:false}]);assert.match(withHistory[0].content,/UNTRUSTED history/);assert.match(withHistory[0].content,/[[project:abc]]/);assert.match(withHistory[0].content,/Never write URLs/);});
 const loopInput={id:randomUUID(),scope:{area:'dashboard'},prompt:'What is overdue?',language:'en',mode:'review'};const loopContext={sources:[],members:[],limits:[],capabilities:[],date:'2026-01-01'};
@@ -179,5 +185,51 @@ else{
   // The hook runs in the background after the answer; wait for it instead of a fixed delay.
   for(let waited=0;!synced.length&&waited<5000;waited+=20)await new Promise(resolve=>setTimeout(resolve,20));
   assert.deepEqual(synced,[{userId:'owner',ids:[eventId],saved:1}]);assert.equal((await pool.query('select count(*)::int n from calendar_events where id=$1',[eventId])).rows[0].n,1);
+ });
+ // A provider that first fetches records with the query tools, as the model does, then answers.
+ const fetching=(calls)=>async(_i,_c,_s,_h,box)=>{for(const [name,args] of calls)await box.execute(name,args);return output;};
+ const waitFor=async(check)=>{for(let waited=0;!check()&&waited<5000;waited+=20)await new Promise(resolve=>setTimeout(resolve,20));};
+ test('own calendar events can be moved and cancelled, then Google Calendar follows after commit',async()=>{
+  await pool.query(`insert into calendar_events(id,title,date,start_hour,end_hour,calendar_type,organization_id,user_id,google_event_id,google_calendar_id,created_at,updated_at) values
+   ('e1','Dentist','2026-11-20',9,10,'personal','org','owner','g1','primary',now(),now()),('e2','Review','2026-11-20',14,15,'meeting','org','owner',null,null,now(),now()),('e3','Member call','2026-11-20',9,10,'meeting','org','member',null,null,now(),now())`);
+  const updated=[],deleted=[];const svc=createAgent(pool,fetching([['list_calendar_events',{from:'2026-11-01',to:'2026-11-30'}]]),{eventsUpdated:async(u,ids)=>{updated.push([u,ids]);},eventsDeleted:async(u,events)=>{deleted.push([u,events]);}});
+  output={answer:'Done',citations:[],missing:[],actions:[{type:'reschedule_event',eventId:'e2',date:'2026-11-21',startHour:10,endHour:11},{type:'delete_event',eventId:'e1'}]};
+  const r=await svc.create(owner,input(),new AbortController().signal);
+  const done=await svc.apply(owner,r.id,apply({selected:[0,1]}));assert.deepEqual(done.receipts.map(x=>[x.type,x.id]),[['reschedule_event','e2'],['delete_event','e1']]);
+  assert.deepEqual((await pool.query("select id,to_char(date,'YYYY-MM-DD HH24:MI') d,start_hour,end_hour from calendar_events where user_id='owner'")).rows,[{id:'e2',d:'2026-11-21 00:00',start_hour:10,end_hour:11}]);
+  await waitFor(()=>updated.length&&deleted.length);
+  assert.deepEqual(updated,[['owner',['e2']]]);assert.deepEqual(deleted,[['owner',[{googleEventId:'g1',googleCalendarId:'primary'}]]]);
+  assert.equal((await pool.query("select count(*)::int n from business_audit_events where action in ('agent.reschedule_event','agent.delete_event')")).rows[0].n,2);
+  // The conversation stays readable after its own deletion.
+  assert.equal((await svc.detail(owner,r.id)).state,'applied');
+  // Another person's event is never fetched, so it cannot be targeted.
+  output.actions=[{type:'delete_event',eventId:'e3'}];await assert.rejects(svc.create(owner,input(),new AbortController().signal),{code:'INVALID_AI_ACTION'});
+  // An event changed after the model read it is not touched.
+  output.actions=[{type:'reschedule_event',eventId:'e2',date:'2026-11-22',startHour:8,endHour:9}];const stale=await svc.create(owner,input(),new AbortController().signal);
+  await pool.query("update calendar_events set updated_at=now()+interval '1 second' where id='e2'");await assert.rejects(svc.apply(owner,stale.id,apply()),{code:'SOURCE_CHANGED'});
+ });
+ test('projects are created private and pending with default milestones, by roles that may create them',async()=>{
+  const svc=createAgent(pool,fetching([['list_clients',{}]]));
+  output={answer:'Done',citations:[],missing:[],actions:[{type:'create_project',name:'Launch',description:'New site',clientId:'client',startDate:'2026-11-10',endDate:'2026-12-10'}]};
+  const r=await svc.create(owner,input(),new AbortController().signal);const done=await svc.apply(owner,r.id,apply());const id=done.receipts[0].id;
+  assert.deepEqual((await pool.query("select name,description,client_id,created_by,status,visibility,progress,to_char(start_date,'YYYY-MM-DD') s,to_char(end_date,'YYYY-MM-DD') e from projects where id=$1",[id])).rows,[{name:'Launch',description:'New site',client_id:'client',created_by:'owner',status:'pending',visibility:'private',progress:0,s:'2026-11-10',e:'2026-12-10'}]);
+  assert.deepEqual((await pool.query('select title from project_milestones where project_id=$1 order by position',[id])).rows.map(m=>m.title),['Discovery','Design','Development','Launch & Handoff']);
+  assert.equal(done.receipts[0].href,'/dashboard/project/view/'+id);
+  output.actions=[{type:'create_project',name:'Project',description:'',clientId:null,startDate:null,endDate:null}];const dup=await svc.create(owner,input(),new AbortController().signal);
+  await assert.rejects(svc.apply(owner,dup.id,apply()),{code:'DUPLICATE_PROJECT'});
+  await assert.rejects(createAgent(pool,fetching([])).create(member,input(),new AbortController().signal),{code:'INVALID_AI_ACTION'});
+ });
+ test('internal client notes stay internal, while a client message needs sharing confirmation and is emailed after commit',async()=>{
+  const messages=[];const svc=createAgent(pool,fetching([['list_clients',{}]]),{clientMessages:async(list)=>{messages.push(...list);}});
+  output={answer:'Done',citations:[],missing:[],actions:[{type:'add_client_note',clientId:'client',interactionType:'call',content:'Agreed on the scope'},{type:'message_client',clientId:'client',subject:'Next steps',message:'Hi! The design is ready for review.'}]};
+  const r=await svc.create(owner,input(),new AbortController().signal);
+  await svc.apply(owner,r.id,apply());await new Promise(resolve=>setTimeout(resolve,100));
+  assert.equal(messages.length,0);assert.deepEqual((await pool.query('select type,content,user_id from client_interactions')).rows,[{type:'call',content:'Agreed on the scope',user_id:'owner'}]);
+  assert.ok((await pool.query("select last_interaction_at from clients where id='client'")).rows[0].last_interaction_at);
+  await assert.rejects(svc.apply(owner,r.id,apply({selected:[1]})),{code:'SHARING_CONFIRMATION_REQUIRED'});assert.equal(messages.length,0);
+  await svc.apply(owner,r.id,apply({selected:[1],shareWithClient:true}));await waitFor(()=>messages.length);
+  assert.deepEqual(messages,[{to:'client@example.test',name:'Client',subject:'Next steps',message:'Hi! The design is ready for review.',from:'Owner'}]);
+  const sent=(await pool.query("select type,content,metadata from client_interactions where type='note'")).rows[0];assert.equal(sent.content,'Hi! The design is ready for review.');assert.deepEqual(sent.metadata,{channel:'message',subject:'Next steps',emailed:true});
+  output.actions=[{type:'add_client_note',clientId:'client',interactionType:'note',content:'x'}];await assert.rejects(createAgent(pool,fetching([])).create(member,input(),new AbortController().signal),{code:'INVALID_AI_ACTION'});
  });
 }

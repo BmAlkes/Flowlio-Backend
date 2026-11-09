@@ -10,14 +10,14 @@ import { enqueue } from '../../services/jobs/queue';
 import { AgentError,authorize } from '../agent/policy';
 import { createAgent } from '../agent/service';
 import { generate } from '../agent/provider';
-import { syncEventsToGoogle } from '../agent/calendar-sync';
+import { agentHooks } from '../agent/calendar-sync';
 import { transcribe } from '../agent/transcribe';
 import { cloudApi,inboundMessages,validSignature,whatsappConfigured,type Inbound } from './cloud-api';
 import { createWhatsApp,type WhatsAppActor } from './service';
 
 export const whatsapp=createWhatsApp(connection,{
  api:cloudApi,
- agent:createAgent(connection,generate,{eventsCreated:syncEventsToGoogle}) as any,
+ agent:createAgent(connection,generate,agentHooks) as any,
  transcribe:audio=>transcribe(audio),
  actor:async userId=>await resolveSessionUser(userId) as unknown as WhatsAppActor,
  hasAssistant:async organizationId=>(await hasFeatureAccess(organizationId,'aiAssist' as any)).hasAccess,
