@@ -68,6 +68,9 @@ import automationsRoutes from "./routes/automations.routes";
 
 config();
 const app = express();
+// Railway's edge proxy is the one hop in front of the app: trust it so req.ip is the visitor's
+// address (from X-Forwarded-For) instead of the proxy's, which every user shared.
+app.set("trust proxy", 1);
 const httpServer = createServer(app);
 const port = Number(process.env.PORT) || 3000;
 const isProduction = process.env.NODE_ENV === "production";
@@ -224,7 +227,7 @@ app.use("/api/auth/sign-up", (_req, res, next) => {
 
 // Mount better-auth handler with activity logging wrapper
 // throttle is applied inline because the auth handler terminates before the global throttle middleware
-app.all("/api/auth/*splat", throttle("default"), (req, res) => {
+app.all("/api/auth/*splat", throttle({ keyPrefix: "auth", points: 50, duration: 60, blockDuration: 10 }), (req, res) => {
   // Wrap the response to intercept successful auth operations
   authActivityMiddleware(req, res, () => {
     // After middleware sets up interceptors, call the auth handler
@@ -239,8 +242,9 @@ app.post("/api/google-calendar/webhook", googleCalendarWebhook);
 app.get("/api/whatsapp/webhook", whatsappWebhookVerify);
 app.post("/api/whatsapp/webhook", express.raw({ type: "*/*", limit: "2mb" }), whatsappWebhook);
 
-// enable after database connection
-app.use(throttle("default"));
+// Per visitor IP. A whole agency office can share one IP and a dashboard load makes many calls,
+// so the general API allows more than sign-in (above), which stays strict against brute force.
+app.use(throttle({ keyPrefix: "api", points: 300, duration: 60, blockDuration: 10 }));
 // Reduced body size limit for security (50mb was too high and vulnerable to DoS)
 app.use('/api/webhooks', express.raw({ type: '*/*' }));
 app.use(express.json({ limit: "10mb" }));

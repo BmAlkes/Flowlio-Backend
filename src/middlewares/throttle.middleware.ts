@@ -5,6 +5,7 @@ import { throttleinsight } from "@/schema/schema";
 import type { RequestHandler } from "express";
 import { env } from "@/utils/env.util";
 import { status } from "http-status";
+import { logger } from "@/utils/logger.util";
 
 interface IOverRideOptions
   extends Omit<IRateLimiterStoreNoAutoExpiryOptions, "storeClient"> {
@@ -49,6 +50,11 @@ export const throttle: Throttle = (overRideOptions) => {
       await limiter.consume(req.ip!);
       next();
     } catch (error) {
+      // A store failure (database hiccup) is not the visitor's fault: let the request through.
+      if (error instanceof Error) {
+        logger.error("Rate limiter unavailable, allowing request:", error);
+        return next();
+      }
       const afterConsumption = await limiter.get(req.ip!);
 
       if (afterConsumption) {
