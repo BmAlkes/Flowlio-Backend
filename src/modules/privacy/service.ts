@@ -137,15 +137,19 @@ export const RETENTION = [
   { name: "blog-view-data", sql: "delete from blog_post_views where created_at < now() - interval '12 months'" },
 ];
 
-export async function pruneRetention(pool: Pool, log: (step: string, error: unknown) => void = () => undefined) {
+export async function pruneRetention(
+  pool: Pool,
+  log: (step: string, error: unknown) => void = () => undefined,
+  uploadsFolder = path.join(process.cwd(), "uploads"),
+) {
   for (const step of RETENTION) {
     await pool.query(step.sql).catch(error => log(step.name, error));
   }
-  await pruneUploads().catch(error => log("assistant-uploads", error));
+  await pruneUploads(uploadsFolder).catch(error => log("assistant-uploads", error));
 }
 
 /** Files sent to the AI assistant are only needed while a request runs; leftovers older than a day are removed. */
-async function pruneUploads(folder = path.join(process.cwd(), "uploads")) {
+export async function pruneUploads(folder: string) {
   const cutoff = Date.now() - 24 * 3600 * 1000;
   let names: string[];
   try { names = await readdir(folder); } catch { return; }

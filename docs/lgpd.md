@@ -26,10 +26,29 @@ Se um prazo mudar, altere o código **e** a Política de Privacidade (`Flowlio-F
 
 ## 2. Suboperadores
 
-Railway (hospedagem), Cloudinary (arquivos), Brevo (e-mail), OpenAI (IA), Google (Agenda),
-Meta (WhatsApp Cloud API, Pixel), PayPal (pagamentos), Sentry (erros), serviços de push dos navegadores.
-Para cada um: guardar o DPA/termos de tratamento assinados ou aceitos e confirmar a região dos dados.
+A maioria dos fornecedores inclui o acordo de tratamento de dados (DPA) nos próprios termos: ao aceitar
+os termos, o DPA já vale. Alguns oferecem uma versão assinável. Guarde a data e a versão de cada um.
+
+| Fornecedor | Papel | Como o DPA vale | Ação |
+|---|---|---|---|
+| OpenAI | Operador (IA) | Os Business Terms pedem que quem trata dados pessoais execute o DPA pelo formulário — [DPA](https://openai.com/policies/data-processing-addendum/) | **Assinar o formulário** (gratuito) |
+| Railway | Operador (hospedagem) | DPA padrão, assinável pela página de compliance — [DPA](https://railway.com/legal/dpa) | **Assinar** pelo link "Sign Railway's DPA" |
+| Sentry | Operador (erros) | Aceito em Settings > Legal & Compliance pelo Owner da conta — [DPA](https://sentry.io/legal/dpa/) | **Aceitar** no painel |
+| Brevo | Operador (e-mail) | Anexo dos Termos de Uso (aceito ao usar) — [onde fica](https://help.brevo.com/hc/en-us/articles/15403782599570) | Só registrar |
+| Cloudinary | Operador (arquivos) | Incorporado aos termos — [DPA](https://cloudinary.com/gdpr/dpa) | Só registrar |
+| Meta / WhatsApp Cloud API | Operador (Meta atua como processor) | WhatsApp Business Data Processing Terms, aceitos com os termos da plataforma — [termos](https://www.whatsapp.com/legal/business-data-processing-terms) | Só registrar |
+| Meta Pixel | Controlador próprio (com consentimento) | Business Tools Terms | Só registrar |
+| PayPal | Controlador próprio (pagamento) | Termos do PayPal | Só registrar |
+| Google Agenda | Não é operador da Flowlio: é a conta Google do próprio usuário | [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy) | A Política já tem a declaração de Limited Use. Confirmar que o app OAuth está verificado (escopo de agenda é sensível) e que a URL da Política está na tela de consentimento |
+
 Um novo fornecedor só entra depois de ser incluído na Política de Privacidade.
+
+## 2.1 Exportação da organização
+
+O dono da organização baixa tudo em Configurações > Privacidade e dados > Exportar dados da organização
+(`GET /api/organizations/export`, formato `flowlio-organization-export/1`). O arquivo lista as tabelas
+lidas a partir das chaves estrangeiras do banco, sem senhas, tokens e segredos. Serve para portabilidade,
+para cópia de segurança antes de encerrar a conta e como base de uma futura restauração por organização.
 
 ## 3. Pedidos de titulares (art. 18 e 19) — prazo: 15 dias
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Request, Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { connection, database } from "@/configs/connection.config";
@@ -112,5 +113,24 @@ export const completePrivacyRequest = async (req: Request, res: Response) => {
     res.status(200).json({ success: true });
   } catch (error) {
     fail(res, error, "Failed to complete the privacy request");
+  }
+};
+
+/** GET /api/organizations/export: everything the organization stores in Flowlio, as one JSON file (owner only). */
+export const exportMyOrganization = async (req: Request, res: Response) => {
+  try {
+    const organizationId = req.user?.organizationId;
+    if (!req.user?.id || !organizationId) return void res.status(403).json({ success: false, message: "Organization owner access required" });
+    const { exportOrganization } = await import("@/modules/privacy/organization-export");
+    const data = await exportOrganization(connection, organizationId);
+    await connection.query(
+      "insert into privacy_requests (id, user_id, organization_id, type, status, details, completed_at) values ($1,$2,$3,'export','completed',$4,now())",
+      [randomUUID(), req.user.id, organizationId, JSON.stringify({ scope: "organization", tables: Object.keys(data.counts).length })],
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="flowlio-organizacao-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).json(data);
+  } catch (error) {
+    fail(res, error, "Failed to export the organization data");
   }
 };

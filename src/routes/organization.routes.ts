@@ -1,3 +1,4 @@
+import { exportMyOrganization } from "../controllers/user/privacy.controller";
 import {getFinancialSettings,updateFinancialSettings,unresolvedFinancialCurrencies,reconcileFinancialCurrencies} from '../controllers/organization/financial-settings.controller';
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
@@ -38,6 +39,8 @@ const router = Router();
 
 const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 const teamAdministration = [isAuthenticated, requireOrgOwnerOnly];
+// LGPD portability / backup: the whole organization as one JSON file.
+router.get("/export", ...teamAdministration, exportMyOrganization as any);
 router.get("/financial-settings/unresolved",...orgOwner,unresolvedFinancialCurrencies as any);
 router.post("/financial-settings/reconcile",...orgOwner,reconcileFinancialCurrencies as any);
 router.get("/financial-settings",isAuthenticated,getFinancialSettings as any);
