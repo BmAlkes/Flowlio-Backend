@@ -12,6 +12,7 @@ import {
   updateSubAdminPermission,
 } from "../controllers/super admin/sub admin/updatesubadmin.controller";
 import plansRoutes from "./plans.routes";
+import { completePrivacyRequest, listPrivacyRequests } from "../controllers/user/privacy.controller";
 import { updateSuperAdminPassword } from "../controllers/super admin/sub admin settings/updatesuperadminpassword.controller";
 import { getPublicPlans } from "../controllers/super admin/plans";
 import { deleteOrganization } from "../controllers/super admin/organizations/deleteorganization.controller";
@@ -210,5 +211,9 @@ router.get(
   requireSuperAdmin,
   checkPayPalConfig,
 );
+
+// LGPD data subject requests
+router.get("/privacy-requests", isAuthenticated, requireSuperAdmin, listPrivacyRequests);
+router.post("/privacy-requests/:id/complete", isAuthenticated, requireSuperAdmin, completePrivacyRequest);
 
 export default router;

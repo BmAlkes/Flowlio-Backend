@@ -6,6 +6,7 @@ import { account, calendarEvents, users } from "@/schema/schema";
 import { eq, and } from "drizzle-orm";
 import crypto from "crypto";
 import { env } from "@/utils/env.util";
+import { decryptToken, encryptToken, isEncryptedToken } from "@/utils/token-crypto.util";
 
 export interface GoogleCalendarEvent {
   id?: string;
@@ -116,9 +117,9 @@ export class GoogleCalendarService {
       database
         .update(account)
         .set({
-          accessToken: fresh.access_token,
+          accessToken: encryptToken(fresh.access_token),
           accessTokenExpiresAt: fresh.expiry_date ? new Date(fresh.expiry_date) : null,
-          ...(fresh.refresh_token ? { refreshToken: fresh.refresh_token } : {}),
+          ...(fresh.refresh_token ? { refreshToken: encryptToken(fresh.refresh_token) } : {}),
           updatedAt: new Date(),
         })
         .where(and(eq(account.userId, userId), eq(account.providerId, "google")))
@@ -195,8 +196,8 @@ export class GoogleCalendarService {
           accountId: userId,
           providerId: "google",
           userId: userId,
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
+          accessToken: encryptToken(tokens.access_token),
+          refreshToken: encryptToken(tokens.refresh_token),
           accessTokenExpiresAt: tokens.expiry_date
             ? new Date(tokens.expiry_date)
             : null,
@@ -207,8 +208,8 @@ export class GoogleCalendarService {
         .onConflictDoUpdate({
           target: [account.userId, account.providerId],
           set: {
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token,
+            accessToken: encryptToken(tokens.access_token),
+            refreshToken: encryptToken(tokens.refresh_token),
             accessTokenExpiresAt: tokens.expiry_date
               ? new Date(tokens.expiry_date)
               : null,
@@ -252,9 +253,20 @@ export class GoogleCalendarService {
         return null;
       }
 
+      // Tokens stored before encryption was added are upgraded in place on first read.
+      if (!isEncryptedToken(userAccount.accessToken) || !isEncryptedToken(userAccount.refreshToken)) {
+        await database
+          .update(account)
+          .set({
+            accessToken: encryptToken(userAccount.accessToken),
+            refreshToken: encryptToken(userAccount.refreshToken),
+          })
+          .where(eq(account.id, userAccount.id));
+      }
+
       return {
-        accessToken: userAccount.accessToken,
-        refreshToken: userAccount.refreshToken,
+        accessToken: decryptToken(userAccount.accessToken),
+        refreshToken: decryptToken(userAccount.refreshToken),
         expiresAt: userAccount.accessTokenExpiresAt ?? null,
       };
     } catch (error) {

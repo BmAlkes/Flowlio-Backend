@@ -88,6 +88,11 @@ export const users = pgTable(
       .$defaultFn(() => new Date())
       .notNull(),
     position: text("position"),
+    // LGPD: when and which version of the Terms/Privacy Policy the user accepted at signup.
+    termsAcceptedAt: timestamp("terms_accepted_at"),
+    termsVersion: text("terms_version"),
+    // Set when the account was anonymized at the user's request (personal data removed).
+    deletedAt: timestamp("deleted_at"),
   },
   (table) => ({
     emailIdx: index("users_email_idx").on(table.email),
@@ -2909,3 +2914,8 @@ export const retainerProjectLinks=pgTable("retainer_project_links",{
  retainerId:text("retainer_id").notNull().references(()=>retainers.id),
  createdBy:text("created_by").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
 });
+
+// LGPD data subject requests (export / deletion). Kept as proof that each request was answered.
+export const privacyRequests=pgTable('privacy_requests',{
+ id:text('id').primaryKey(),userId:text('user_id'),organizationId:text('organization_id'),type:text('type').$type<'export'|'deletion'>().notNull(),status:text('status').$type<'pending'|'completed'|'rejected'>().notNull(),details:jsonb('details'),requestedAt:timestamp('requested_at',{withTimezone:true}).notNull().defaultNow(),completedAt:timestamp('completed_at',{withTimezone:true})
+},t=>({type:check('privacy_requests_type_check',sql`${t.type} in ('export','deletion')`),status:check('privacy_requests_status_check',sql`${t.status} in ('pending','completed','rejected')`),user:index('privacy_requests_user_idx').on(t.userId,t.requestedAt),pending:index('privacy_requests_status_idx').on(t.status,t.requestedAt)}));
