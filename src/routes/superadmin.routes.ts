@@ -13,6 +13,7 @@ import {
 } from "../controllers/super admin/sub admin/updatesubadmin.controller";
 import plansRoutes from "./plans.routes";
 import { completePrivacyRequest, listPrivacyRequests } from "../controllers/user/privacy.controller";
+import { listSignupFollowups, remindPendingSignups } from "../controllers/super admin/signups/signuprecovery.controller";
 import { createOrganizationBackup, listOrganizationBackups, listOrganizationData, restoreOrganizationBackup } from "../controllers/organization/data/organizationdata.controller";
 import { updateSuperAdminPassword } from "../controllers/super admin/sub admin settings/updatesuperadminpassword.controller";
 import { getPublicPlans } from "../controllers/super admin/plans";
@@ -222,5 +223,9 @@ router.get("/organization-data", isAuthenticated, requireSuperAdmin, listOrganiz
 router.get("/organizations/:organizationId/backups", isAuthenticated, requireSuperAdmin, listOrganizationBackups);
 router.post("/organizations/:organizationId/backups", isAuthenticated, requireSuperAdmin, createOrganizationBackup);
 router.post("/organizations/:organizationId/restore", isAuthenticated, requireSuperAdmin, restoreOrganizationBackup);
+
+// Unfinished signups: where each person stopped, follow-up emails and their one-click answers
+router.get("/pending-signups", isAuthenticated, requireSuperAdmin, listSignupFollowups);
+router.post("/pending-signups/remind", isAuthenticated, requireSuperAdmin, remindPendingSignups);
 
 export default router;

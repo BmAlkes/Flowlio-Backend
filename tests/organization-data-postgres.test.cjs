@@ -134,4 +134,25 @@ if (!process.env.ORGANIZATION_DATA_TEST_DATABASE_URL) {
     await deleteOrganizationCompletely(pool, 'org-a', 'test');
     assert.equal((await pool.query("select count(*)::int n from tasks where project_id='p-a'")).rows[0].n, 0);
   });
+
+  test('pending signups are found by stage and follow-ups are recorded with their answers', async () => {
+    const { listPendingSignups, sendFollowups, recordAnswer } = require('../src/modules/signup-recovery/service');
+    const plan = (await pool.query("insert into subscription_plans(id,name,slug,price,currency,billing_cycle,is_active,sort_order,created_at,updated_at) values ('plan-basic','Basic','basic',10,'USD','monthly',true,1,now(),now()) returning id")).rows[0].id;
+    await pool.query(`insert into users(id,name,email,email_verified,two_factor_enabled,is_super_admin,timezone,status,selected_plan_id,pending_organization_data,created_at,updated_at) values
+      ('lead-noplan','No Plan','noplan@example.test',false,false,false,'UTC','pending',null,null,now()-interval '20 days',now()),
+      ('lead-checkout','Checkout','checkout@example.test',true,false,false,'UTC','pending',null,$1,now()-interval '10 days',now()),
+      ('lead-new','New','new@example.test',true,false,false,'UTC','pending',null,null,now(),now())`,
+      [JSON.stringify({ planId: plan, organizationName: 'Studio' })]);
+    const pending = Object.fromEntries((await listPendingSignups(pool)).map(s => [s.id, s]));
+    assert.ok(!pending['owner-b'] && !pending.shared, 'people with an organization are not pending');
+    assert.deepEqual([pending['lead-noplan'].stage, pending['lead-checkout'].stage, pending['lead-checkout'].planName, pending['lead-checkout'].organizationName], ['no_plan', 'checkout', 'Basic', 'Studio']);
+    assert.equal(pending['lead-new'].blockedBy, 'too_new');
+    const ids = [];
+    const result = await sendFollowups(pool, ['lead-noplan', 'lead-checkout', 'lead-new'], 'owner-b', async (_signup, id) => { ids.push(id); });
+    assert.equal(result.sent, 2);
+    assert.equal(await recordAnswer(pool, ids[1], 'price'), true);
+    assert.equal(await recordAnswer(pool, ids[0], 'unsubscribe'), true);
+    const after = Object.fromEntries((await listPendingSignups(pool)).map(s => [s.id, s]));
+    assert.deepEqual([after['lead-checkout'].reason, after['lead-checkout'].blockedBy, after['lead-noplan'].optedOut, after['lead-noplan'].reminders], ['price', 'answered', true, 1]);
+  });
 }

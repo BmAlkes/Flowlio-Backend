@@ -33,6 +33,7 @@ const EXPORT_QUERIES: Query[] = [
   { key: "clientInteractions", sql: "select * from client_interactions where user_id=$1", by: "id" },
   { key: "projectComments", sql: "select * from project_comments where user_id=$1", by: "id" },
   { key: "whatsapp", sql: "select phone, language, verified_at, updated_at from whatsapp_links where user_id=$1", by: "id" },
+  { key: "signupFollowups", sql: "select stage, sent_at, reason, answered_at, opted_out_at from signup_followups where user_id=$1 order by sent_at", by: "id" },
   { key: "pushDevices", sql: "select id, created_at from push_subscriptions where user_id=$1", by: "id" },
   { key: "newsletter", sql: "select email, subscribed, subscribed_at, unsubscribed_at from newsletter_subscribers where lower(email)=lower($1)", by: "email" },
   { key: "activity", sql: "select type, action, resource, message, created_at from recent_activities where actor_id=$1 order by created_at desc limit 1000", by: "id" },
@@ -111,7 +112,7 @@ export async function anonymizeUser(pool: Pool, userId: string) {
     await client.query("update user_organizations set status='inactive' where user_id=$1", [userId]);
     await client.query("update clients set user_id=null, portal_access_enabled=false where user_id=$1", [userId]);
     // Credentials, OAuth tokens and devices go; access logs stay until the 6-month retention ends.
-    for (const table of ["account", "two_factor", "push_subscriptions", "whatsapp_links", "google_calendar_sync_state", "notifications", "user_onboarding", "onboarding_progress", "ai_agent_runs"]) {
+    for (const table of ["account", "two_factor", "push_subscriptions", "whatsapp_links", "google_calendar_sync_state", "notifications", "user_onboarding", "onboarding_progress", "ai_agent_runs", "signup_followups"]) {
       const column = table === "ai_agent_runs" ? "actor_id" : "user_id";
       await client.query(`delete from ${table} where ${column}=$1`, [userId]);
     }
