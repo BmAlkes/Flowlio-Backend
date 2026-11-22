@@ -147,11 +147,11 @@ if (!process.env.ORGANIZATION_DATA_TEST_DATABASE_URL) {
     assert.ok(!pending['owner-b'] && !pending.shared, 'people with an organization are not pending');
     assert.deepEqual([pending['lead-noplan'].stage, pending['lead-checkout'].stage, pending['lead-checkout'].planName, pending['lead-checkout'].organizationName], ['no_plan', 'checkout', 'Basic', 'Studio']);
     assert.equal(pending['lead-new'].blockedBy, 'too_new');
-    const ids = [];
-    const result = await sendFollowups(pool, ['lead-noplan', 'lead-checkout', 'lead-new'], 'owner-b', async (_signup, id) => { ids.push(id); });
+    const ids = {};
+    const result = await sendFollowups(pool, ['lead-noplan', 'lead-checkout', 'lead-new'], 'owner-b', async (signup, id) => { ids[signup.id] = id; });
     assert.equal(result.sent, 2);
-    assert.equal(await recordAnswer(pool, ids[1], 'price'), true);
-    assert.equal(await recordAnswer(pool, ids[0], 'unsubscribe'), true);
+    assert.equal(await recordAnswer(pool, ids['lead-checkout'], 'price'), true);
+    assert.equal(await recordAnswer(pool, ids['lead-noplan'], 'unsubscribe'), true);
     const after = Object.fromEntries((await listPendingSignups(pool)).map(s => [s.id, s]));
     assert.deepEqual([after['lead-checkout'].reason, after['lead-checkout'].blockedBy, after['lead-noplan'].optedOut, after['lead-noplan'].reminders], ['price', 'answered', true, 1]);
   });
