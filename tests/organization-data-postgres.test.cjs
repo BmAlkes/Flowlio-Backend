@@ -68,6 +68,10 @@ if (!process.env.ORGANIZATION_DATA_TEST_DATABASE_URL) {
     await pool.query("insert into projects(id,name,project_number,organization_id,created_by,status,visibility,created_at,updated_at) values ('p-new','New','P2','org-a','owner-a','pending','private',now(),now())");
     await pool.query("update user_organizations set status='inactive' where id='m2'");
     const changed = await snapshot('org-a');
+    // Membership and project triggers write audit rows on their own; a restore must neither erase nor add any.
+    const auditCount = async () => (await pool.query("select count(*)::int n from business_audit_events where organization_id='org-a'")).rows[0].n;
+    const auditBefore = await auditCount();
+    assert.ok(auditBefore >= 1);
 
     const dry = await restoreOrganization(pool, { organizationId: 'org-a', backupId: backup.id, dryRun: true, actorId: 'owner-b' });
     assert.equal(dry.dryRun, true);
@@ -78,7 +82,7 @@ if (!process.env.ORGANIZATION_DATA_TEST_DATABASE_URL) {
     assert.deepEqual(await snapshot('org-a'), original);
     assert.deepEqual(await snapshot('org-b'), otherBefore);
     assert.equal((await pool.query("select status from user_organizations where id='m2'")).rows[0].status, 'inactive', 'team access is never restored');
-    assert.equal((await pool.query("select count(*)::int n from business_audit_events where organization_id='org-a'")).rows[0].n, 1, 'audit history is kept');
+    assert.equal(await auditCount(), auditBefore, 'audit history is kept');
     // The pre-restore backup undoes the restore.
     await restoreOrganization(pool, { organizationId: 'org-a', backupId: report.preRestoreBackupId, dryRun: false, actorId: 'owner-b' });
     assert.deepEqual(await snapshot('org-a'), changed);
