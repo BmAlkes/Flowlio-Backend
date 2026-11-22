@@ -104,3 +104,10 @@ test('test follow-ups preview the email for the super admin and never touch the 
   assert.equal(sampleSignup({ email: 'ana@x.test' }, 'no_plan', 'Basic', now).planName, null);
   assert.match(followupEmail(signup, 'pt', { answer: r => r, continueUrl: 'x' }).text, /escolheu o plano Basic/);
 });
+
+test('the email and the answer page show the Flowlio logo', () => {
+  const signup = { name: 'Ana', email: 'ana@x.test', createdAt: '2026-10-01T10:00:00Z', stage: 'no_plan', planName: null };
+  const links = { answer: r => r, continueUrl: 'x', logoUrl: 'https://api.test/logowithtext.png' };
+  assert.match(followupEmail(signup, 'pt', links).html, /<img src="https:\/\/api.test\/logowithtext.png" alt="Flowlio"/);
+  assert.match(answerPage('pt', { kind: 'confirm', answer: 'price' }, 'x', links.logoUrl), /alt="Flowlio"/);
+});
