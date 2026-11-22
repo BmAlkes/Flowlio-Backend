@@ -4,7 +4,8 @@ import { connection } from "@/configs/connection.config";
 import { brevoTransactionApi } from "@/configs/brevo.config";
 import { env } from "@/utils/env.util";
 import { logger } from "@/utils/logger.util";
-import { MAX_PER_REQUEST, answerToken, listPendingSignups, recordAnswer, sendFollowups, summarize, validToken } from "@/modules/signup-recovery/service";
+import crypto from "crypto";
+import { MAX_PER_REQUEST, TEST_PREFIX, answerToken, listPendingSignups, recordAnswer, sampleSignup, sendFollowups, summarize, validToken } from "@/modules/signup-recovery/service";
 import { answerPage, followupEmail, type FollowupLanguage } from "@/modules/signup-recovery/email";
 
 const withProtocol = (domain: string) => (/^https?:\/\//.test(domain) ? domain : `https://${domain}`).replace(/\/$/, "");
@@ -48,6 +49,40 @@ export const remindPendingSignups = async (req: Request, res: Response) => {
   } catch (error) {
     logger.error("Failed to send signup follow-ups", error);
     res.status(500).json({ success: false, message: "Failed to send follow-ups" });
+  }
+};
+
+const testInput = z.object({ language: z.enum(["pt", "en"]).default("pt"), stage: z.enum(["no_plan", "checkout"]).default("no_plan") });
+
+/**
+ * POST /api/superadmin/pending-signups/test: { language, stage } sends a sample follow-up to the super admin's own
+ * email. The answer links work (confirm page and thank-you page) but nothing is recorded and no limit is used.
+ */
+export const sendTestFollowup = async (req: Request, res: Response) => {
+  const parsed = testInput.safeParse(req.body ?? {});
+  if (!parsed.success) return void res.status(400).json({ success: false, message: "Invalid test options" });
+  const to = req.user?.email;
+  if (!to) return void res.status(400).json({ success: false, message: "Your account has no email" });
+  const { language, stage } = parsed.data;
+  try {
+    const plan = (await connection.query("select name from subscription_plans where is_active = true order by sort_order limit 1")).rows[0];
+    const signup = sampleSignup({ name: req.user?.name, email: to }, stage, plan?.name ?? "Pro");
+    const followupId = TEST_PREFIX + crypto.randomUUID();
+    const email = followupEmail(signup, language, { answer: answer => answerUrl(followupId, answer, language), continueUrl: continueUrl() });
+    await brevoTransactionApi.sendTransacEmail({
+      to: [{ email: to, name: signup.name }],
+      sender: { name: env.BREVO_SENDER_NAME, email: env.BREVO_SENDER },
+      replyTo: { email: env.SUPPORT_EMAIL },
+      subject: (language === "en" ? "[Test] " : "[Teste] ") + email.subject,
+      htmlContent: email.html,
+      textContent: email.text,
+      tags: ["signup-followup-test"],
+    });
+    logger.info("Signup follow-up test sent", { actorId: req.user?.id, stage, language });
+    res.status(200).json({ success: true, data: { email: to } });
+  } catch (error) {
+    logger.error("Failed to send signup follow-up test", error);
+    res.status(500).json({ success: false, message: "Failed to send the test email" });
   }
 };
 

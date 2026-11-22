@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { blockedBy, summarize, answerToken, validToken, sendFollowups, recordAnswer, MAX_REMINDERS } = require('../src/modules/signup-recovery/service');
+const { blockedBy, summarize, answerToken, validToken, sendFollowups, recordAnswer, sampleSignup, MAX_REMINDERS } = require('../src/modules/signup-recovery/service');
 const { followupEmail, answerPage } = require('../src/modules/signup-recovery/email');
 
 const DAY = 86400000;
@@ -91,4 +91,16 @@ test('the answer page asks to confirm on GET so link scanners cannot answer', ()
   assert.match(answerPage('pt', { kind: 'confirm', answer: 'price' }, 'x'), /<form method="post">/);
   assert.match(answerPage('pt', { kind: 'confirm', answer: '<script>' }, 'x'), /&lt;script&gt;/);
   assert.match(answerPage('en', { kind: 'done', answer: 'unsubscribe' }, 'x'), /won't get more emails/);
+});
+
+test('test follow-ups preview the email for the super admin and never touch the database', async () => {
+  const pool = fakePool([]);
+  assert.equal(await recordAnswer(pool, 'test-1', 'price'), true);
+  assert.equal(await recordAnswer(pool, 'test-1', 'unsubscribe'), true);
+  assert.equal(await recordAnswer(pool, 'test-1', 'nope'), false);
+  assert.equal(pool.queries.length, 0);
+  const signup = sampleSignup({ name: 'Ana Souza', email: 'ana@x.test' }, 'checkout', 'Basic', now);
+  assert.deepEqual([signup.stage, signup.planName, signup.blockedBy, signup.daysSinceSignup], ['checkout', 'Basic', null, 10]);
+  assert.equal(sampleSignup({ email: 'ana@x.test' }, 'no_plan', 'Basic', now).planName, null);
+  assert.match(followupEmail(signup, 'pt', { answer: r => r, continueUrl: 'x' }).text, /escolheu o plano Basic/);
 });
