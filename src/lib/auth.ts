@@ -35,6 +35,16 @@ const getBaseURL = () => {
 
 export const auth = betterAuth({
   databaseHooks: {
+    user: {
+      create: {
+        // LGPD: store when the Terms and Privacy Policy were accepted (self-service signup only).
+        before: async (user) => {
+          const termsVersion = (user as { termsVersion?: unknown }).termsVersion;
+          if (typeof termsVersion !== "string" || !termsVersion) return;
+          return { data: { ...user, termsAcceptedAt: new Date() } };
+        },
+      },
+    },
     session: {
       create: {
         after: async (session) => {
@@ -91,6 +101,14 @@ export const auth = betterAuth({
       }
       // prevents multiple admin signups
       if (ctx.path === "/sign-up/email") {
+        // LGPD: self-service signup requires accepting the current Terms and Privacy Policy.
+        const termsVersion = ctx.body?.termsVersion;
+        if (typeof termsVersion !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(termsVersion)) {
+          throw new APIError("BAD_REQUEST", {
+            code: "TERMS_NOT_ACCEPTED",
+            message: "You must accept the Terms of Service and Privacy Policy to create an account.",
+          });
+        }
         const isAdminExists = await database
           .select()
           .from(schema.users)
@@ -603,6 +621,17 @@ export const auth = betterAuth({
         defaultValue: "UTC",
         required: false,
         type: "string",
+      },
+      termsVersion: {
+        fieldName: "termsVersion",
+        required: false,
+        type: "string",
+      },
+      termsAcceptedAt: {
+        input: false,
+        fieldName: "termsAcceptedAt",
+        required: false,
+        type: "date",
       },
     },
     changeEmail: {

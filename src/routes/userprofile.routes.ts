@@ -7,6 +7,7 @@ import { testEmailService } from "@/controllers/auth/test-email.controller";
 import { markPasswordChanged } from "@/controllers/user/markpasswordchanged.controller";
 import { pingPortalActivity } from "@/controllers/user/pingactivity.controller";
 import { verifyCurrentUserPassword } from "@/controllers/user/verifyuserpassword.controller";
+import { deleteMyAccount, exportMyData } from "@/controllers/user/privacy.controller";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 import { Router } from "express";
 
@@ -27,6 +28,10 @@ router.post(
   markPasswordChanged
 );
 router.post("/profile/verify-password", isAuthenticated, verifyCurrentUserPassword);
+
+// LGPD DATA SUBJECT RIGHTS (export and account deletion)
+router.get("/privacy/export", isAuthenticated, exportMyData);
+router.post("/privacy/delete-account", isAuthenticated, deleteMyAccount);
 
 // TEST EMAIL SERVICE
 router.post("/test-email", isAuthenticated, testEmailService);

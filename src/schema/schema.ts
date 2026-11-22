@@ -15,6 +15,7 @@ import {
   unique,
   uniqueIndex,
   primaryKey,
+  customType,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -88,6 +89,11 @@ export const users = pgTable(
       .$defaultFn(() => new Date())
       .notNull(),
     position: text("position"),
+    // LGPD: when and which version of the Terms/Privacy Policy the user accepted at signup.
+    termsAcceptedAt: timestamp("terms_accepted_at"),
+    termsVersion: text("terms_version"),
+    // Set when the account was anonymized at the user's request (personal data removed).
+    deletedAt: timestamp("deleted_at"),
   },
   (table) => ({
     emailIdx: index("users_email_idx").on(table.email),
@@ -217,6 +223,10 @@ export const organizations = pgTable(
     subscriptionStartDate: timestamp("subscription_start_date"),
     subscriptionEndDate: timestamp("subscription_end_date"),
     trialEndsAt: timestamp("trial_ends_at"),
+    // Set by the worker while the subscription is cancelled/expired; cleared if it becomes active again.
+    // Inactive for 90 days -> warned at 75 -> data deleted (Terms of Service / LGPD).
+    inactiveSince: timestamp("inactive_since", { withTimezone: true }),
+    deletionWarningSentAt: timestamp("deletion_warning_sent_at", { withTimezone: true }),
     maxUsers: integer("max_users").$defaultFn(() => 5),
     maxProjects: integer("max_projects").$defaultFn(() => 3),
     maxStorage: integer("max_storage").$defaultFn(() => 1), // in GB
@@ -2909,3 +2919,14 @@ export const retainerProjectLinks=pgTable("retainer_project_links",{
  retainerId:text("retainer_id").notNull().references(()=>retainers.id),
  createdBy:text("created_by").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
 });
+
+// LGPD data subject requests (export / deletion). Kept as proof that each request was answered.
+export const privacyRequests=pgTable('privacy_requests',{
+ id:text('id').primaryKey(),userId:text('user_id'),organizationId:text('organization_id'),type:text('type').$type<'export'|'deletion'>().notNull(),status:text('status').$type<'pending'|'completed'|'rejected'>().notNull(),details:jsonb('details'),requestedAt:timestamp('requested_at',{withTimezone:true}).notNull().defaultNow(),completedAt:timestamp('completed_at',{withTimezone:true})
+},t=>({type:check('privacy_requests_type_check',sql`${t.type} in ('export','deletion')`),status:check('privacy_requests_status_check',sql`${t.status} in ('pending','completed','rejected')`),user:index('privacy_requests_user_idx').on(t.userId,t.requestedAt),pending:index('privacy_requests_status_idx').on(t.status,t.requestedAt)}));
+
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+// Per-organization snapshots (gzip JSON) used to restore one organization without touching the others.
+export const organizationBackups=pgTable('organization_backups',{
+ id:text('id').primaryKey(),organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),kind:text('kind').$type<'scheduled'|'manual'|'pre_restore'>().notNull(),createdBy:text('created_by'),schemaVersion:integer('schema_version').notNull(),tableCount:integer('table_count').notNull(),rowCount:integer('row_count').notNull(),sizeBytes:integer('size_bytes').notNull(),data:bytea('data').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow()
+},t=>({kind:check('organization_backups_kind_check',sql`${t.kind} in ('scheduled','manual','pre_restore')`),org:index('organization_backups_org_idx').on(t.organizationId,t.createdAt)}));

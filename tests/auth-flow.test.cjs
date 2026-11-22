@@ -105,14 +105,23 @@ async function call(path, body) {
 test("production auth config: password, legacy email 2FA, invalid/replayed code and logout", async () => {
   const email = "alice@example.com",
     password = "Test-password-123";
+  const withoutTerms = await call("sign-up/email", { email, password, name: "Alice" });
+  assert.equal(withoutTerms.status, 400);
+  assert.equal(withoutTerms.body.code, "TERMS_NOT_ACCEPTED");
+  assert.equal(storage.users.length, 0);
+  const forgedAcceptance = await call("sign-up/email", { email, password, name: "Alice", termsVersion: "2026-11-21", termsAcceptedAt: "2000-01-01T00:00:00.000Z" });
+  assert.equal(forgedAcceptance.body.code, "FIELD_NOT_ALLOWED");
   const signup = await call("sign-up/email", {
     email,
     password,
     name: "Alice",
+    termsVersion: "2026-11-21",
     isSuperAdmin: true,
     isOrganizationOwner: true,
   });
   assert.equal(signup.status, 200, JSON.stringify(signup.body));
+  assert.equal(storage.users[0].termsVersion, "2026-11-21");
+  assert.ok(Date.now() - new Date(storage.users[0].termsAcceptedAt).getTime() < 60000, "acceptance time is set by the server");
   assert.notEqual(signup.body.user.isSuperAdmin, true);
   assert.notEqual(signup.body.user.isOrganizationOwner, true);
   assert.notEqual(storage.users[0].is_super_admin, true);

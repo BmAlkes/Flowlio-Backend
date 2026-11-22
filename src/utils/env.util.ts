@@ -38,6 +38,12 @@ const schemaObject = z.object({
   // Set to root domain (e.g. ".flowlioapp.com") when backend runs on a subdomain of the frontend.
   // Enables same-site cookie sharing and removes the need for SameSite=None.
   COOKIE_DOMAIN: z.string().optional(),
+  // LGPD: inbox that receives data subject requests that need a person (e.g. organization owner deletion).
+  PRIVACY_CONTACT_EMAIL: z.string().email().optional(),
+  // Key for OAuth tokens at rest. Falls back to BETTER_AUTH_SECRET; changing it forces Google Calendar reconnects.
+  TOKEN_ENCRYPTION_KEY: z.string().min(32).optional(),
+  // "true" turns on the 90-day deletion of inactive organizations (warning email at day 75). Off by default.
+  ORG_AUTO_DELETE_ENABLED: z.enum(["true", "false"]).optional(),
   // database: z.string(),
 });
 

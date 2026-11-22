@@ -1,3 +1,5 @@
 node_modules
 dist
 .env
+# User uploads (AI assistant attachments) are personal data and must never be committed
+uploads/

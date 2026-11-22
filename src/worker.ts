@@ -8,6 +8,8 @@ import { scheduleDue, runOne } from "./services/jobs/queue";
 import { handlers, schedules } from "./services/jobs/handlers";
 import { syncRetainerMonths } from "./modules/retainers/automation";
 import { logger } from "./utils/logger.util";
+import { pruneRetention } from "./modules/privacy/service";
+import { runOrganizationDataMaintenance } from "./modules/organization-data/maintenance";
 let stopping = false;
 const abort = new AbortController();
 for (const signal of ["SIGTERM", "SIGINT"] as const)
@@ -23,6 +25,8 @@ async function main() {
             if (Date.now() >= nextPrune) {
                 await syncRetainerMonths(connection).catch(() => logger.warn("Monthly contracts could not be updated; retrying next cycle"));
                 await observability.prune().catch(() => logger.warn("Telemetry retention cleanup failed"));
+                await pruneRetention(connection, step => logger.warn("Personal data retention cleanup failed", { step }));
+                await runOrganizationDataMaintenance(connection);
                 nextPrune = Date.now() + 3600000;
             }
             await scheduleDue(connection, schedules);

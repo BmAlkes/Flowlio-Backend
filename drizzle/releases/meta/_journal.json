@@ -190,6 +190,20 @@
       "when": 1793404800000,
       "tag": "0026_whatsapp_links",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0027_lgpd_privacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793577600000,
+      "tag": "0028_organization_data",
+      "breakpoints": true
     }
   ]
 }

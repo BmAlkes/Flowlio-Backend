@@ -12,6 +12,8 @@ import {
   updateSubAdminPermission,
 } from "../controllers/super admin/sub admin/updatesubadmin.controller";
 import plansRoutes from "./plans.routes";
+import { completePrivacyRequest, listPrivacyRequests } from "../controllers/user/privacy.controller";
+import { createOrganizationBackup, listOrganizationBackups, listOrganizationData, restoreOrganizationBackup } from "../controllers/organization/data/organizationdata.controller";
 import { updateSuperAdminPassword } from "../controllers/super admin/sub admin settings/updatesuperadminpassword.controller";
 import { getPublicPlans } from "../controllers/super admin/plans";
 import { deleteOrganization } from "../controllers/super admin/organizations/deleteorganization.controller";
@@ -210,5 +212,15 @@ router.get(
   requireSuperAdmin,
   checkPayPalConfig,
 );
+
+// LGPD data subject requests
+router.get("/privacy-requests", isAuthenticated, requireSuperAdmin, listPrivacyRequests);
+router.post("/privacy-requests/:id/complete", isAuthenticated, requireSuperAdmin, completePrivacyRequest);
+
+// Per-organization backups, restore (dry run unless confirmed) and the 90-day deletion schedule
+router.get("/organization-data", isAuthenticated, requireSuperAdmin, listOrganizationData);
+router.get("/organizations/:organizationId/backups", isAuthenticated, requireSuperAdmin, listOrganizationBackups);
+router.post("/organizations/:organizationId/backups", isAuthenticated, requireSuperAdmin, createOrganizationBackup);
+router.post("/organizations/:organizationId/restore", isAuthenticated, requireSuperAdmin, restoreOrganizationBackup);
 
 export default router;
