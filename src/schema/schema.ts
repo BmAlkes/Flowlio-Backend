@@ -2930,3 +2930,8 @@ const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 export const organizationBackups=pgTable('organization_backups',{
  id:text('id').primaryKey(),organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),kind:text('kind').$type<'scheduled'|'manual'|'pre_restore'>().notNull(),createdBy:text('created_by'),schemaVersion:integer('schema_version').notNull(),tableCount:integer('table_count').notNull(),rowCount:integer('row_count').notNull(),sizeBytes:integer('size_bytes').notNull(),data:bytea('data').notNull(),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow()
 },t=>({kind:check('organization_backups_kind_check',sql`${t.kind} in ('scheduled','manual','pre_restore')`),org:index('organization_backups_org_idx').on(t.organizationId,t.createdAt)}));
+
+// Follow-up emails to people who signed up but never finished (no plan or no payment), with their one-click answer.
+export const signupFollowups=pgTable('signup_followups',{
+ id:text('id').primaryKey(),userId:text('user_id').notNull().references(()=>users.id,{onDelete:'cascade'}),stage:text('stage').$type<'no_plan'|'checkout'>().notNull(),sentBy:text('sent_by'),sentAt:timestamp('sent_at',{withTimezone:true}).notNull().defaultNow(),reason:text('reason'),answeredAt:timestamp('answered_at',{withTimezone:true}),optedOutAt:timestamp('opted_out_at',{withTimezone:true})
+},t=>({stage:check('signup_followups_stage_check',sql`${t.stage} in ('no_plan','checkout')`),user:index('signup_followups_user_idx').on(t.userId,t.sentAt)}));

@@ -204,6 +204,13 @@
       "when": 1793577600000,
       "tag": "0028_organization_data",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793664000000,
+      "tag": "0029_signup_followups",
+      "breakpoints": true
     }
   ]
 }

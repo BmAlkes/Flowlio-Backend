@@ -65,6 +65,7 @@ import proposalsRoutes from "./routes/proposals.routes";
 import onboardingRoutes from "./routes/onboarding.routes";
 import crmRoutes from "./routes/crm.routes";
 import automationsRoutes from "./routes/automations.routes";
+import signupFeedbackRoutes from "./routes/signupfeedback.routes";
 
 config();
 const app = express();
@@ -129,6 +130,7 @@ io.on("connection", registerEvents);
 app.use(express.static("public"));
 app.use(assignSocketToReqIO(io));
 app.use(express.static("dist"));
+app.use("/api/signup-feedback", signupFeedbackRoutes);
 app.use(cors(corsOptions));
 app.use(cookieParser());
 app.use("/api", observeRequest);
