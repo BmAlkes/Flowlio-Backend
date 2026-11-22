@@ -140,8 +140,23 @@ export async function sendFollowups(pool: Pool, userIds: string[], actorId: stri
   return { sent, skipped };
 }
 
+/** Test follow-ups (sent to the super admin's own inbox) use ids with this prefix and are never recorded. */
+export const TEST_PREFIX = "test-";
+export const isTestFollowup = (followupId: string) => followupId.startsWith(TEST_PREFIX);
+
+/** A made-up unfinished signup with the super admin's own name and email, to preview the follow-up. */
+export function sampleSignup(person: { name?: string | null; email: string }, stage: SignupStage, planName: string | null, now = Date.now()): PendingSignup {
+  const createdAt = new Date(now - 10 * 86400000).toISOString();
+  return {
+    id: TEST_PREFIX + "preview", name: person.name || person.email, email: person.email, emailVerified: true, createdAt, daysSinceSignup: 10,
+    stage, planName: stage === "checkout" ? planName : null, planPrice: null, organizationName: null, lastSeenAt: null,
+    reminders: 0, lastReminderAt: null, reason: null, answeredAt: null, optedOut: false, blockedBy: null,
+  };
+}
+
 /** Records a one-click answer ("unsubscribe" stops further follow-ups). Returns false for unknown links. */
 export async function recordAnswer(pool: Pool, followupId: string, answer: string) {
+  if (isTestFollowup(followupId)) return answer === "unsubscribe" || (REASONS as readonly string[]).includes(answer);
   if (answer === "unsubscribe") {
     const { rowCount } = await pool.query("update signup_followups set opted_out_at = coalesce(opted_out_at, now()) where id = $1", [followupId]);
     return (rowCount ?? 0) > 0;
