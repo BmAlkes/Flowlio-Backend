@@ -55,7 +55,14 @@ function formatDate(value: string, language: FollowupLanguage) {
   return new Intl.DateTimeFormat(language === "pt" ? "pt-BR" : "en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(value));
 }
 
-export function followupEmail(signup: PendingSignup, language: FollowupLanguage, links: { answer: (reason: string) => string; continueUrl: string }) {
+/** The Flowlio logo, centred; plain "Flowlio" text when no logo URL is given. */
+function logo(url: string | undefined, margin: string) {
+  return url
+    ? `<div style="text-align:center;${margin}"><img src="${escape(url)}" alt="Flowlio" width="120" style="width:120px;max-width:100%;height:auto;border:0;" /></div>`
+    : `<div style="text-align:center;${margin}font-size:20px;font-weight:bold;">Flowlio</div>`;
+}
+
+export function followupEmail(signup: PendingSignup, language: FollowupLanguage, links: { answer: (reason: string) => string; continueUrl: string; logoUrl?: string }) {
   const copy = COPY[language];
   const firstName = (signup.name || "").trim().split(/\s+/)[0] || signup.email.split("@")[0];
   const date = formatDate(signup.createdAt, language);
@@ -67,6 +74,7 @@ export function followupEmail(signup: PendingSignup, language: FollowupLanguage,
   const html = `
   <div style="font-family:Arial,sans-serif;background:#f7f9fb;padding:32px;">
     <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;color:#1a202c;font-size:15px;line-height:1.5;">
+      ${logo(links.logoUrl, "margin:0 0 24px;")}
       <p style="margin:0 0 12px;">${escape(copy.hello(firstName))}</p>
       <p style="margin:0 0 12px;">${escape(situation)}</p>
       <p style="margin:0 0 16px;">${escape(copy.ask)}</p>
@@ -86,7 +94,7 @@ const PAGE = {
 };
 
 /** Small standalone page for the answer links. GET only shows a confirm button so link scanners can't answer. */
-export function answerPage(language: FollowupLanguage, state: { kind: "confirm"; answer: string } | { kind: "done"; answer: string } | { kind: "invalid" }, continueUrl: string) {
+export function answerPage(language: FollowupLanguage, state: { kind: "confirm"; answer: string } | { kind: "done"; answer: string } | { kind: "invalid" }, continueUrl: string, logoUrl?: string) {
   const copy = PAGE[language];
   const label = (answer: string) => (answer === "unsubscribe" ? copy.unsubscribeLabel : REASON_LABELS[language][answer as SignupReason] ?? answer);
   let body: string;
@@ -96,5 +104,5 @@ export function answerPage(language: FollowupLanguage, state: { kind: "confirm";
   else
     body = `<p>${state.answer === "unsubscribe" ? copy.unsubscribed : copy.thanks}</p>${state.answer === "unsubscribe" ? "" : `<p><a href="${escape(continueUrl)}" style="color:#1797b9;">${copy.continue}</a></p>`}`;
   return `<!doctype html><html lang="${language === "pt" ? "pt-BR" : "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Flowlio</title></head>
-<body style="margin:0;font-family:Arial,sans-serif;background:#f7f9fb;color:#1a202c;"><div style="max-width:440px;margin:48px auto;background:#fff;border-radius:12px;padding:28px 24px;font-size:15px;line-height:1.5;"><h1 style="font-size:20px;margin:0 0 16px;">Flowlio</h1>${body}</div></body></html>`;
+<body style="margin:0;font-family:Arial,sans-serif;background:#f7f9fb;color:#1a202c;"><div style="max-width:440px;margin:48px auto;background:#fff;border-radius:12px;padding:28px 24px;font-size:15px;line-height:1.5;">${logo(logoUrl, "margin:0 0 20px;")}${body}</div></body></html>`;
 }

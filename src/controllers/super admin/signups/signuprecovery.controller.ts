@@ -10,6 +10,7 @@ import { answerPage, followupEmail, type FollowupLanguage } from "@/modules/sign
 
 const withProtocol = (domain: string) => (/^https?:\/\//.test(domain) ? domain : `https://${domain}`).replace(/\/$/, "");
 const continueUrl = () => withProtocol(env.FRONTEND_DOMAIN) + "/auth/signin";
+const logoUrl = () => withProtocol(env.BACKEND_DOMAIN) + "/logowithtext.png";
 const answerUrl = (followupId: string, answer: string, language: FollowupLanguage) =>
   `${withProtocol(env.BACKEND_DOMAIN)}/api/signup-feedback/${followupId}?a=${answer}&l=${language}&t=${answerToken(followupId, env.BETTER_AUTH_SECRET)}`;
 
@@ -33,7 +34,7 @@ export const remindPendingSignups = async (req: Request, res: Response) => {
   const { userIds, language } = parsed.data;
   try {
     const result = await sendFollowups(connection, userIds, req.user?.id ?? null, async (signup, followupId) => {
-      const email = followupEmail(signup, language, { answer: answer => answerUrl(followupId, answer, language), continueUrl: continueUrl() });
+      const email = followupEmail(signup, language, { answer: answer => answerUrl(followupId, answer, language), continueUrl: continueUrl(), logoUrl: logoUrl() });
       await brevoTransactionApi.sendTransacEmail({
         to: [{ email: signup.email, name: signup.name }],
         sender: { name: env.BREVO_SENDER_NAME, email: env.BREVO_SENDER },
@@ -68,7 +69,7 @@ export const sendTestFollowup = async (req: Request, res: Response) => {
     const plan = (await connection.query("select name from subscription_plans where is_active = true order by sort_order limit 1")).rows[0];
     const signup = sampleSignup({ name: req.user?.name, email: to }, stage, plan?.name ?? "Pro");
     const followupId = TEST_PREFIX + crypto.randomUUID();
-    const email = followupEmail(signup, language, { answer: answer => answerUrl(followupId, answer, language), continueUrl: continueUrl() });
+    const email = followupEmail(signup, language, { answer: answer => answerUrl(followupId, answer, language), continueUrl: continueUrl(), logoUrl: logoUrl() });
     await brevoTransactionApi.sendTransacEmail({
       to: [{ email: to, name: signup.name }],
       sender: { name: env.BREVO_SENDER_NAME, email: env.BREVO_SENDER },
@@ -95,13 +96,13 @@ export const signupFeedback = async (req: Request, res: Response) => {
   const answer = String(req.query.a ?? "");
   res.setHeader("Cache-Control", "no-store");
   res.type("html");
-  if (!validToken(id, req.query.t, env.BETTER_AUTH_SECRET)) return void res.status(404).send(answerPage(lang, { kind: "invalid" }, continueUrl()));
-  if (req.method !== "POST") return void res.status(200).send(answerPage(lang, { kind: "confirm", answer }, continueUrl()));
+  if (!validToken(id, req.query.t, env.BETTER_AUTH_SECRET)) return void res.status(404).send(answerPage(lang, { kind: "invalid" }, continueUrl(), logoUrl()));
+  if (req.method !== "POST") return void res.status(200).send(answerPage(lang, { kind: "confirm", answer }, continueUrl(), logoUrl()));
   try {
     const recorded = await recordAnswer(connection, id, answer);
-    res.status(recorded ? 200 : 404).send(answerPage(lang, recorded ? { kind: "done", answer } : { kind: "invalid" }, continueUrl()));
+    res.status(recorded ? 200 : 404).send(answerPage(lang, recorded ? { kind: "done", answer } : { kind: "invalid" }, continueUrl(), logoUrl()));
   } catch (error) {
     logger.error("Failed to record signup feedback", error);
-    res.status(500).send(answerPage(lang, { kind: "invalid" }, continueUrl()));
+    res.status(500).send(answerPage(lang, { kind: "invalid" }, continueUrl(), logoUrl()));
   }
 };
