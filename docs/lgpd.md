@@ -19,6 +19,7 @@ surgir um novo fornecedor, um novo tipo de dado ou uma nova funcionalidade que t
 | Auditoria | Usuários | Ação, IP, user agent | Legítimo interesse (segurança) | Controladora | IP/UA anonimizados após 12 meses |
 | Newsletter | Assinantes | E-mail | Consentimento | Controladora | Até o descadastro (e-mail mantido como lista de supressão) |
 | Cookies de marketing | Visitantes | Eventos de navegação (Meta Pixel) | Consentimento | Controladora | Definido pela Meta |
+| Backups por organização | Todos os dados da organização | Cópia completa (`organization_backups`) | Legítimo interesse (continuidade e segurança) | Controladora / operadora | 7 dias (diários); 30 dias (manuais) |
 | Pedidos de titulares | Solicitantes | Tipo, data, status (`privacy_requests`) | Obrigação legal / exercício de direitos | Controladora | 5 anos |
 
 A limpeza automática roda a cada hora no worker (`src/modules/privacy/service.ts`, `RETENTION`).
@@ -50,6 +51,20 @@ O dono da organização baixa tudo em Configurações > Privacidade e dados > Ex
 lidas a partir das chaves estrangeiras do banco, sem senhas, tokens e segredos. Serve para portabilidade,
 para cópia de segurança antes de encerrar a conta e como base de uma futura restauração por organização.
 
+## 2.2 Backups, restauração e exclusão de organizações
+
+- **Backup diário por organização** (worker, tabela `organization_backups`, gzip JSON completo): guarda os
+  7 últimos diários; manuais e "antes de restaurar" ficam 30 dias. São apagados junto com a organização.
+- **Restaurar** (Configurações do Super Admin > Backups por organização): sempre simula primeiro; ao confirmar,
+  salva o estado atual como backup e restaura só aquela organização. Não restaura equipe/acessos, cobrança,
+  uso de IA nem histórico de auditoria. Os gatilhos de proteção ficam desligados só dentro da transação.
+- **Exclusão de organizações inativas** (assinatura `cancelled`/`expired` ou teste vencido): o worker marca
+  `inactive_since`; com `ORG_AUTO_DELETE_ENABLED=true` avisa os donos por e-mail no dia 75 e exclui no dia 90
+  (mínimo de 14 dias após o aviso). Pessoas que só pertenciam àquela organização são anonimizadas e os arquivos
+  no Cloudinary com `public_id` são removidos. Sem a variável, nada é excluído; as datas só aparecem no painel.
+- **Importação de planilhas** (Configurações > Importar dados): leads, clientes ou projetos e tarefas do
+  Monday/Trello/Asana/Excel/CSV, até 2000 linhas, com os mesmos limites de plano da criação manual.
+
 ## 3. Pedidos de titulares (art. 18 e 19) — prazo: 15 dias
 
 - **Exportação**: o próprio usuário baixa em Configurações > Privacidade e dados (`GET /api/user/privacy/export`).
@@ -78,5 +93,6 @@ para cópia de segurança antes de encerrar a conta e como base de uma futura re
 ## 5. Variáveis de ambiente
 
 - `PRIVACY_CONTACT_EMAIL`: caixa que recebe os pedidos de exclusão de donos de organização.
+- `ORG_AUTO_DELETE_ENABLED=true`: liga a exclusão automática de organizações inativas (aviso no dia 75, exclusão no dia 90).
 - `TOKEN_ENCRYPTION_KEY` (opcional, ≥ 32 caracteres): chave dos tokens OAuth. Sem ela, usa `BETTER_AUTH_SECRET`.
   Trocar a chave obriga os usuários a reconectar o Google Agenda.
