@@ -1,4 +1,5 @@
 import { exportMyOrganization } from "../controllers/user/privacy.controller";
+import { importOrganizationData } from "../controllers/organization/data/organizationdata.controller";
 import {getFinancialSettings,updateFinancialSettings,unresolvedFinancialCurrencies,reconcileFinancialCurrencies} from '../controllers/organization/financial-settings.controller';
 import { Router } from "express";
 import { isAuthenticated } from "../middlewares/auth.middleware";
@@ -41,6 +42,8 @@ const orgOwner = [isAuthenticated, requireOrgOwnerAccess];
 const teamAdministration = [isAuthenticated, requireOrgOwnerOnly];
 // LGPD portability / backup: the whole organization as one JSON file.
 router.get("/export", ...teamAdministration, exportMyOrganization as any);
+// Spreadsheet import (Monday, Trello, Excel/CSV): owners and managers.
+router.post("/import", ...orgOwner, importOrganizationData as any);
 router.get("/financial-settings/unresolved",...orgOwner,unresolvedFinancialCurrencies as any);
 router.post("/financial-settings/reconcile",...orgOwner,reconcileFinancialCurrencies as any);
 router.get("/financial-settings",isAuthenticated,getFinancialSettings as any);

@@ -78,7 +78,8 @@ test('retention keeps access logs for the 6 months the Marco Civil requires and 
   assert.deepEqual(failed, ['expired-sessions']);
 });
 
-const { exportOrganization, childTablesInOrder } = require('../src/modules/privacy/organization-export');
+const { exportOrganization } = require('../src/modules/privacy/organization-export');
+const { childTablesInOrder } = require('../src/modules/organization-data/graph');
 const fk = (child, column, parent, parentColumn = 'id') => ({ child, column, parent, parentColumn });
 
 test('child tables are read after all of their parents and shared tables are never walked into', () => {
@@ -90,7 +91,9 @@ test('child tables are read after all of their parents and shared tables are nev
 
 test('the organization export only reads this organization, follows children and strips secrets', async () => {
   const queries = [];
-  const pool = { query: async (sql, params = []) => {
+  const pool = { query: async (config, values = []) => {
+    const sql = typeof config === 'string' ? config : config.text;
+    const params = typeof config === 'string' ? values : config.values;
     queries.push({ sql, params });
     if (sql.includes('information_schema.columns')) return { rows: [
       ...['id', 'organization_id', 'name'].map(c => ({ table_name: 'projects', column_name: c })),
