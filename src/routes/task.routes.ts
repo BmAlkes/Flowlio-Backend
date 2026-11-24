@@ -1,6 +1,7 @@
 import { validateListQuery } from "../utils/list-query";
 import { resourceAccess } from "../security/resource-access";
 import { Router } from "express";
+import { setTaskCustomFieldValues } from "../controllers/organization/custom-fields.controller";
 import { isAuthenticated } from "../middlewares/auth.middleware";
 import { createTask } from "../controllers/organization/tasks/createtask.controller";
 import {
@@ -37,6 +38,7 @@ router.get("/:id/subtasks", isAuthenticated, resourceAccess.task(req => req.para
 router.get("/:id", isAuthenticated, resourceAccess.task(req => req.params.id), getTaskById);
 router.put("/update/:id", isAuthenticated, resourceAccess.task(req => req.params.id, "update"), resourceAccess.taskReferences, updateTask);
 router.patch("/status/:id", isAuthenticated, resourceAccess.task(req => req.params.id, "update"), updateTaskStatus);
+router.patch("/:id/custom-fields", isAuthenticated, resourceAccess.task(req => req.params.id, "update"), setTaskCustomFieldValues);
 router.delete("/:id", isAuthenticated, resourceAccess.task(req => req.params.id, "delete"), deleteTask);
 router.post("/:id/start", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), startTask);
 router.post("/:id/end", isAuthenticated, resourceAccess.task(req => req.params.id, "track"), endTask);

@@ -80,6 +80,7 @@ export const getTasks = async (req: GetTasksRequest, res: Response) => {
         parentId: tasks.parentId,
         startAfter: tasks.startAfter,
         finishBefore: tasks.finishBefore,
+        customFields: tasks.customFields,
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
         // Project data
@@ -159,6 +160,7 @@ export const getTaskById = async (
         parentId: tasks.parentId,
         startAfter: tasks.startAfter,
         finishBefore: tasks.finishBefore,
+        customFields: tasks.customFields,
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
         // Project data
@@ -269,6 +271,7 @@ export const getSubtasksByTaskId = async (
         parentId: tasks.parentId,
         startAfter: tasks.startAfter,
         finishBefore: tasks.finishBefore,
+        customFields: tasks.customFields,
         createdAt: tasks.createdAt,
         updatedAt: tasks.updatedAt,
         projectId: projects.id,

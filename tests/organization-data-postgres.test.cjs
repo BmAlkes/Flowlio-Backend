@@ -111,6 +111,31 @@ if (!process.env.ORGANIZATION_DATA_TEST_DATABASE_URL) {
     assert.equal((await pool.query("select status,type from clients where email='new@example.test'")).rows[0].status, 'Qualified');
   });
 
+  test('extra spreadsheet columns become task fields with typed values, and stay on leads by name', async () => {
+    const result = await importRows(pool, { id: 'owner-a', organizationId: 'org-a' }, { kind: 'tasks', rows: [
+      { project: 'Site A', title: 'Hero', extra: { Prioridade: 'Alta', Orçamento: '1200', Briefing: 'Ver doc' } },
+      { project: 'Site A', title: 'Footer', extra: { Prioridade: 'Baixa', Orçamento: 'n/a' } },
+      { project: 'Site A', title: 'Menu', extra: { Prioridade: 'Alta' } },
+      { project: 'Site A', title: 'Blog', extra: { Prioridade: 'Baixa' } },
+    ] });
+    assert.equal(result.created, 4);
+    const fields = (await pool.query("select id,name,type,options from custom_field_definitions where organization_id='org-a' and entity_type='task' order by position")).rows;
+    assert.deepEqual(fields.map(f => [f.name, f.type]), [['Prioridade', 'select'], ['Orçamento', 'text'], ['Briefing', 'text']]);
+    assert.deepEqual(fields[0].options.map(o => o.label), ['Alta', 'Baixa']);
+    const hero = (await pool.query("select custom_fields from tasks where title='Hero'")).rows[0].custom_fields;
+    assert.equal(hero[fields[0].id], 'Alta');
+    assert.equal(hero[fields[2].id], 'Ver doc');
+    // A second file reuses the same fields by name instead of duplicating them.
+    await importRows(pool, { id: 'owner-a', organizationId: 'org-a' }, { kind: 'tasks', rows: [{ project: 'Site A', title: 'Contato', extra: { prioridade: 'Urgente' } }] });
+    assert.equal((await pool.query("select count(*)::int n from custom_field_definitions where organization_id='org-a' and entity_type='task'")).rows[0].n, 3);
+    const priority = (await pool.query('select options from custom_field_definitions where id=$1', [fields[0].id])).rows[0].options;
+    assert.deepEqual(priority.map(o => o.label), ['Alta', 'Baixa', 'Urgente']);
+    assert.equal((await pool.query("select custom_fields from tasks where title='Contato'")).rows[0].custom_fields[fields[0].id], 'Urgente');
+    const leads = await importRows(pool, { id: 'owner-a', organizationId: 'org-a' }, { kind: 'leads', rows: [{ name: 'Extra lead', email: 'extra@example.test', extra: { Origem: 'Instagram' } }] });
+    assert.equal(leads.created, 1);
+    assert.deepEqual((await pool.query("select custom_fields from clients where email='extra@example.test'")).rows[0].custom_fields, { Origem: 'Instagram' });
+  });
+
   test('inactive organizations are deleted only when enabled, after the warning, without touching others', async () => {
     await pool.query("update organizations set subscription_status='cancelled' where id='org-a'");
     assert.equal((await trackInactiveOrganizations(pool)).started, 1);

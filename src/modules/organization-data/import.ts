@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
+import { ensureFieldsByName } from "../custom-fields/service";
+import { guessType, importValue, normalizeValue } from "../custom-fields/values";
 
 /**
  * Spreadsheet import (Monday, Trello, Asana, Excel/CSV). The browser parses the file and maps the columns;
@@ -11,6 +13,11 @@ export const MAX_IMPORT_ROWS = 2000;
 const DEFAULT_MILESTONES = ["Discovery", "Design", "Development", "Launch & Handoff"];
 const text = (max: number) => z.string().trim().max(max).optional().nullable().transform(value => value || null);
 const date = z.string().trim().optional().nullable().transform(value => (value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null));
+/** Columns the file has beyond the known ones, by column name; they are kept instead of dropped. */
+const extra = z.record(z.string().trim().min(1).max(100), z.union([z.string(), z.number(), z.boolean()]).transform(value => String(value).trim().slice(0, 2000)))
+  .optional().default({})
+  .refine(value => Object.keys(value).length <= 50, { message: "Too many extra columns" })
+  .transform(value => Object.fromEntries(Object.entries(value).filter(([, cell]) => cell !== "")));
 
 export const contactRow = z.object({
   name: z.string().trim().min(1).max(200),
@@ -21,6 +28,7 @@ export const contactRow = z.object({
   address: text(500),
   status: text(60),
   note: text(2000),
+  extra,
 }).refine(row => !row.email || z.string().email().safeParse(row.email).success, { message: "Invalid email", path: ["email"] });
 
 export const taskRow = z.object({
@@ -35,6 +43,7 @@ export const taskRow = z.object({
     const number = typeof value === "string" ? Number(value.replace(",", ".")) : value;
     return number != null && Number.isFinite(number) && number >= 0 && number < 100000 ? number : null;
   }),
+  extra,
 });
 
 export const importInput = z.discriminatedUnion("kind", [
@@ -119,10 +128,11 @@ async function importContacts(client: PoolClient, actor: { id: string; organizat
   for (const { data } of rows) {
     // Imported contacts get no portal login; it can be enabled later from the client page.
     await client.query(
-      `insert into clients (id, organization_id, name, email, phone, cpf_cnpj_number, business_industry, address, status, type, follow_up_note, created_by, position, portal_access_enabled, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,false,now(),now())`,
+      // Extra columns are stored by column name, which the lead and client pages already show.
+      `insert into clients (id, organization_id, name, email, phone, cpf_cnpj_number, business_industry, address, status, type, follow_up_note, created_by, position, portal_access_enabled, custom_fields, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,false,$13::json,now(),now())`,
       [randomUUID(), actor.organizationId, data.name, data.email, data.phone, data.cpfcnpj, data.businessIndustry, data.address,
-        type === "lead" ? normalizeLeadStatus(data.status) : "active", type, data.note, actor.id],
+        type === "lead" ? normalizeLeadStatus(data.status) : "active", type, data.note, actor.id, Object.keys(data.extra).length ? JSON.stringify(data.extra) : null],
     );
   }
   return { created: rows.length, skipped, projectsCreated: 0 };
@@ -155,6 +165,7 @@ async function importTasks(client: PoolClient, actor: { id: string; organization
     );
     projects.set(name.toLowerCase(), id);
   }
+  const fields = await taskFieldsFor(client, actor.organizationId, rows);
   const members = new Map((await client.query<{ id: string; email: string }>(
     "select u.id, lower(u.email) email from user_organizations uo join users u on u.id=uo.user_id where uo.organization_id=$1 and uo.status='active'",
     [actor.organizationId],
@@ -162,10 +173,40 @@ async function importTasks(client: PoolClient, actor: { id: string; organization
   for (const row of rows) {
     const assignee = row.assigneeEmail ? members.get(row.assigneeEmail.toLowerCase()) ?? null : null;
     await client.query(
-      `insert into tasks (id, title, description, project_id, assigned_to, created_by, status, visibility, start_date, end_date, estimated_hours, created_at, updated_at)
-       values ($1,$2,$3,$4,$5,$6,$7,'private',$8::date,$9::date,$10,now(),now())`,
-      [randomUUID(), row.title, row.description, projects.get(row.project.toLowerCase()), assignee, actor.id, normalizeTaskStatus(row.status), row.startDate, row.endDate, row.estimatedHours],
+      `insert into tasks (id, title, description, project_id, assigned_to, created_by, status, visibility, start_date, end_date, estimated_hours, custom_fields, created_at, updated_at)
+       values ($1,$2,$3,$4,$5,$6,$7,'private',$8::date,$9::date,$10,$11::jsonb,now(),now())`,
+      [randomUUID(), row.title, row.description, projects.get(row.project.toLowerCase()), assignee, actor.id, normalizeTaskStatus(row.status), row.startDate, row.endDate, row.estimatedHours, JSON.stringify(taskValues(row.extra, fields))],
     );
   }
   return { created: rows.length, skipped, projectsCreated: newProjects.length };
+}
+
+/** Each extra column becomes an organization-wide task field, typed from its values (numbers, dates, a short list of labels...). */
+async function taskFieldsFor(client: PoolClient, organizationId: string, rows: { extra: Record<string, string> }[]) {
+  const names = [...new Set(rows.flatMap(row => Object.keys(row.extra)))];
+  if (!names.length) return new Map();
+  const columns = names.map(name => {
+    const values = rows.map(row => row.extra[name] ?? "");
+    const type = guessType(values);
+    // Distinct labels; used when the field is (or already exists as) a select field.
+    const options = [...new Map(values.filter(Boolean).map(value => [value.toLowerCase(), value])).values()].slice(0, 50);
+    return { name, type, options };
+  });
+  return ensureFieldsByName(client, organizationId, "task", columns);
+}
+
+/** Values that do not fit their field (a word in a number column) are left out rather than failing the row. */
+function taskValues(extra: Record<string, string>, fields: Map<string, { id: string; name: string; type: string; options?: { label: string; color: string }[] | null }>) {
+  const values: Record<string, unknown> = {};
+  for (const [name, raw] of Object.entries(extra)) {
+    const field = fields.get(name);
+    if (!field) continue;
+    try {
+      const value = normalizeValue(field, importValue(field.type as never, raw));
+      if (value !== null) values[field.id] = value;
+    } catch {
+      // Kept out on purpose; the rest of the row is imported.
+    }
+  }
+  return values;
 }

@@ -49,7 +49,9 @@ test('Monday, Trello and Portuguese status labels map to Flowlio statuses', () =
 test('import rows are validated and cleaned before anything is written', () => {
   assert.equal(contactRow.safeParse({ name: 'Ana', email: 'not-an-email' }).success, false);
   assert.equal(contactRow.safeParse({ name: '' }).success, false);
-  assert.deepEqual(contactRow.parse({ name: ' Ana ', email: 'ANA@X.TEST', phone: '' }), { name: 'Ana', email: 'ana@x.test', phone: null, cpfcnpj: null, businessIndustry: null, address: null, status: null, note: null });
+  assert.deepEqual(contactRow.parse({ name: ' Ana ', email: 'ANA@X.TEST', phone: '' }), { name: 'Ana', email: 'ana@x.test', phone: null, cpfcnpj: null, businessIndustry: null, address: null, status: null, note: null, extra: {} });
+  // Extra spreadsheet columns are kept (empty cells dropped) instead of being thrown away.
+  assert.deepEqual(contactRow.parse({ name: 'Ana', extra: { Origem: ' Instagram ', Vazio: '', Score: 8 } }).extra, { Origem: 'Instagram', Score: '8' });
   const task = taskRow.parse({ project: 'Site', title: 'Hero', startDate: '2026-01-05', endDate: '05/01/2026', estimatedHours: '2,5' });
   assert.equal(task.startDate, '2026-01-05'); assert.equal(task.endDate, null); assert.equal(task.estimatedHours, 2.5);
   assert.equal(importInput.safeParse({ kind: 'tasks', rows: Array(MAX_IMPORT_ROWS + 1).fill({}) }).success, false);
