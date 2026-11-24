@@ -1637,7 +1637,7 @@ export class AutomationService {
 
         // Trial ending check
         if (
-          org.subscriptionStatus === "trial" &&
+          (org.subscriptionStatus === "trial" || org.subscriptionStatus === "trialing") &&
           org.trialEndsAt &&
           new Date(org.trialEndsAt) <= threeDaysFromNow &&
           new Date(org.trialEndsAt) > now

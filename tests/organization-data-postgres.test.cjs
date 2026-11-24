@@ -155,4 +155,23 @@ if (!process.env.ORGANIZATION_DATA_TEST_DATABASE_URL) {
     const after = Object.fromEntries((await listPendingSignups(pool)).map(s => [s.id, s]));
     assert.deepEqual([after['lead-checkout'].reason, after['lead-checkout'].blockedBy, after['lead-noplan'].optedOut, after['lead-noplan'].reminders], ['price', 'answered', true, 1]);
   });
+
+  test('new accounts start a free plan or a no-card trial with their own organization', async () => {
+    const { startOrganization } = require('../src/modules/signup-flow/service');
+    await pool.query(`insert into subscription_plans(id,name,slug,price,currency,billing_cycle,is_active,sort_order,trial_days,duration_type,duration_value,features,created_at,updated_at) values
+      ('plan-free','Free','free',0,'USD','monthly',true,0,0,'monthly',1,'{}',now(),now()),
+      ('plan-starter','Starter','starter',19,'USD','monthly',true,2,14,'monthly',1,'{"maxUsers":10,"maxProjects":20}',now(),now())`);
+    const trial = await startOrganization(pool, { userId: 'lead-noplan', planId: 'plan-starter', mode: 'trial', organizationName: 'Studio', country: 'BR' });
+    const org = (await pool.query('select name,country,status,subscription_status,trial_ends_at,max_users,settings from organizations where id=$1', [trial.organizationId])).rows[0];
+    assert.deepEqual([org.name, org.country, org.status, org.subscription_status, org.max_users, org.settings.language], ['Studio', 'BR', 'active', 'trialing', 10, 'pt']);
+    assert.equal(new Date(org.trial_ends_at).getTime(), Date.parse(trial.trialEndsAt));
+    const sub = (await pool.query('select status,current_period_end from subscriptions where organization_id=$1', [trial.organizationId])).rows[0];
+    assert.equal(sub.status, 'active');
+    assert.equal(new Date(sub.current_period_end).getTime(), Date.parse(trial.trialEndsAt));
+    const owner = (await pool.query("select u.status,u.is_organization_owner,m.role from users u join user_organizations m on m.user_id=u.id where u.id='lead-noplan'")).rows[0];
+    assert.deepEqual([owner.status, owner.is_organization_owner, owner.role], ['active', true, 'owner']);
+    await assert.rejects(startOrganization(pool, { userId: 'lead-noplan', planId: 'plan-starter', mode: 'trial' }), { code: 'ALREADY_HAS_ORGANIZATION' });
+    const free = await startOrganization(pool, { userId: 'lead-new', planId: 'plan-free', mode: 'free' });
+    assert.equal((await pool.query('select subscription_status from organizations where id=$1', [free.organizationId])).rows[0].subscription_status, 'active');
+  });
 }

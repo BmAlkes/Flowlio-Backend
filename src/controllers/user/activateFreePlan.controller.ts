@@ -4,6 +4,7 @@ import { subscriptionPlans, users, organizations } from "@/schema/schema";
 import { eq } from "drizzle-orm";
 import { logger } from "@/utils/logger.util";
 import { activatePlanForOrg } from "@/utils/planActivation.util";
+import { startNewOrganization } from "./startPlan.controller";
 
 /**
  * Activate a free ($0) plan without going through PayPal.
@@ -65,12 +66,8 @@ export const activateFreePlan = async (req: Request, res: Response): Promise<voi
     let orgId = organizationId;
 
     if (!orgId) {
-      // User hasn't completed setup — they'll be handled by the normal onboarding after this
-      // Return early with a helpful message
-      res.status(400).json({
-        success: false,
-        message: "No organization found. Complete account setup first.",
-      });
+      // New account: create the organization, owner membership and subscription in one go.
+      await startNewOrganization(req, res, "free");
       return;
     }
 

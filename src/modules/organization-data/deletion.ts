@@ -9,7 +9,7 @@ import { collectOrganization, loadGraph, quote, withUserTriggersDisabled } from 
  * inactive, so nothing is ever deleted sooner than 90 days after this code is deployed.
  */
 export const INACTIVE_SQL = `(o.subscription_status in ('cancelled','expired')
-  or (o.trial_ends_at < now() and coalesce(o.subscription_status,'') not in ('active','trialing')))
+  or (o.trial_ends_at < now() and coalesce(o.subscription_status,'') <> 'active'))
   and coalesce(o.settings->>'demo','false') <> 'true'`;
 export const WARN_AFTER_DAYS = 75;
 export const DELETE_AFTER_DAYS = 90;

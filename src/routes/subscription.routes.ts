@@ -2,6 +2,7 @@ import { Router } from "express";
 import * as subscriptionController from "@/controllers/user/subscription.controller";
 import * as upgradeController from "@/controllers/user/upgradeplan.controller";
 import { activateFreePlan } from "@/controllers/user/activateFreePlan.controller";
+import { startTrial } from "@/controllers/user/startPlan.controller";
 import { requireActiveSubscription } from "@/middlewares/subscription.middleware";
 import { isAuthenticated } from "@/middlewares/auth.middleware";
 
@@ -28,6 +29,7 @@ router.post(
 );
 
 router.post("/activate-free", isAuthenticated, activateFreePlan as any);
+router.post("/start-trial", isAuthenticated, startTrial);
 
 router.post(
   "/upgrade/create-order",

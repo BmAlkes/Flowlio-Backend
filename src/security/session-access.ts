@@ -115,9 +115,11 @@ export async function resolveSessionUser(userId: string) {
       )
       .orderBy(desc(subscriptions.createdAt))
       .limit(1);
+    // An ended self-serve trial ("trialing") still signs in: the app shows a "choose a plan" screen so the owner can pay.
     if (
       subscription?.currentPeriodEnd &&
-      new Date(subscription.currentPeriodEnd) < now
+      new Date(subscription.currentPeriodEnd) < now &&
+      organization.subscriptionStatus !== "trialing"
     ) {
       throw new SessionAccessError(
         "SUBSCRIPTION_EXPIRED",
