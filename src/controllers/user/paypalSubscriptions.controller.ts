@@ -390,6 +390,7 @@ export const activatePayPalSubscription = async (
             currentPeriodStart: now,
             currentPeriodEnd: subscriptionEndDate,
             cancelAtPeriodEnd: false,
+            trialEnd: existingSub.trialEnd && existingSub.trialEnd > now ? now : existingSub.trialEnd,
             updatedAt: now,
             metadata: { ...(existingSub.metadata as any || {}), ...subscriptionMetadata },
           })
@@ -418,6 +419,7 @@ export const activatePayPalSubscription = async (
           subscriptionPlanId: finalPlanId,
           subscriptionStartDate: now,
           subscriptionEndDate,
+          trialEndsAt: null,
           settings: updatedSettings,
           updatedAt: now,
           ...(country && { country }),

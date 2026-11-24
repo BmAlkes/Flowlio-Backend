@@ -1,4 +1,4 @@
-﻿import type { Pool, PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { z } from "zod";
 import type { Actor } from "../../security/resource-policy";
 import { isCurrency } from "../../utils/financial-currency";
@@ -9,9 +9,10 @@ type Steps = Record<string, { completedAt: string } | null>;
 function context(actor: Actor) {
   if (!actor.organizationId || actor.role !== 'user') throw new OnboardingError(403, 'FORBIDDEN');
   const role = actor.isOrganizationOwner ? 'admin' : actor.isOrganizationManager ? 'manager' : 'member';
-  const coreSteps = ['create_client', 'create_project', 'approve_delivery'];
+  // Every step can be done alone on day one; client approvals come later, once real clients use the portal.
+  const coreSteps = ['create_client', 'create_project', 'create_task'];
   const keys = role === 'member' ? ['complete_task', 'log_time', 'update_profile']
-    : role === 'admin' ? ['configure_currency', ...coreSteps] : coreSteps;
+    : role === 'admin' ? ['configure_currency', ...coreSteps, 'invite_member'] : coreSteps;
   return { role, keys };
 }
 async function evidence(client: PoolClient, actor: Actor, role: string): Promise<Record<string, boolean>> {
@@ -29,9 +30,12 @@ async function evidence(client: PoolClient, actor: Actor, role: string): Promise
   const facts = (await client.query(`select
     exists(select 1 from clients where organization_id=$1) as create_client,
     exists(select 1 from projects p where organization_id=$1 and (p.created_by=$2 or p.assigned_to=$2 or p.visibility='public')) as create_project,
-    exists(select 1 from delivery_reviews r join projects p on p.id=r.project_id where r.organization_id=$1 and p.organization_id=$1
-      and r.state='approved' and r.decided_at is not null and (p.created_by=$2 or p.assigned_to=$2 or p.visibility='public')) as approve_delivery`, [actor.organizationId, actor.id])).rows[0];
+    exists(select 1 from tasks t join projects p on p.id=t.project_id where p.organization_id=$1
+      and (p.created_by=$2 or p.assigned_to=$2 or p.visibility='public')) as create_task`, [actor.organizationId, actor.id])).rows[0];
   if (role === 'admin') {
+    facts.invite_member = (await client.query(`select
+      exists(select 1 from user_organizations where organization_id=$1 and user_id<>$2)
+      or exists(select 1 from invitations where organization_id=$1) as invited`, [actor.organizationId, actor.id])).rows[0].invited;
     const currency = (await client.query("select settings->>'currency' as currency from organizations where id=$1", [actor.organizationId])).rows[0]?.currency;
     facts.configure_currency = isCurrency(currency) &&
       new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions().maximumFractionDigits === 2;
