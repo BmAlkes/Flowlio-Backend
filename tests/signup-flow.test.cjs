@@ -52,6 +52,7 @@ test('wrong plans, missing users and accounts that already have an organization 
     [{ plan: starter }, 'free', 'PLAN_REQUIRES_PAYMENT'],
     [{ plan: free }, 'trial', 'PLAN_HAS_NO_TRIAL'],
     [{ plan: { ...starter, trial_days: 0 } }, 'trial', 'PLAN_HAS_NO_TRIAL'],
+
     [{ plan: null }, 'trial', 'PLAN_NOT_FOUND'],
     [{ plan: starter, hasOrg: true }, 'trial', 'ALREADY_HAS_ORGANIZATION'],
     [{ plan: starter, user: null }, 'trial', 'USER_NOT_FOUND'],
@@ -70,4 +71,9 @@ test('helpers: billing period, language from country and slug', () => {
   assert.equal(periodEnd({ duration_type: 'days', duration_value: 30 }, now).toISOString(), '2026-12-24T12:00:00.000Z');
   assert.deepEqual(['BR', 'il', 'MX', 'US', null].map(languageFor), ['pt', 'he', 'es', 'en', 'en']);
   assert.match(organizationSlug('!!!', 'abcdefghij'), /^org-abcdefgh-[0-9a-f]{4}$/);
+});
+
+test('a plan without a trial length gets the default 7 days', async () => {
+  const result = await startOrganization(fakePool({ plan: { ...starter, trial_days: null } }), { userId: 'u1', planId: 'starter', mode: 'trial', now });
+  assert.equal(result.trialEndsAt, '2026-12-01T12:00:00.000Z');
 });

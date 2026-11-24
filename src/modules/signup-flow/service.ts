@@ -75,7 +75,8 @@ export async function startOrganization(pool: Pool, input: StartInput): Promise<
     )).rows[0];
     if (!plan) throw new SignupFlowError(404, "PLAN_NOT_FOUND", "Plan not found or inactive");
     const price = Number(plan.price);
-    const trialDays = Number(plan.trial_days) || 0;
+    // Same rule as the rest of the app: no value means the schema default of 7 days, 0 means no trial.
+    const trialDays = plan.trial_days == null ? 7 : Number(plan.trial_days) || 0;
     if (input.mode === "free" && price > 0) throw new SignupFlowError(400, "PLAN_REQUIRES_PAYMENT", "This plan requires payment");
     if (input.mode === "trial" && (price <= 0 || trialDays <= 0)) throw new SignupFlowError(400, "PLAN_HAS_NO_TRIAL", "This plan has no free trial");
 
