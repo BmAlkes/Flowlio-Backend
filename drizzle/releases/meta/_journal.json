@@ -211,6 +211,13 @@
       "when": 1793664000000,
       "tag": "0029_signup_followups",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795543125081,
+      "tag": "0030_whiteboards",
+      "breakpoints": true
     }
   ]
 }
