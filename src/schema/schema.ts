@@ -494,6 +494,8 @@ export const tasks = pgTable(
     parentId: text("parent_id").references((): any => tasks.id, {
       onDelete: "cascade",
     }),
+    // Values of the organization's task custom fields, keyed by field id.
+    customFields: jsonb("custom_fields").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
     overdueNotifiedAt: timestamp("overdue_notified_at"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
@@ -1431,6 +1433,9 @@ export const customFieldDefinitions = pgTable(
     name: text("name").notNull(),
     type: text("type").notNull(),
     options: json("options").$type<{ label: string; color: string }[]>(),
+    // Task fields can belong to one project (like a Monday board column); null means every project.
+    projectId: text("project_id").references((): any => projects.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
