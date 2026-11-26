@@ -2958,3 +2958,8 @@ export const taskEvents=pgTable('task_events',{
 export const taskAutomationRuns=pgTable('task_automation_runs',{
  id:text('id').primaryKey(),ruleId:text('rule_id').notNull().references(()=>taskAutomationRules.id,{onDelete:'cascade'}),organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),taskId:text('task_id'),runKey:text('run_key').notNull(),outcome:text('outcome').notNull(),details:jsonb('details'),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow()
 },t=>({once:uniqueIndex('task_automation_runs_once').on(t.ruleId,t.runKey),history:index('task_automation_runs_history_idx').on(t.organizationId,t.createdAt)}));
+
+// Records brought in from another tool (Monday boards and items), so importing again updates instead of duplicating.
+export const externalLinks=pgTable('external_links',{
+ organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),source:text('source').notNull(),entityType:text('entity_type').notNull(),externalId:text('external_id').notNull(),entityId:text('entity_id').notNull(),importedAt:timestamp('imported_at',{withTimezone:true}).notNull().defaultNow()
+},t=>({key:primaryKey({columns:[t.organizationId,t.source,t.entityType,t.externalId]}),entity:index('external_links_entity_idx').on(t.entityType,t.entityId),kinds:check('external_links_kind_check',sql`${t.source} in ('monday') and ${t.entityType} in ('project','task')`)}));

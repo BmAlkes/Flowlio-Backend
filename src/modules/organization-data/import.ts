@@ -86,7 +86,7 @@ async function planLimit(client: PoolClient, organizationId: string, feature: "m
   return Number.isInteger(limit) && limit > 0 ? (limit as number) : null;
 }
 
-async function ensureRoom(client: PoolClient, organizationId: string, feature: "maxLeads" | "maxClients" | "maxProjects" | "maxTasks", override: string | null, countSql: string, adding: number, label: string) {
+export async function ensureRoom(client: PoolClient, organizationId: string, feature: "maxLeads" | "maxClients" | "maxProjects" | "maxTasks", override: string | null, countSql: string, adding: number, label: string) {
   if (!adding) return;
   const limit = await planLimit(client, organizationId, feature, override);
   if (limit == null) return;
@@ -150,21 +150,7 @@ async function importTasks(client: PoolClient, actor: { id: string; organization
   const newProjects = [...new Set(rows.map(row => row.project).filter(name => !projects.has(name.toLowerCase())))];
   await ensureRoom(client, actor.organizationId, "maxProjects", null, "select count(*)::int n from projects where organization_id=$1", newProjects.length, "Projects");
   await ensureRoom(client, actor.organizationId, "maxTasks", "override_max_tasks", "select count(*)::int n from tasks t join projects p on p.id=t.project_id where p.organization_id=$1", rows.length, "Tasks");
-  for (const name of newProjects) {
-    const id = randomUUID();
-    // Same defaults as the Projects page: pending, private and the default milestones.
-    await client.query(
-      `insert into projects (id, name, project_number, organization_id, created_by, status, visibility, progress, tags, settings, created_at, updated_at)
-       values ($1,$2,'',$3,$4,'pending','private',0,'[]','{"allowGuestAccess":false,"autoAssignTasks":false,"requireApproval":false}',now(),now())`,
-      [id, name, actor.organizationId, actor.id],
-    );
-    await client.query(
-      `insert into project_milestones (id, project_id, organization_id, title, status, position, created_at, updated_at)
-       select t.id, $1, $2, t.title, 'pending', t.position - 1, now(), now() from unnest($3::text[], $4::text[]) with ordinality t(title, id, position)`,
-      [id, actor.organizationId, DEFAULT_MILESTONES, DEFAULT_MILESTONES.map(() => randomUUID())],
-    );
-    projects.set(name.toLowerCase(), id);
-  }
+  for (const name of newProjects) projects.set(name.toLowerCase(), await createImportedProject(client, actor, name));
   const fields = await taskFieldsFor(client, actor.organizationId, rows);
   const members = new Map((await client.query<{ id: string; email: string }>(
     "select u.id, lower(u.email) email from user_organizations uo join users u on u.id=uo.user_id where uo.organization_id=$1 and uo.status='active'",
@@ -209,4 +195,20 @@ function taskValues(extra: Record<string, string>, fields: Map<string, { id: str
     }
   }
   return values;
+}
+
+/** Same defaults as the Projects page: pending, private and the default milestones. */
+export async function createImportedProject(client: PoolClient, actor: { id: string; organizationId: string }, name: string) {
+  const id = randomUUID();
+  await client.query(
+    `insert into projects (id, name, project_number, organization_id, created_by, status, visibility, progress, tags, settings, created_at, updated_at)
+     values ($1,$2,'',$3,$4,'pending','private',0,'[]','{"allowGuestAccess":false,"autoAssignTasks":false,"requireApproval":false}',now(),now())`,
+    [id, name.slice(0, 200), actor.organizationId, actor.id],
+  );
+  await client.query(
+    `insert into project_milestones (id, project_id, organization_id, title, status, position, created_at, updated_at)
+     select t.id, $1, $2, t.title, 'pending', t.position - 1, now(), now() from unnest($3::text[], $4::text[]) with ordinality t(title, id, position)`,
+    [id, actor.organizationId, DEFAULT_MILESTONES, DEFAULT_MILESTONES.map(() => randomUUID())],
+  );
+  return id;
 }
