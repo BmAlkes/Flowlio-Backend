@@ -232,6 +232,13 @@
       "when": 1795630405996,
       "tag": "0032_task_automations",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795662267686,
+      "tag": "0033_external_links",
+      "breakpoints": true
     }
   ]
 }

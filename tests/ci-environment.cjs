@@ -50,6 +50,7 @@ const databases = {
   OBSERVABILITY_TEST_DATABASE_URL: [55442, "flowlio_observability_test"],
   ORGANIZATION_DATA_TEST_DATABASE_URL: [55442, "flowlio_organization_data_test"],
   TASK_AUTOMATION_TEST_DATABASE_URL: [55442, "flowlio_task_automation_test"],
+  MONDAY_TEST_DATABASE_URL: [55442, "flowlio_monday_test"],
 };
 for (const [key, [port, database]] of Object.entries(databases)) {
   process.env[key] = `postgres://postgres:flowlio_local_test@127.0.0.1:${port}/${database}`;

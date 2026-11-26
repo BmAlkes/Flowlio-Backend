@@ -142,10 +142,11 @@ export function createCustomFields(pool: Pool) {
  * Used by spreadsheet import: finds or creates organization-wide fields by name (case-insensitive)
  * and returns their definitions, so unknown columns are kept instead of dropped.
  */
-export async function ensureFieldsByName(client: PoolClient, organizationId: string, entityType: "task" | "client", columns: { name: string; type: FieldType; options?: string[] }[]) {
+export async function ensureFieldsByName(client: PoolClient, organizationId: string, entityType: "task" | "client", columns: { name: string; type: FieldType; options?: (string | { label: string; color: string })[] }[], projectId: string | null = null) {
+  // Organization-wide fields by default; a project's own fields when importing a board into that project.
   const existing = (await client.query<FieldDefinition & { position: number }>(
-    `select id, name, type, options, project_id as "projectId", position from custom_field_definitions where organization_id=$1 and entity_type=$2 and project_id is null`,
-    [organizationId, entityType])).rows;
+    `select id, name, type, options, project_id as "projectId", position from custom_field_definitions where organization_id=$1 and entity_type=$2 and project_id is not distinct from $3`,
+    [organizationId, entityType, projectId])).rows;
   const byName = new Map(existing.map(field => [field.name.trim().toLowerCase(), field]));
   let position = existing.reduce((max, field) => Math.max(max, field.position), -1);
   const palette = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#6b7280", "#84cc16", "#0ea5e9"];
@@ -155,18 +156,18 @@ export async function ensureFieldsByName(client: PoolClient, organizationId: str
     let field = byName.get(key);
     if (!field) {
       if (byName.size >= MAX_FIELDS) throw new CustomFieldError(409, "TOO_MANY_FIELDS");
-      const fieldOptions = column.type === "select" ? (column.options ?? []).slice(0, 50).map((label, index) => ({ label: label.slice(0, 100), color: palette[index % palette.length] })) : null;
+      const fieldOptions = column.type === "select" ? (column.options ?? []).slice(0, 50).map((option, index) => toOption(option, palette[index % palette.length])) : null;
       field = (await client.query<FieldDefinition & { position: number }>(
         `insert into custom_field_definitions (id, organization_id, entity_type, name, type, options, project_id, position, created_at, updated_at)
-         values ($1,$2,$3,$4,$5,$6,null,$7,now(),now()) returning id, name, type, options, project_id as "projectId", position`,
-        [randomUUID(), organizationId, entityType, column.name.trim().slice(0, 100), column.type, fieldOptions ? JSON.stringify(fieldOptions) : null, ++position])).rows[0];
+         values ($1,$2,$3,$4,$5,$6,$8,$7,now(),now()) returning id, name, type, options, project_id as "projectId", position`,
+        [randomUUID(), organizationId, entityType, column.name.trim().slice(0, 100), column.type, fieldOptions ? JSON.stringify(fieldOptions) : null, ++position, projectId])).rows[0];
       byName.set(key, field as FieldDefinition & { position: number });
     } else if (field.type === "select" && column.options?.length) {
       // New labels found in the file are added to an existing select field.
       const known = new Set((field.options ?? []).map(option => option.label.toLowerCase()));
-      const added = column.options.filter(label => !known.has(label.toLowerCase()));
+      const added = column.options.map((option, index) => toOption(option, palette[(known.size + index) % palette.length])).filter(option => !known.has(option.label.toLowerCase()));
       if (added.length) {
-        const merged = [...(field.options ?? []), ...added.map((label, index) => ({ label: label.slice(0, 100), color: palette[(known.size + index) % palette.length] }))].slice(0, 50);
+        const merged = [...(field.options ?? []), ...added].slice(0, 50);
         await client.query("update custom_field_definitions set options=$2::json, updated_at=now() where id=$1", [field.id, JSON.stringify(merged)]);
         field = { ...field, options: merged };
       }
@@ -175,3 +176,6 @@ export async function ensureFieldsByName(client: PoolClient, organizationId: str
   }
   return result;
 }
+
+const toOption = (option: string | { label: string; color: string }, fallback: string) =>
+  typeof option === "string" ? { label: option.slice(0, 100), color: fallback } : { label: option.label.slice(0, 100), color: /^#[0-9a-fA-F]{6}$/.test(option.color) ? option.color : fallback };
