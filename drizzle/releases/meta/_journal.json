@@ -225,6 +225,13 @@
       "when": 1795546678894,
       "tag": "0031_custom_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795630405996,
+      "tag": "0032_task_automations",
+      "breakpoints": true
     }
   ]
 }

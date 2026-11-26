@@ -4,6 +4,7 @@ import {
   pgTable,
   integer,
   bigint,
+  bigserial,
   check,
   varchar,
   boolean,
@@ -2945,3 +2946,15 @@ export const signupFollowups=pgTable('signup_followups',{
 export const whiteboards=pgTable('whiteboards',{
  id:text('id').primaryKey(),organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),projectId:text('project_id').references(()=>projects.id,{onDelete:'cascade'}),title:text('title').notNull(),elements:jsonb('elements').notNull().default(sql`'[]'::jsonb`),appState:jsonb('app_state').notNull().default(sql`'{}'::jsonb`),files:jsonb('files').notNull().default(sql`'{}'::jsonb`),revision:integer('revision').notNull().default(0),createdBy:text('created_by').references(()=>users.id,{onDelete:'set null'}),updatedBy:text('updated_by').references(()=>users.id,{onDelete:'set null'}),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow()
 },t=>({org:index('whiteboards_org_idx').on(t.organizationId,t.updatedAt),project:index('whiteboards_project_idx').on(t.projectId)}));
+
+// Task automations built by the organization: "When <trigger>, if <conditions>, then <actions>".
+export const taskAutomationRules=pgTable('task_automation_rules',{
+ id:text('id').primaryKey(),organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),projectId:text('project_id').references(()=>projects.id,{onDelete:'cascade'}),name:text('name').notNull(),enabled:boolean('enabled').notNull().default(true),trigger:jsonb('trigger').notNull(),conditions:jsonb('conditions').notNull().default(sql`'[]'::jsonb`),actions:jsonb('actions').notNull().default(sql`'[]'::jsonb`),createdBy:text('created_by').notNull().references(()=>users.id,{onDelete:'cascade'}),runCount:integer('run_count').notNull().default(0),lastRunAt:timestamp('last_run_at',{withTimezone:true}),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow()
+},t=>({org:index('task_automation_rules_org_idx').on(t.organizationId,t.enabled)}));
+// Written by a database trigger on tasks, so changes from every screen, the AI, WhatsApp and imports are seen.
+export const taskEvents=pgTable('task_events',{
+ id:bigserial('id',{mode:'number'}).primaryKey(),organizationId:text('organization_id').notNull(),taskId:text('task_id').notNull(),projectId:text('project_id'),kind:text('kind').notNull(),changes:jsonb('changes').notNull().default(sql`'{}'::jsonb`),depth:integer('depth').notNull().default(0),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow(),processedAt:timestamp('processed_at',{withTimezone:true})
+},t=>({pending:index('task_events_pending_idx').on(t.id).where(sql`${t.processedAt} is null`),kind:check('task_events_kind_check',sql`${t.kind} in ('created','updated')`)}));
+export const taskAutomationRuns=pgTable('task_automation_runs',{
+ id:text('id').primaryKey(),ruleId:text('rule_id').notNull().references(()=>taskAutomationRules.id,{onDelete:'cascade'}),organizationId:text('organization_id').notNull().references(()=>organizations.id,{onDelete:'cascade'}),taskId:text('task_id'),runKey:text('run_key').notNull(),outcome:text('outcome').notNull(),details:jsonb('details'),createdAt:timestamp('created_at',{withTimezone:true}).notNull().defaultNow()
+},t=>({once:uniqueIndex('task_automation_runs_once').on(t.ruleId,t.runKey),history:index('task_automation_runs_history_idx').on(t.organizationId,t.createdAt)}));

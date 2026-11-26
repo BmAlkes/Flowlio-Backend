@@ -3,6 +3,7 @@ import { env } from '../../utils/env.util';
 import { scheduleClientReminders,deliverClientReminder } from '../../modules/client-pending/reminders';
 import { deliverWorkflow } from '../../modules/workflows/delivery';
 import { processWorkflowOrganization } from "../../modules/workflows/service";
+import { processTaskAutomations } from "../../modules/task-automations/service";
 import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "../../schema/schema";
 import { automationService } from "../automation/automation.service";
@@ -28,6 +29,7 @@ const automations = [
 ] as const;
 export const schedules: Schedule[] = [
     { kind: "workflow-events", minutes: 1 },
+    { kind: "task-automations", minutes: 1 },
     {kind:"client-request-scan",minutes:60},
     ...automations.map(([kind, , hour, weekday]) => ({ kind, minutes: hour === undefined ? 360 : 60, weekday })),
     { kind: "project-end", minutes: 1440, hour: 8 }, { kind: "recurring-invoices", minutes: 1440, hour: 8 },
@@ -50,6 +52,15 @@ export const handlers: Record<string, Handler> = {
         const organizations = await client.query("select distinct organization_id from workflow_rules where enabled=true");
         for (const row of organizations.rows) await enqueue(client, "workflow-events", job.id + ":" + row.organization_id, { organizationId: row.organization_id }, job.scheduled_at);
     }),
+    "task-automations": transactional(async (_job, client) => { await processTaskAutomations(client); }),
+    // E-mails from task automations; sent only while the person is still an active member.
+    "task-automation-email": { transactional: false, retryable: false, run: async (job, client) => {
+        const { organizationId, userId, title, message } = job.payload as { organizationId: string; userId: string; title: string; message: string };
+        const recipient = (await client.query("select u.email, u.name from users u join user_organizations m on m.user_id=u.id where u.id=$1 and m.organization_id=$2 and m.status='active'", [userId, organizationId])).rows[0];
+        if (!recipient?.email) return;
+        const result = await sendTransactionalEmail({ to: recipient.email, toName: recipient.name, templateKey: "workflow", data: { title, message } });
+        if (!result.success) throw new Error("Task automation e-mail unconfirmed");
+    } },
     "workflow-delivery": { transactional: false, retryable: false, run: async (job,client) => {
         await deliverWorkflow(client,String(job.payload.executionId),async(channel,recipient,content)=>{
             if(channel==='email'){const result=await sendTransactionalEmail({to:recipient.email,toName:recipient.name,templateKey:'workflow',data:content});return result.success&&!!result.messageId;}
